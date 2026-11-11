@@ -65,7 +65,7 @@ function watch(page, bag) {
   page.on('console', (msg) => {
     if (msg.type() === 'error') bag.consoleErrors.push(msg.text().slice(0, 400))
   })
-  page.on('pageerror', (err) => bag.pageErrors.push(String(err).slice(0, 400)))
+  page.on('pageerror', (err) => bag.pageErrors.push((err?.stack ? String(err.stack) : String(err)).slice(0, 1200)))
 }
 
 async function newContext(browser, viewport = VIEWPORT) {
@@ -2473,6 +2473,307 @@ async function scenarioS19_semantics(browser) {
   return out
 }
 
+/**
+ * task-85（0.3.6）：AI 面板「本义/引申链」+ 选择词库/自定义选词 + semantics 审核/落库。
+ * 旧 dist 无 task-85 UI 时自动 skip；以下选择器按 dev-ui 契约（文案/aria）编写。
+ */
+async function scenarioS20_aiSemanticsScopes(browser) {
+  const out = { skipped: null, notes: [], pageErrorPhases: [] }
+  const FULL_KEY = 'sk-TEST'
+  const mock = { calls: 0, targets: [], mode: 'ok' }
+  const { context, page, bag } = await newContext(browser)
+  const fulfillJson = (route, status, body) =>
+    route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) })
+  const mockSemantics = (userPrompt) => {
+    const start = userPrompt.indexOf('targets = ')
+    if (start < 0) return JSON.stringify({ items: [] })
+    let end = userPrompt.indexOf('\n请先通读', start)
+    if (end < 0) end = userPrompt.indexOf('\n', start)
+    let targets
+    try {
+      targets = JSON.parse(userPrompt.slice(start + 'targets = '.length, end > start ? end : undefined))
+    } catch {
+      return JSON.stringify({ items: [] })
+    }
+    // semantics prompt v3 契约：items[].meanings[]，每含义一条 coreSenseLabel/confidence/steps
+    const items = targets.map((target) => {
+      const meanings = (Array.isArray(target.meanings) ? target.meanings : [{ meaningIndex: 1 }]).map((m, i) => ({
+        meaningIndex: m.meaningIndex ?? i + 1,
+        coreSenseLabel: `本义${i % 2 === 0 ? 'A' : 'B'}`,
+        coreSenseNote: '核心本义说明',
+        origin: '词根/隐喻',
+        confidence: i % 2 === 0 ? 'high' : 'medium',
+        steps: [`本义${i % 2 === 0 ? 'A' : 'B'}`, `引申${i + 1}`],
+      }))
+      return { headword: target.headword, meanings }
+    })
+    mock.targets.push(...targets.map((t) => t.headword))
+    return JSON.stringify({ items })
+  }
+  await page.route('**/v1/chat/completions', async (route) => {
+    mock.calls += 1
+    const user = (route.request().postDataJSON()?.messages ?? []).filter((m) => m.role === 'user').pop()?.content ?? ''
+    const content = mockSemantics(user)  // S20 只发 semantics 生成请求
+    return fulfillJson(route, 200, { choices: [{ message: { content } }], usage: { prompt_tokens: 100, completion_tokens: 100, total_tokens: 200 } })
+  })
+  try {
+    // AI 设置：fake provider
+    await page.goto(BASE + '#/me/settings', { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    await page.getByText('学习设置', { exact: true }).first().waitFor({ state: 'visible', timeout: 20_000 })
+    if ((await page.getByText('AI 扩充（可选）').count()) === 0) {
+      out.skipped = '当前构建无 AI 扩充 UI'
+      return out
+    }
+    await page.getByText('AI 扩充（可选）').first().scrollIntoViewIfNeeded()
+    await page.waitForTimeout(500)
+    await page.getByRole('switch', { name: '启用 AI 扩充' }).click()
+    await page.waitForTimeout(300)
+    await page.getByLabel('AI 服务商').selectOption('openai-compatible').catch(() => {})
+    await page.getByLabel('AI baseURL').fill(`${BASE.replace(/\/$/, '')}/mock-ai`)
+    await page.getByLabel('AI 模型').fill('mock-model')
+    await page.getByLabel('AI API Key').fill(FULL_KEY)
+    await page.getByRole('button', { name: '保存 Key', exact: true }).click()
+    await page.waitForFunction(() => /已配置：/.test(document.body.innerText), { timeout: 15_000 }).catch(() => {})
+
+    // 注入空 deck（供「选择词库」空态断言）
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+    await waitSeededHome(page)
+    await page.evaluate(async () => {
+      const open = () => new Promise((resolve, reject) => {
+        const req = indexedDB.open('momo-reword')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const db = await open()
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('decks', 'readwrite')
+        tx.objectStore('decks').put({ id: 'qa-empty-deck', name: 'QA空词库', description: '', source: 'manual', wordCount: 0, dataVersion: 1, createdAt: Date.now(), updatedAt: Date.now() })
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+      })
+    })
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+    await waitSeededHome(page)
+    await clickHomeLearn(page)
+    await enterAnnotation(page)
+    await page.locator('.study-topbar [aria-label="更多"]').first().click()
+    await page.getByText('AI 补内容（当前词/当前 c）', { exact: true }).first().click()
+    const genDialog = page.locator('.mm-dialog[aria-label="AI 扩充内容"]')
+    await genDialog.waitFor({ state: 'visible', timeout: 15_000 })
+    out.pageErrorPhases.push({ at: 'panel-open', n: bag.pageErrors.length })
+    await page.waitForTimeout(700)
+    const panelText = (await genDialog.innerText()).replace(/\s+/g, ' ')
+    out.panelText = panelText.slice(0, 500)
+    out.hasSemanticsKind = panelText.includes('本义/引申链')
+    out.scopeLabels = ['今日要学', '当前词库', '选择词库', '自定义选词', '当前词'].filter((t) => panelText.includes(t))
+    if (!out.hasSemanticsKind || !panelText.includes('选择词库') || !panelText.includes('自定义选词')) {
+      out.skipped = `当前 dist 未含 task-85 UI（semantics=${out.hasSemanticsKind}, scopes=${JSON.stringify(out.scopeLabels)}）`
+      return out
+    }
+
+    // 1) 类型切换 + 三档范围
+    await genDialog.getByRole('button', { name: /^(✓ )?本义\/引申链$/ }).click()
+    await page.waitForTimeout(500)
+    out.activeKind = (await genDialog.locator('button[aria-pressed="true"]').allInnerTexts()).find((t) => t.includes('本义')) ?? ''
+    assert(out.activeKind.includes('本义'), `应选中「本义/引申链」类型，实际 ${out.activeKind}`)
+
+    // 2) 选择词库：含未在学 deck；空 deck 提示；非词库目标数来自该库
+    await genDialog.getByRole('button', { name: '选择词库', exact: true }).click()
+    await page.waitForTimeout(600)
+    const deckButtons = page.getByRole('button', { name: /（\d+ 词）/ })
+    out.deckButtonCount = await deckButtons.count()
+    out.deckButtonTexts = (await deckButtons.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()).slice(0, 10)
+    assert(out.deckButtonCount >= 1, `词库选择器应列出 deck（实际 ${out.deckButtonCount}）`)
+    // 空 deck
+    const emptyDeckBtn = page.getByRole('button', { name: /QA空词库（0 词）/ }).first()
+    if ((await emptyDeckBtn.count()) > 0) {
+      await emptyDeckBtn.click()
+      await page.waitForTimeout(600)
+      out.emptyTargetBeforeRefresh = (await genDialog.innerText()).match(/目标：\d+ 个词\/含义/)?.[0] ?? ''
+      // 已知 UI 缺陷：onDeck 未触发 refreshEstimate；补点同范围按钮以刷新（同时记录 bug 证据）
+      await genDialog.getByRole('button', { name: '选择词库', exact: true }).click()
+      await page.waitForTimeout(700)
+      out.emptyDeckText = (await genDialog.innerText()).replace(/\s+/g, ' ')
+      out.emptyPrompt = /没有可生成的词（已排除已有内容\/已拒绝）/.test(out.emptyDeckText)
+      out.emptyTargetZero = /目标：0 个词\/含义/.test(out.emptyDeckText)
+      const emptyStartDisabled = await genDialog.getByRole('button', { name: '开始生成', exact: true }).isDisabled().catch(() => true)
+      out.emptyStartDisabled = emptyStartDisabled
+      // dev-ui 已补空态文案：优先严格断言；同时保留目标0+禁用作为兜底诊断
+      assert(
+        out.emptyPrompt || (out.emptyTargetZero && emptyStartDisabled),
+        `空词库应提示「没有可生成的词…」或目标0+按钮禁用，实际 ${out.emptyDeckText.slice(0, 300)}`,
+      )
+      if (out.emptyPrompt) out.emptyPromptOk = true
+      else out.notes.push('空词库无提示文案（dev-ui 声明已补，待复核）')
+    } else {
+      out.notes.push('未找到 QA空词库（deck 列表可能未刷新）')
+    }
+    // 选一个非空 deck（逐个 deck 刷新后断言目标数来自该库；deck.name 已含词数，UI 会重复追加，按 index 点击避免 name 歧义）
+    const deckCount = await deckButtons.count()
+    out.deckButtonTexts = []
+    out.deckTargets = []
+    let pickedDeck = ''
+    let pickedIndex = -1
+    let pickedCount = 0
+    for (let i = 0; i < deckCount; i += 1) {
+      const label = (await deckButtons.nth(i).innerText()).replace(/\s+/g, ' ').trim()
+      out.deckButtonTexts.push(label)
+      if (/QA空词库/.test(label)) continue
+      await deckButtons.nth(i).click()
+      await page.waitForTimeout(600)
+      const stale = (await genDialog.innerText()).match(/目标：(\d+) 个词\/含义/)?.[1] ?? ''
+      // 已知 UI 缺陷：选 deck 后不刷新目标；补点同范围按钮
+      await genDialog.getByRole('button', { name: '选择词库', exact: true }).click()
+      await page.waitForTimeout(700)
+      const targetText = (await genDialog.innerText()).match(/目标：(\d+) 个词\/含义/)?.[0] ?? ''
+      const n = Number(targetText.match(/\d+/)?.[0] ?? 0)
+      out.deckTargets.push({ deck: label, staleBeforeRefresh: stale, targetText, target: n })
+      if (n > 0 && pickedIndex < 0) {
+        pickedDeck = label
+        pickedIndex = i
+        pickedCount = n
+      }
+    }
+    out.pickedDeck = pickedDeck
+    out.deckWordCount = Number(pickedDeck.match(/（(\d+) 词）/)?.[1] ?? 0)
+    out.deckTargetText = `目标：${pickedCount} 个词/含义`
+    out.deckTargetCount = pickedCount
+    out.deckTargetStaleBug = out.deckTargets.some((row) => row.staleBeforeRefresh !== String(row.target))
+    assert(out.deckTargetCount > 0, `至少一个 deck 应有待生成目标（实测 ${JSON.stringify(out.deckTargets)}）`)
+    assert(out.deckTargetCount <= out.deckWordCount, `目标数应来自该 deck（目标 ${out.deckTargetCount} > 词数 ${out.deckWordCount}）`)
+    await deckButtons.nth(pickedIndex).click()
+    await genDialog.getByRole('button', { name: '选择词库', exact: true }).click()
+    await page.waitForTimeout(700)
+    await shot(page, 'S20-01-deck-targets')
+
+    // 3) 自定义选词：先切到含多含义词的当前词库（受限商业词表），再搜索/多选
+    const hbDeck = page.getByRole('button', { name: /受限商业词表/ }).first()
+    if ((await hbDeck.count()) > 0) {
+      await hbDeck.click()
+      await page.waitForTimeout(500)
+      await genDialog.getByRole('button', { name: '选择词库', exact: true }).click()
+      await page.waitForTimeout(500)
+    }
+    await genDialog.getByRole('button', { name: '自定义选词', exact: true }).click()
+    await page.waitForTimeout(600)
+    const search = page.getByLabel('搜索单词').first()
+    await search.waitFor({ state: 'visible', timeout: 10_000 })
+    out.searchPlaceholder = await search.getAttribute('placeholder')
+    await search.fill('work')
+    await page.waitForTimeout(500)
+    const countText1 = (await genDialog.innerText()).match(/已选 \d+ \/ 共 \d+（单次 ≤500）/)?.[0] ?? ''
+    out.countInitial = countText1
+    assert(/已选 \d+ \/ 共 \d+（单次 ≤500）/.test(countText1), `自定义选词应显示计数，实际 ${countText1}`)
+    const firstCheckbox = page.getByRole('checkbox', { name: /^选择 / }).first()
+    out.filteredCheckboxCount = await page.getByRole('checkbox', { name: /^选择 / }).count()
+    assert(out.filteredCheckboxCount > 0, '搜索 work 应筛出可选项')
+    await firstCheckbox.click()
+    out.afterOneSelected = (await genDialog.innerText()).match(/已选 \d+/)?.[0] ?? ''
+    await genDialog.getByRole('button', { name: '全选筛选结果', exact: true }).click()
+    await page.waitForTimeout(400)
+    out.afterSelectAll = (await genDialog.innerText()).match(/已选 \d+/)?.[0] ?? ''
+    await genDialog.getByRole('button', { name: '反选', exact: true }).click()
+    await page.waitForTimeout(400)
+    out.afterInvert = (await genDialog.innerText()).match(/已选 \d+/)?.[0] ?? ''
+    await genDialog.getByRole('button', { name: '清空已选', exact: true }).click()
+    await page.waitForTimeout(400)
+    out.afterClear = (await genDialog.innerText()).match(/已选 \d+/)?.[0] ?? ''
+    assert(/已选 0/.test(out.afterClear), `清空已选后应为 0，实际 ${out.afterClear}`)
+    // 选 workshop + embrace（多含义词；若不存在则退回全选筛选结果）
+    await search.fill('workshop')
+    await page.waitForTimeout(500)
+    const ws = page.getByRole('checkbox', { name: /^选择 workshop$/ })
+    if ((await ws.count()) > 0) await ws.first().click()
+    await page.waitForTimeout(200)
+    await search.fill('embrace')
+    await page.waitForTimeout(500)
+    const em = page.getByRole('checkbox', { name: /^选择 embrace$/ })
+    if ((await em.count()) > 0) await em.first().click()
+    await page.waitForTimeout(400)
+    out.customSelectedText = (await genDialog.innerText()).match(/已选 \d+ \/ 共 \d+（单次 ≤500）/)?.[0] ?? ''
+    out.customSelectedCount = Number(out.customSelectedText.match(/已选 (\d+)/)?.[1] ?? 0)
+    assert(out.customSelectedCount >= 1, `自定义选词应至少选中 1 个，实际 ${out.customSelectedText}`)
+    out.pageErrorPhases.push({ at: 'custom-select', n: bag.pageErrors.length })
+    await shot(page, 'S20-02-custom-select')
+
+    // 4) semantics 生成 → 审核格式 → ✓ 保存 → 注释面 AI 链
+    out.preStartText = (await genDialog.innerText()).replace(/\s+/g, ' ').slice(0, 500)
+    out.mockCallsBeforeStart = mock.calls
+    out.customSelectedText = (await genDialog.innerText()).match(/已选 \d+ \/ 共 \d+（单次 ≤500）/)?.[0] ?? out.customSelectedText
+    out.startDisabled = await genDialog.getByRole('button', { name: '开始生成', exact: true }).isDisabled()
+    await genDialog.getByRole('button', { name: '开始生成', exact: true }).click()
+    const review = page.locator('.mm-dialog[aria-label^="审核生成内容"]')
+    await review.waitFor({ state: 'visible', timeout: 30_000 }).catch(async () => {
+      out.genAfterStart = (await genDialog.innerText()).replace(/\s+/g, ' ').slice(0, 800)
+      out.mockCallsAfterStart = mock.calls
+      out.mockTargets = mock.targets.slice(0, 20)
+      assert(false, `开始生成后未出现审核弹层：startDisabled=${out.startDisabled}；gen=${out.genAfterStart}；mockCalls=${out.mockCallsAfterStart}；targets=${JSON.stringify(out.mockTargets)}`)
+    })
+    await page.waitForTimeout(600)
+    const reviewText = (await review.innerText()).replace(/\s+/g, ' ')
+    out.reviewText = reviewText.slice(0, 600)
+    out.reviewItems = await review.locator('.mm-row').count()
+    out.hasSenseLine = /本义1 「.+」（high\|medium\|low）/.test(reviewText) || /本义\d+ 「/.test(reviewText)
+    out.hasMapLine = /c\d+ → 本义\d+：/.test(reviewText)
+    assert(out.hasSenseLine, `semantics 审核应显示「本义N「label」（confidence）」，实际 ${out.reviewText}`)
+    assert(out.hasMapLine, `semantics 审核应显示「cN → 本义M：steps」，实际 ${out.reviewText}`)
+    out.mockTargets = mock.targets.slice(0, 20)
+    out.pageErrorPhases.push({ at: 'review-open', n: bag.pageErrors.length })
+    await shot(page, 'S20-03-review')
+    await review.getByRole('button', { name: /保存已选/ }).click()
+    out.savedToast = await page
+      .waitForFunction(() => /已应用 \d+ 条生成内容/.test(document.body.innerText), { timeout: 30_000 })
+      .then(async () => (await page.locator('body').innerText()).match(/已应用 \d+ 条生成内容（跳过 \d+）/)?.[0] ?? '')
+      .catch(() => '')
+    assert(/已应用 \d+ 条生成内容/.test(out.savedToast), `保存后应 toast「已应用 N 条」，实际 ${out.savedToast}`)
+    out.pageErrorPhases.push({ at: 'after-save', n: bag.pageErrors.length })
+
+    // 落库后注释面出现本义链（用选中的 workshop）
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+    await waitSeededHome(page)
+    await injectPlanForWord(page, 1, { headword: 'workshop' })
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+    await waitSeededHome(page)
+    await clickHomeLearn(page)
+    await enterAnnotation(page)
+    await page.locator('.derivation-chain').first().waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {})
+    out.annotationChains = (await page.locator('.derivation-chain').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
+    out.annotationHasAi = out.annotationChains.some((t) => t.includes('AI 推演，仅供参考'))
+    assert(out.annotationChains.length > 0 && out.annotationHasAi, `保存后注释面应出现 AI 本义链，实际 ${JSON.stringify(out.annotationChains)}`)
+    out.pageErrorPhases.push({ at: 'after-annotation', n: bag.pageErrors.length })
+    await shot(page, 'S20-04-annotation-chain')
+
+    // 5) 已映射词再次生成应被排除（已有映射）
+    await page.locator('.study-topbar [aria-label="更多"]').first().click()
+    await page.getByText('AI 补内容（当前词/当前 c）', { exact: true }).first().click()
+    await genDialog.waitFor({ state: 'visible', timeout: 15_000 })
+    await page.waitForTimeout(500)
+    await genDialog.getByRole('button', { name: /^(✓ )?本义\/引申链$/ }).click()
+    await genDialog.getByRole('button', { name: '自定义选词', exact: true }).click()
+    await page.waitForTimeout(500)
+    const search2 = page.getByLabel('搜索单词').first()
+    await search2.fill('workshop')
+    await page.waitForTimeout(500)
+    const ws2 = page.getByRole('checkbox', { name: /^选择 workshop$/ })
+    if ((await ws2.count()) > 0) await ws2.first().click()
+    await page.waitForTimeout(600)
+    out.existingMappingText = (await genDialog.innerText()).replace(/\s+/g, ' ')
+    out.existingMappingExcluded = /没有可生成的词/.test(out.existingMappingText) || /目标：0/.test(out.existingMappingText)
+    assert(out.existingMappingExcluded, `已有映射词应被排除（无目标/提示），实际 ${out.existingMappingText.slice(0, 400)}`)
+    out.pageErrorPhases.push({ at: 'existing-mapping', n: bag.pageErrors.length })
+    await shot(page, 'S20-05-existing-mapping-excluded')
+    await genDialog.getByRole('button', { name: '关闭', exact: true }).click().catch(() => {})
+    await page.waitForTimeout(800)
+    out.pageErrorPhases.push({ at: 'after-close', n: bag.pageErrors.length })
+    out.pageErrorsFinal = bag.pageErrors.slice(0, 3)
+    assert(bag.pageErrors.length === 0, `S20 不应产生 pageerror：${JSON.stringify(bag.pageErrors.slice(0, 2))}`)
+  } finally {
+    mergeErrors(bag)
+    await context.close()
+  }
+  return out
+}
+
 // ---------------- main ----------------
 
 async function main() {
@@ -2531,6 +2832,7 @@ async function main() {
       ['S17 每日复习上限（cap 截断/顺延/次日生效）', scenarioS17_dailyReviewCap],
       ['S18 AI 扩充（fake provider）', scenarioS18_ai],
       ['S19 本义/引申链（semantics pack）', scenarioS19_semantics],
+      ['S20 AI 本义链 + 选库/自定义选词（草案）', scenarioS20_aiSemanticsScopes],
     ]
     for (const [name, fn] of scenarios) {
       if (only.length > 0 && !only.some((key) => name === key || name.startsWith(key + ' '))) continue

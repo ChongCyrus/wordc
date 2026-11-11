@@ -294,6 +294,7 @@
 - `tests/ui/home-state-view.test.ts`（7）+ `home-task-card.test.ts`（6）：首页 6 态文案/按钮/KPI/进度。
 - `tests/ui/swipe-back.test.ts`（5）：64px 阈值/方向锁/阻尼。
 - `tests/ui/files-bridge.test.ts`（6）：mock `window.MomoBridge` 断言 APK 分支调用 `saveBase64File`（纯 base64/中文文件名）且不触发 blob；`err:` 提示透传；非 APK 分支保持 `<a download>`；`datedFileName` 日期与中文文件名。
+- `tests/ui/ai-ui.test.ts`（9）：semantics 类型/审核、失败分类、设置表单、生成面板。
 - `tests/ui/derivation-chain.test.ts`（4）：本义链渲染/无映射隐藏/AI 标识/注释面多 c/w-c 切换/长文本。
 - `tests/ui/content-pack-import.test.ts`（2）：内容包导入入口（未接落库禁用/接通可用）。
 - `tests/ui/ai-ui.test.ts`（5）：错误码文案、预算/进度/汇总格式、AI 设置表单、生成面板、审核对话框。

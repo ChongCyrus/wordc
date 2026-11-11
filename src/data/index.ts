@@ -46,7 +46,9 @@ export {
   deletePack,
   getEffectiveContent,
   selectTargets,
+  selectTargetPage,
   pendingGenerationTargets,
+  pendingGenerationTargetsPage,
   clearRejects,
   reapplyAppliedPacks,
   rejectGeneratedItem,
@@ -84,8 +86,11 @@ export type {
   SkipReason,
   SkipRecord,
   Target,
+  TargetPage,
+  TargetPageOptions,
   TargetScope,
 } from './packs/schema'
+export { TARGET_PAGE_MAX } from './packs/schema'
 export { LIMITS as PACK_LIMITS } from './packs/schema'
 
 // ============ 词库管理（AC6） ============

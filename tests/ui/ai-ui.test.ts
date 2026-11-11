@@ -7,6 +7,7 @@ import {
   aiErrorMessage,
   aiKindLabel,
   aiScopeLabel,
+  formatDeckOption,
   AI_FAILURE_LABELS,
   pickAiFailureMessage,
   summarizeAiFailures,
@@ -14,7 +15,7 @@ import {
   formatAiProgress,
   formatAiSummary,
 } from '../../src/app/hooks/aiUi'
-import { AiGenerateView } from '../../src/ui/ai/AiGeneratePanel'
+import { AiGenerateView, itemLines } from '../../src/ui/ai/AiGeneratePanel'
 import { AiReviewDialog } from '../../src/ui/ai/AiGeneratePanel'
 import { AiSettingsForm } from '../../src/ui/me/AiSettingsSection'
 
@@ -33,6 +34,23 @@ describe('AI 扩充 UI（task-71）', () => {
     expect(aiErrorMessage('AI_RATE_LIMIT')).toContain('频繁')
     expect(aiErrorMessage('AI_CANCELED')).toContain('取消')
     expect(aiErrorMessage('UNKNOWN' as never, '兜底')).toBe('兜底')
+  })
+
+  it('semantics 审核展示（task-85 骨架）：本义集合 + c 归属/链', () => {
+    const lines = itemLines('semantics', {
+      headword: 'workshop',
+      coreSenses: [{ index: 1, label: '车间', confidence: 'high' }],
+      meaningMap: [{ meaningIndex: 2, coreSenseIndex: 1, steps: ['车间', '研讨会'] }],
+    } as never)
+    expect(lines.join('\n')).toContain('本义1 「车间」')
+    expect(lines.join('\n')).toContain('c2 → 本义1：车间 → 研讨会')
+  })
+
+  it('deck 选项不重复词数（S20 P3）', () => {
+    expect(formatDeckOption('2025考研英语词汇受限商业词表（6702 词）', 6702)).toBe(
+      '2025考研英语词汇受限商业词表（6702 词）',
+    )
+    expect(formatDeckOption('QA空词库', 0)).toBe('QA空词库（0 词）')
   })
 
   it('失败分类计数汇总（13 类；S18 P2）', () => {
@@ -60,7 +78,13 @@ describe('AI 扩充 UI（task-71）', () => {
   })
 
   it('范围/类型标签与预算、进度、汇总格式化', () => {
-    expect(AI_SCOPE_OPTIONS.map((option) => option.value)).toEqual(['today', 'deck', 'word'])
+    expect(AI_SCOPE_OPTIONS.map((option) => option.value)).toEqual([
+      'today',
+      'deck',
+      'word',
+      'deck-select',
+      'custom',
+    ])
     expect(aiScopeLabel('today')).toBe('今日要学')
     expect(aiKindLabel('examples')).toBe('例句')
     expect(formatAiBudget(0.12, 3)).toBe('预计 ¥0.12 / 单次上限 ¥3.00')
@@ -142,6 +166,13 @@ describe('AI 扩充 UI（task-71）', () => {
     expect(idle).toContain('已拒绝')
     expect(idle).toContain('目标：12 个词/含义')
     expect(idle).toContain('开始生成')
+    expect(idle).not.toContain('没有可生成的词')
+
+    const semanticsIdle = renderToStaticMarkup(
+      createElement(AiGenerateView, { ...base, running: false, kinds: ['semantics'], targetCount: 0 }),
+    )
+    expect(semanticsIdle).toContain('单含义词已跳过')
+    expect(semanticsIdle).toContain('没有可生成的词')
 
     const running = renderToStaticMarkup(
       createElement(AiGenerateView, {
@@ -195,5 +226,21 @@ describe('AI 扩充 UI（task-71）', () => {
       }),
     )
     expect(blocked).toContain('落库接口尚未接通')
+  })
+})
+
+describe('AI 面板挂载顺序（S20 P1 回归）', () => {
+  it('AiGeneratePanel 内不得在 hooks（useEffect 等）之前早退（React #310）', async () => {
+    // @ts-expect-error 项目未装 @types/node；仅 node 测试读取源码
+    const { readFileSync } = await import('node:fs')
+    const source = readFileSync(
+      new URL('../../src/ui/ai/AiGeneratePanel.tsx', import.meta.url),
+      'utf8',
+    )
+    const start = source.indexOf('export function AiGeneratePanel')
+    const region = source.slice(start, source.indexOf('\nfunction ', start + 10))
+    expect(region).not.toContain('if (!open) return null')
+    // 内层 Dialog 用 open 控制可见性，hooks 顺序恒定
+    expect(region).toContain('useEffect')
   })
 })

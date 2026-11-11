@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-11T16:46:23.376Z
+- 生成时间：2026-11-11T19:32:27.392Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**294**；修改 **65**；新增 **3**；私有仓未进入公开树 **1664**
+- 公开文件：**294**；修改 **67**；新增 **3**；私有仓未进入公开树 **1670**
 
 ## 结论
 
@@ -52,6 +52,7 @@
 | `src/data/index.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `src/data/settings.repo.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `src/data/word-factory.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `src/ui/ai/AiGeneratePanel.tsx` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `src/ui/decks/DecksPage.tsx` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `src/ui/me/AboutPage.tsx` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `src/ui/study/components/types.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
@@ -69,6 +70,7 @@
 | `tests/e2e/demo-public.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/v2-e2e.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/tools/deck-split.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `tests/ui/ai-ui.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/ui/brand.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/ui/files-bridge.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/ui/pages-smoke.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
@@ -126,6 +128,7 @@
 - `scripts/deliver.sh`
 - `scripts/logs`
 - `src/data`
+- `tests/data`
 - `tests/e2e`
 - `tests/tools`
 - `tools/apk`

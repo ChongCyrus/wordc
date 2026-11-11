@@ -376,7 +376,27 @@ export type TargetScope =
   | { kind: 'deck'; deckId?: string; offset?: number; limit?: number }
   | { kind: 'word'; wordId: string }
   | { kind: 'meaning'; wordId: string; meaningId: string }
+  /** 任意词库（task-84；deckId 必填，缺省不允许跨库猜） */
+  | { kind: 'range'; deckId: string; prefix: string }
+  | { kind: 'prefix'; deckId: string; prefix: string }
+  /** 自定义选词（单词 id 列表；旧 'manual' 保留兼容） */
+  | { kind: 'words'; wordIds: string[] }
   | { kind: 'manual'; wordIds: string[] }
+
+/** 单次最多返回目标数（task-84） */
+export const TARGET_PAGE_MAX = 500
+
+export interface TargetPageOptions {
+  offset?: number
+  limit?: number
+}
+
+/** 分页结果：targets 为当前页；total 为过滤后总数；truncated=后面还有更多 */
+export interface TargetPage {
+  targets: Target[]
+  total: number
+  truncated: boolean
+}
 
 /** 排除条件（默认全开，§4.2） */
 export interface FilterSet {

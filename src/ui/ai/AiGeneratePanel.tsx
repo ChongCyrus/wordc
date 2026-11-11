@@ -1,10 +1,11 @@
-import { useState } from 'react'
-import type { SingleContentKind } from '../../data/ai'
+import { useEffect, useState } from 'react'
+import type { GenerationKind } from '../../data/ai'
 import {
   aiErrorMessage,
   pickAiFailureMessage,
   summarizeAiFailures,
   aiKindLabel,
+  formatDeckOption,
   AI_CONTENT_KIND_OPTIONS,
   AI_EXCLUDE_OPTIONS,
   AI_SCOPE_OPTIONS,
@@ -20,22 +21,24 @@ import {
   computeChecksum,
   generateItems,
   getSettings,
+  getWordsPage,
   importContentPack,
+  pendingGenerationTargetsPage,
   listPackItems,
   loadAiSettings,
-  pendingGenerationTargets,
   rejectGeneratedItem,
   stableStringify,
   toCoreMnemonicType,
   type ContentKind,
   type PackItemV1,
 } from '../../data'
+import { useDecks } from '../../app/hooks/useDecks'
 import { useToast } from '../../app/toast'
 import { Dialog } from '../components/Dialog'
 
 export interface AiGenerateViewProps {
   scope: AiScope
-  kinds: SingleContentKind[]
+  kinds: GenerationKind[]
   excludes: AiExcludeKey[]
   targetCount: number
   estimateText: string
@@ -45,13 +48,24 @@ export interface AiGenerateViewProps {
   summary: string | null
   error: string | null
   onScope: (scope: AiScope) => void
-  onToggleKind: (kind: SingleContentKind) => void
+  onToggleKind: (kind: GenerationKind) => void
   onToggleExclude: (key: AiExcludeKey) => void
   onStart: () => void
   onCancel: () => void
   onClose: () => void
-  /** 落库应用成功后回调（如重载当前词刷新注释面/w-c） */
-  onApplied?: () => void
+  decks?: Array<{ id: string; name: string; wordCount: number }>
+  targetDeckId?: string
+  onDeck?: (deckId: string) => void
+  customSearch?: string
+  onCustomSearch?: (value: string) => void
+  customWords?: Array<{ id: string; headword: string }>
+  customTotal?: number
+  selectedWordIds?: string[]
+  truncated?: boolean
+  onToggleWord?: (wordId: string) => void
+  onSelectAll?: () => void
+  onInvert?: () => void
+  onClearSelected?: () => void
 }
 
 /** 批量生成面板（纯展示；task-71） */
@@ -72,6 +86,19 @@ export function AiGenerateView({
   onStart,
   onCancel,
   onClose,
+  decks = [],
+  targetDeckId = '',
+  onDeck,
+  customSearch = '',
+  onCustomSearch,
+  customWords = [],
+  customTotal = 0,
+  selectedWordIds = [],
+  truncated = false,
+  onToggleWord,
+  onSelectAll,
+  onInvert,
+  onClearSelected,
 }: AiGenerateViewProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -89,6 +116,67 @@ export function AiGenerateView({
           </button>
         ))}
       </div>
+
+      {scope === 'deck-select' ? (
+        <div className="mm-list">
+          {decks.map((deck) => (
+            <button
+              key={deck.id}
+              type="button"
+              className={`mm-row${targetDeckId === deck.id ? ' is-active' : ''}`}
+              aria-pressed={targetDeckId === deck.id}
+              onClick={() => onDeck?.(deck.id)}
+              disabled={running}
+            >
+              <span className="mm-row-main">
+                {formatDeckOption(deck.name, deck.wordCount)}
+              </span>
+              {targetDeckId === deck.id ? <span className="mm-caption">已选</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {scope === 'custom' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <input
+            className="mm-input"
+            aria-label="搜索单词"
+            placeholder="搜索单词或输入字母前缀"
+            value={customSearch}
+            onChange={(event) => onCustomSearch?.(event.target.value)}
+            disabled={running}
+          />
+          <div className="mm-caption">
+            已选 {selectedWordIds.length} / 共 {customTotal}（单次 ≤500）
+            {truncated ? ' · 已截断，分批生成' : ''}
+          </div>
+          <div className="mm-btn-row">
+            <button type="button" className="mm-btn" onClick={onSelectAll} disabled={running}>
+              全选筛选结果
+            </button>
+            <button type="button" className="mm-btn" onClick={onInvert} disabled={running}>
+              反选
+            </button>
+            <button type="button" className="mm-btn" onClick={onClearSelected} disabled={running}>
+              清空已选
+            </button>
+          </div>
+          <div style={{ maxHeight: 180, overflowY: 'auto' }} className="mm-list">
+            {customWords.map((word) => (
+              <label key={word.id} className="mm-row">
+                <input
+                  type="checkbox"
+                  aria-label={`选择 ${word.headword}`}
+                  checked={selectedWordIds.includes(word.id)}
+                  onChange={() => onToggleWord?.(word.id)}
+                  disabled={running}
+                />
+                <span className="mm-row-main">{word.headword}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mm-caption">生成类型（可多选）</div>
       <div className="mm-btn-row">
@@ -135,6 +223,15 @@ export function AiGenerateView({
       </div>
       <div className="mm-caption">{budgetText}</div>
       <div className="mm-caption">{estimateText}</div>
+
+      {/* 空目标提示（空词库 / 已全部有内容或被排除） */}
+      {targetCount === 0 && !running ? (
+        <div className="mm-caption">没有可生成的词（已排除已有内容/已拒绝）</div>
+      ) : null}
+      {/* semantics 只对多含义词生成；单含义词数据层直接跳过 */}
+      {kinds.includes('semantics') && !running ? (
+        <div className="mm-caption">单含义词已跳过（不生成本义链）</div>
+      ) : null}
 
       {progress ? <div className="mm-caption">{formatAiProgress(progress.done, progress.total, progress.costYuan)}</div> : null}
       {summary ? <div className="mm-caption">{summary}</div> : null}
@@ -265,11 +362,26 @@ export function AiReviewDialog({
   )
 }
 
-function keyOf(entry: { kind: SingleContentKind; target: { headwordLower: string; meaningIndex?: number } }): string {
+function keyOf(entry: { kind: GenerationKind; target: { headwordLower: string; meaningIndex?: number } }): string {
   return `${entry.kind}:${entry.target.headwordLower}#${entry.target.meaningIndex ?? ''}`
 }
 
-function itemLines(kind: SingleContentKind, item: PackItemV1): string[] {
+export function itemLines(kind: GenerationKind, item: PackItemV1): string[] {
+  if (kind === 'semantics') {
+    const semantics = item as unknown as {
+      coreSenses?: Array<{ index?: number; label: string; confidence?: string; note?: string }>
+      meaningMap?: Array<{ meaningIndex: number; coreSenseIndex: number; note?: string; steps?: string[] }>
+    }
+    const lines: string[] = []
+    for (const sense of semantics.coreSenses ?? []) {
+      lines.push(`本义${sense.index ?? ''} 「${sense.label}」${sense.confidence ? `（${sense.confidence}）` : ''}`)
+    }
+    for (const mapping of semantics.meaningMap ?? []) {
+      const chain = mapping.steps?.length ? mapping.steps.join(' → ') : (mapping.note ?? '')
+      lines.push(`c${mapping.meaningIndex} → 本义${mapping.coreSenseIndex}${chain ? `：${chain}` : ''}`)
+    }
+    return lines
+  }
   if (kind === 'examples') return (item.examples ?? []).map((example) => `${example.en} — ${example.cn}`)
   if (kind === 'phrases') return (item.phrases ?? []).map((phrase) => `${phrase.en} — ${phrase.cn}`)
   return (item.mnemonics ?? []).map((mnemonic) => `[${mnemonic.type}] ${mnemonic.text}`)
@@ -296,8 +408,15 @@ export function AiGeneratePanel({
   onApplied,
 }: AiGeneratePanelProps) {
   const toast = useToast()
+  const { decks } = useDecks()
   const [scope, setScope] = useState<AiScope>(currentWordId ? 'word' : initialScope)
-  const [kinds, setKinds] = useState<SingleContentKind[]>(['examples'])
+  const [targetDeckId, setTargetDeckId] = useState<string>('')
+  const [customSearch, setCustomSearch] = useState('')
+  const [customWords, setCustomWords] = useState<Array<{ id: string; headword: string }>>([])
+  const [customTotal, setCustomTotal] = useState(0)
+  const [selectedWordIds, setSelectedWordIds] = useState<string[]>([])
+  const [truncated, setTruncated] = useState(false)
+  const [kinds, setKinds] = useState<GenerationKind[]>(['examples'])
   const [excludes, setExcludes] = useState<AiExcludeKey[]>(['rejected'])
   const [targetCount, setTargetCount] = useState(0)
   const [budgetText, setBudgetText] = useState('')
@@ -307,12 +426,19 @@ export function AiGeneratePanel({
   const [summary, setSummary] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<AiReviewItem[]>([])
-  const [pending, setPending] = useState<Array<{ kind: SingleContentKind; target: { headwordLower: string; meaningIndex?: number }; item: PackItemV1 }>>([])
+  const [pending, setPending] = useState<Array<{ kind: GenerationKind; target: { headwordLower: string; meaningIndex?: number }; item: PackItemV1 }>>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [controller, setController] = useState<AbortController | null>(null)
   let canceled = false
 
-  if (!open) return null
+  useEffect(() => {
+    if (scope !== 'custom' || !targetDeckId) return
+    void (async () => {
+      const page = await getWordsPage(targetDeckId, { search: customSearch.trim(), limit: 100 })
+      setCustomWords(page.words.map((word) => ({ id: word.id, headword: word.headword })))
+      setCustomTotal(page.total)
+    })()
+  }, [scope, targetDeckId, customSearch])
 
   const targetScope = async () => {
     if (scope === 'word') {
@@ -321,17 +447,32 @@ export function AiGeneratePanel({
         : { kind: 'meaning' as const, wordId: currentWordId!, meaningIndex: currentMeaningIndex }
     }
     if (scope === 'today') return { kind: 'today' as const }
+    if (scope === 'deck-select') {
+      const settings = await getSettings()
+      return { kind: 'deck' as const, deckId: targetDeckId || settings['data.selectedDeckId'] }
+    }
+    if (scope === 'custom') {
+      if (selectedWordIds.length > 0) return { kind: 'words' as const, wordIds: selectedWordIds }
+      return { kind: 'prefix' as const, deckId: targetDeckId || 'kaoyan-2027-dagang', prefix: customSearch.trim() }
+    }
     const settings = await getSettings()
     return { kind: 'deck' as const, deckId: settings['data.selectedDeckId'] }
   }
 
   /** 按 kind 汇总待生成目标（默认只补缺 + 排除已拒绝） */
-  const buildTargetsByKind = async (selected: SingleContentKind[]) => {
+  const buildTargetsByKind = async (selected: GenerationKind[]) => {
     const sc = await targetScope()
-    const entries: Array<{ kind: SingleContentKind; targets: Awaited<ReturnType<typeof pendingGenerationTargets>> }> = []
+    const entries: Array<{
+      kind: GenerationKind
+      targets: Awaited<ReturnType<typeof pendingGenerationTargetsPage>>['targets']
+    }> = []
     for (const kind of selected) {
-      const targets = await pendingGenerationTargets(sc as never, kind as ContentKind)
-      entries.push({ kind, targets })
+      const page = await pendingGenerationTargetsPage(sc as never, kind as ContentKind, {}, {
+        offset: 0,
+        limit: 500,
+      })
+      setTruncated(page.truncated)
+      entries.push({ kind, targets: page.targets })
     }
     return entries
   }
@@ -350,6 +491,11 @@ export function AiGeneratePanel({
       setError(aiErrorMessage((err as { code?: string })?.code, '读取生成目标失败'))
     }
   }
+
+  useEffect(() => {
+    void refreshEstimate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, targetDeckId, customSearch, selectedWordIds, kinds])
 
   const handleStart = () => {
     void (async () => {
@@ -451,7 +597,7 @@ export function AiGeneratePanel({
       try {
         const selectedEntries = pending.filter((entry) => selected.has(keyOf(entry)))
         if (selectedEntries.length === 0) return
-        const kindsUsed = [...new Set(selectedEntries.map((entry) => entry.kind))] as SingleContentKind[]
+        const kindsUsed = [...new Set(selectedEntries.map((entry) => entry.kind))] as GenerationKind[]
         const packKind = kindsUsed.length === 1 ? kindsUsed[0] : 'mixed'
         const items = selectedEntries.map((entry) => ({
           ...entry.item,
@@ -509,6 +655,27 @@ export function AiGeneratePanel({
       <Dialog open={open} title="AI 扩充内容" onClose={onClose} dismissable={false}>
         <AiGenerateView
           scope={scope}
+          decks={decks.map((deck) => ({ id: deck.id, name: deck.name, wordCount: (deck as { wordCount?: number }).wordCount ?? 0 }))}
+          targetDeckId={targetDeckId}
+          onDeck={(deckId) => setTargetDeckId(deckId)}
+          customSearch={customSearch}
+          onCustomSearch={setCustomSearch}
+          customWords={customWords}
+          customTotal={customTotal}
+          selectedWordIds={selectedWordIds}
+          truncated={truncated}
+          onToggleWord={(wordId) =>
+            setSelectedWordIds((prev) =>
+              prev.includes(wordId) ? prev.filter((id) => id !== wordId) : [...prev, wordId],
+            )
+          }
+          onSelectAll={() => setSelectedWordIds(customWords.map((word) => word.id))}
+          onInvert={() =>
+            setSelectedWordIds((prev) =>
+              customWords.map((word) => word.id).filter((id) => !prev.includes(id)),
+            )
+          }
+          onClearSelected={() => setSelectedWordIds([])}
           kinds={kinds}
           excludes={excludes}
           targetCount={targetCount}

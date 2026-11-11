@@ -2,7 +2,7 @@
  * AI 扩充 UI 辅助（task-71）：错误码文案、范围/类型/排除选项、预算与进度格式化。
  * 纯函数、无依赖，便于单测；数据调用统一走 `src/data/ai`。
  */
-import type { AiErrorCode, AiProviderId, SingleContentKind } from '../../data/ai'
+import type { AiErrorCode, AiProviderId, GenerationKind } from '../../data/ai'
 
 export const AI_ERROR_MESSAGES: Record<AiErrorCode, string> = {
   AI_DISABLED: 'AI 扩充未开启：请先在设置页打开「AI 扩充」并填写 Key。',
@@ -92,21 +92,24 @@ export const AI_PROVIDER_OPTIONS: ReadonlyArray<{ value: AiProviderId; label: st
   { value: 'openai-compatible', label: 'OpenAI 兼容' },
 ]
 
-export type AiScope = 'today' | 'deck' | 'word'
+export type AiScope = 'today' | 'deck' | 'word' | 'deck-select' | 'custom'
 
 export const AI_SCOPE_OPTIONS: ReadonlyArray<{ value: AiScope; label: string }> = [
   { value: 'today', label: '今日要学' },
   { value: 'deck', label: '当前词库' },
   { value: 'word', label: '当前词' },
+  { value: 'deck-select', label: '选择词库' },
+  { value: 'custom', label: '自定义选词' },
 ]
 
 export const AI_CONTENT_KIND_OPTIONS: ReadonlyArray<{
-  value: SingleContentKind
+  value: GenerationKind
   label: string
 }> = [
   { value: 'examples', label: '例句' },
   { value: 'phrases', label: '词组' },
   { value: 'mnemonics', label: '助记' },
+  { value: 'semantics', label: '本义/引申链' },
 ]
 
 export type AiExcludeKey = 'existingExamples' | 'existingPhrases' | 'existingMnemonics' | 'rejected'
@@ -118,11 +121,16 @@ export const AI_EXCLUDE_OPTIONS: ReadonlyArray<{ value: AiExcludeKey; label: str
   { value: 'rejected', label: '已拒绝' },
 ]
 
+/** deck 选项文案：deck.name 已含「（N 词）」时不再重复追加（task-85 QA P3） */
+export function formatDeckOption(name: string, wordCount: number): string {
+  return /（\d+\s*词）$/.test(name) ? name : `${name}（${wordCount} 词）`
+}
+
 export function aiScopeLabel(scope: AiScope): string {
   return AI_SCOPE_OPTIONS.find((item) => item.value === scope)?.label ?? scope
 }
 
-export function aiKindLabel(kind: SingleContentKind): string {
+export function aiKindLabel(kind: GenerationKind): string {
   return AI_CONTENT_KIND_OPTIONS.find((item) => item.value === kind)?.label ?? kind
 }
 

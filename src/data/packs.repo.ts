@@ -48,8 +48,11 @@ import type {
   ResolvedItem,
   SkipRecord,
   Target,
+  TargetPage,
+  TargetPageOptions,
   TargetScope,
 } from './packs/schema'
+import { TARGET_PAGE_MAX } from './packs/schema'
 import type { ImportIssue } from '../core'
 import type { ParseResult } from './schema'
 
@@ -883,42 +886,73 @@ function existingCount(word: Word, kind: ContentKind, meaningIndex?: number, mea
   return word.mnemonics.length
 }
 
-/** 按范围取候选词 → 应用排除条件 → 返回生成/导入目标 */
-export async function selectTargets(
+/** 按 scope 取候选词（不应用排除/分页） */
+async function collectScopeWords(
   scope: TargetScope,
-  kind: ContentKind,
-  filters: FilterSet = {},
-): Promise<Target[]> {
+  deckId: string,
+): Promise<{ words: Word[]; meaningFilter?: { wordId: string; meaningIndex: number; meaningId: string } }> {
   const db = getDb()
-  const settings = await getSettings()
-  const deckId = settings['data.selectedDeckId']
-  let words: Word[] = []
-  let meaningFilter: { wordId: string; meaningIndex: number; meaningId: string } | undefined
-
   if (scope.kind === 'today') {
     const plan = await db.plans.get(`${localDateKey(Date.now())}:${scope.deckId ?? deckId}`)
     const ids = plan ? [...new Set(plan.wordIds)] : []
-    words = ids.length > 0 ? (await db.words.bulkGet(ids)).filter((word): word is Word => Boolean(word)) : []
-  } else if (scope.kind === 'deck') {
+    const words = ids.length > 0 ? (await db.words.bulkGet(ids)).filter((word): word is Word => Boolean(word)) : []
+    return { words }
+  }
+  if (scope.kind === 'deck') {
     const targetDeck = scope.deckId ?? deckId
-    // 先取全量再过滤，最后才分页（否则「排除已有」会把一页过滤空）
-    words = await db.words
+    const words = await db.words
       .where('[deckId+order]')
       .between([targetDeck, -Infinity], [targetDeck, Infinity])
       .toArray()
-  } else if (scope.kind === 'word') {
-    const word = await db.words.get(scope.wordId)
-    words = word ? [word] : []
-  } else if (scope.kind === 'meaning') {
-    const word = await db.words.get(scope.wordId)
-    words = word ? [word] : []
-    const index = Number(scope.meaningId.split('#M')[1])
-    if (word && Number.isInteger(index) && index >= 1) {
-      meaningFilter = { wordId: scope.wordId, meaningIndex: index, meaningId: scope.meaningId }
-    }
-  } else {
-    words = (await db.words.bulkGet(scope.wordIds)).filter((word): word is Word => Boolean(word))
+    return { words }
   }
+  if (scope.kind === 'word') {
+    const word = await db.words.get(scope.wordId)
+    return { words: word ? [word] : [] }
+  }
+  if (scope.kind === 'meaning') {
+    const word = await db.words.get(scope.wordId)
+    if (!word) return { words: [] }
+    const index = Number(scope.meaningId.split('#M')[1])
+    const meaningFilter =
+      Number.isInteger(index) && index >= 1
+        ? { wordId: scope.wordId, meaningIndex: index, meaningId: scope.meaningId }
+        : undefined
+    return { words: [word], meaningFilter }
+  }
+  if (scope.kind === 'prefix' || scope.kind === 'range') {
+    // 按 headwordLower 索引前缀取（索引顺序即字母序）；只取指定 deck
+    const prefix = String(scope.prefix ?? '').toLowerCase()
+    const words = await db.words
+      .where('headwordLower')
+      .startsWith(prefix)
+      .filter((word) => word.deckId === scope.deckId)
+      .toArray()
+    words.sort((a, b) => (a.headwordLower < b.headwordLower ? -1 : a.headwordLower > b.headwordLower ? 1 : 0))
+    return { words }
+  }
+  // words / manual
+  const ids = [...new Set(scope.wordIds)]
+  const words = ids.length > 0 ? (await db.words.bulkGet(ids)).filter((word): word is Word => Boolean(word)) : []
+  return { words }
+}
+
+/**
+ * 按范围取候选词 → 应用排除条件 → 返回**分页**目标（task-84）。
+ * - scope：today / deck（任意 deckId）/ word / meaning / words(自定义) / prefix / range(按 headwordLower 字母序)；
+ * - kind='semantics'：只返回 ≥2 个含义的词；onlyMissing/excludeExisting = 该词无已应用 coreSenses/meaningMap；
+ * - 单次最多 `TARGET_PAGE_MAX`(500) 个；返回 `{targets,total,truncated}`。
+ */
+export async function selectTargetPage(
+  scope: TargetScope,
+  kind: ContentKind,
+  filters: FilterSet = {},
+  page: TargetPageOptions = {},
+): Promise<TargetPage> {
+  const db = getDb()
+  const settings = await getSettings()
+  const deckId = settings['data.selectedDeckId']
+  const { words: candidates, meaningFilter } = await collectScopeWords(scope, deckId)
 
   const excludeExisting = filters.excludeExisting ?? true
   const excludePending = filters.excludePending ?? true
@@ -926,7 +960,9 @@ export async function selectTargets(
   const missingOnly = filters.missingOnly ?? true
 
   const targets: Target[] = []
-  for (const word of words) {
+  for (const word of candidates) {
+    // task-84：本义链只对多含义词生成（单含义词可自映射，不生成）
+    if (kind === 'semantics' && word.meanings.length < 2) continue
     const index = meaningFilter?.wordId === word.id ? meaningFilter.meaningIndex : undefined
     const meaningId = index != null ? meaningIdOf(word.id, index) : undefined
     let existing = existingCount(word, kind, index, meaningId)
@@ -947,7 +983,11 @@ export async function selectTargets(
       headword: word.headword,
       headwordLower: word.headwordLower,
       deckId: word.deckId,
-      meanings: word.meanings.map((meaning) => ({ id: meaning.id, ...(meaning.pos ? { pos: meaning.pos } : {}), cn: meaning.cn })),
+      meanings: word.meanings.map((meaning) => ({
+        id: meaning.id,
+        ...(meaning.pos ? { pos: meaning.pos } : {}),
+        cn: meaning.cn,
+      })),
       existing: {
         examples: existingCount(word, 'examples', index, meaningId),
         phrases: existingCount(word, 'phrases', index, meaningId),
@@ -960,21 +1000,48 @@ export async function selectTargets(
     }
     targets.push(target)
   }
-  if (scope.kind === 'deck') {
-    const offset = Math.max(0, Math.floor(scope.offset ?? 0))
-    const limit = Math.max(1, Math.min(500, Math.floor(scope.limit ?? 100)))
-    return targets.slice(offset, offset + limit)
-  }
-  return targets
+
+  const total = targets.length
+  const offset = Math.max(0, Math.floor(page.offset ?? 0))
+  const limit = Math.max(1, Math.min(TARGET_PAGE_MAX, Math.floor(page.limit ?? TARGET_PAGE_MAX)))
+  const sliced = targets.slice(offset, offset + limit)
+  return { targets: sliced, total, truncated: offset + sliced.length < total }
 }
 
-/** AI 生成入口：仅返回「缺该类内容且未被拒绝/已有待审」的目标（默认条件） */
+/** 兼容旧调用：返回目标数组（deck scope 的 offset/limit 继续生效；单页最多 500） */
+export async function selectTargets(
+  scope: TargetScope,
+  kind: ContentKind,
+  filters: FilterSet = {},
+): Promise<Target[]> {
+  const pageOptions: TargetPageOptions =
+    scope.kind === 'deck'
+      ? { offset: scope.offset ?? 0, limit: scope.limit ?? TARGET_PAGE_MAX }
+      : { offset: 0, limit: TARGET_PAGE_MAX }
+  return (await selectTargetPage(scope, kind, filters, pageOptions)).targets
+}
+
+/** AI 生成入口（分页版）：仅返回「缺该类内容且未被拒绝/已有待审」的目标 */
+export async function pendingGenerationTargetsPage(
+  scope: TargetScope,
+  kind: ContentKind,
+  filters: FilterSet = {},
+  page: TargetPageOptions = {},
+): Promise<TargetPage> {
+  return selectTargetPage(scope, kind, { excludeExisting: true, missingOnly: true, ...filters }, page)
+}
+
+/** AI 生成入口（兼容旧数组返回）；deck scope 的 offset/limit 继续生效 */
 export async function pendingGenerationTargets(
   scope: TargetScope,
   kind: ContentKind,
   filters: FilterSet = {},
 ): Promise<Target[]> {
-  return selectTargets(scope, kind, { excludeExisting: true, missingOnly: true, ...filters })
+  const pageOptions: TargetPageOptions =
+    scope.kind === 'deck'
+      ? { offset: scope.offset ?? 0, limit: scope.limit ?? TARGET_PAGE_MAX }
+      : { offset: 0, limit: TARGET_PAGE_MAX }
+  return (await pendingGenerationTargetsPage(scope, kind, filters, pageOptions)).targets
 }
 
 // ============ 拒绝记忆 / 重放 ============

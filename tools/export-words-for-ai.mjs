@@ -4,8 +4,8 @@
  * 不依赖 App 运行时代码；读取内置 deck 的紧凑列式文件。
  *
  * 用法：
- *   node tools/export-words-for-ai.mjs --deck kaoyan-hongbaoshu-2025 --chapter-contains 必考词 \
- *     --kind semantics --limit 100 --out /tmp/words-bikao-001.jsonl
+ *   node tools/export-words-for-ai.mjs --deck kaoyan-2027-dagang \
+ *     --kind semantics --limit 100 --out /tmp/words-001.jsonl
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
