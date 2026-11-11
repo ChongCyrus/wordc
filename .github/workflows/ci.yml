@@ -1,0 +1,265 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 只读权限：不发布、不写任何仓库内容
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '10'
+  # 与本地开发一致（unit-data 等有日期/日期键断言；避免 runner 默认 UTC 造成时区相关红点）
+  TZ: Asia/Shanghai
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) 类型检查（与 build 里的 tsc 分离，失败时一眼定位）
+  # ---------------------------------------------------------------------------
+  static:
+    name: static (tsc)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+  # ---------------------------------------------------------------------------
+  # 2) 单测分片（并行；单 fork 防内存峰值）
+  # ---------------------------------------------------------------------------
+  unit-core:
+    name: unit-core
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Unit tests (core + scheduling)
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          npx vitest run tests/core tests/scheduling.test.ts \
+            --pool=forks --poolOptions.forks.maxForks=1 2>&1 | tee ci-logs/unit-core.log
+      - name: Upload log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-core-log
+          path: ci-logs
+          if-no-files-found: ignore
+          retention-days: 7
+
+  unit-data:
+    name: unit-data
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Unit tests (data)
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          npx vitest run tests/data \
+            --pool=forks --poolOptions.forks.maxForks=1 2>&1 | tee ci-logs/unit-data.log
+      - name: Upload log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-data-log
+          path: ci-logs
+          if-no-files-found: ignore
+          retention-days: 7
+
+  unit-ui:
+    name: unit-ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Unit tests (ui)
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          npx vitest run tests/ui \
+            --pool=forks --poolOptions.forks.maxForks=1 2>&1 | tee ci-logs/unit-ui.log
+      - name: Upload log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-ui-log
+          path: ci-logs
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 3) 生产构建（产物 pwa-dist 供 e2e 与人工下载）
+  # ---------------------------------------------------------------------------
+  build:
+    name: build (pwa-dist)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          pnpm build 2>&1 | tee ci-logs/build.log
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwa-dist
+          path: dist
+          retention-days: 7
+      - name: Upload build log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ci-logs
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 4) 无头浏览器 E2E（仅依赖本地产物 + Playwright 官方 Chromium，不碰 .secrets）
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: e2e (playwright, non-blocking)
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 20
+    # 质量门禁在本地/QA 保留；CI 的 e2e 失败不阻塞 APK/发版
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install app deps
+        run: pnpm install --frozen-lockfile
+      - name: Restore Playwright browser cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('tools/e2e/package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+      - name: Install e2e deps (playwright-core)
+        run: npm install --prefix tools/e2e --no-audit --no-fund
+      - name: Install Chromium（重试 + 无 deps 兜底 + 失败跳过 e2e）
+        id: pw
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          ok=0
+          for i in 1 2 3; do
+            echo "[playwright] install attempt $i (with-deps)"
+            if npx -y playwright@1.49.0 install --with-deps chromium; then ok=1; break; fi
+            echo "[playwright] attempt $i failed; sleep 15s"; sleep 15
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "[playwright] fallback: install chromium without deps"
+            if npx -y playwright@1.49.0 install chromium; then ok=1; fi
+          fi
+          CHROME=$(find "$HOME/.cache/ms-playwright" -path '*/chrome-linux/chrome' -type f | head -n1 || true)
+          if [ "$ok" -eq 1 ] && [ -n "$CHROME" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "chromium=$CHROME"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Playwright unavailable, skipping e2e (APK/quality gates not blocked)"
+            exit 0
+          fi
+      - name: Download pwa-dist
+        if: steps.pw.outputs.available == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: pwa-dist
+          path: dist
+      - name: Run E2E (local http.server + v2-e2e.mjs)
+        if: steps.pw.outputs.available == 'true'
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs docs/assets/e2e/v2
+          python3 -m http.server 4173 --directory dist > ci-logs/http.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:4173/ >/dev/null; then break; fi
+            sleep 1
+          done
+          CHROME=$(find "$HOME/.cache/ms-playwright" -path '*/chrome-linux/chrome' -type f | head -n1)
+          echo "chromium=$CHROME"
+          E2E_CHROMIUM="$CHROME" \
+          E2E_BASE="http://127.0.0.1:4173/" \
+          E2E_OUT="docs/assets/e2e/v2" \
+            node tests/e2e/v2-e2e.mjs 2>&1 | tee ci-logs/e2e.log
+      - name: Upload e2e screenshots + json (always)
+        if: always() && steps.pw.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            docs/assets/e2e/v2
+            ci-logs
+          if-no-files-found: ignore
+          retention-days: 7

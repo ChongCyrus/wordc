@@ -1,0 +1,15 @@
+{
+  "format": "momo-builtin-manifest",
+  "formatVersion": 1,
+  "generatedAt": 1762790000000,
+  "generator": "wordc@0.3.3 src/data/builtin/build-builtin-decks.mjs",
+  "decks": [
+    {
+      "key": "dagang",
+      "deckId": "kaoyan-2027-dagang",
+      "dataVersion": 5,
+      "file": "kaoyan-2027-dagang.deck.json",
+      "wordCount": 5528
+    }
+  ]
+}

@@ -1,0 +1,880 @@
+{
+  "meta": {
+    "spec": "SPEC.md §3.2/§3.3/§3.4/§3.5 (task-26)",
+    "independent": true
+  },
+  "initialStability": {
+    "d1": 5.1908930696844315,
+    "d2": 3.603162452792512,
+    "d5": 1.7635421746374427,
+    "d10": 0.8100673526887585
+  },
+  "firstIntervals": {
+    "d1": {
+      "familiar": 63,
+      "vague": 3,
+      "forgot": 1
+    },
+    "d2": {
+      "familiar": 44,
+      "vague": 2,
+      "forgot": 1
+    },
+    "d3": {
+      "familiar": 33,
+      "vague": 2,
+      "forgot": 1
+    },
+    "d5": {
+      "familiar": 21,
+      "vague": 2,
+      "forgot": 1
+    },
+    "d10": {
+      "familiar": 10,
+      "vague": 1,
+      "forgot": 1
+    }
+  },
+  "firstHalfLives": {
+    "d1": {
+      "familiar": 415.2714455747545,
+      "vague": 17.093861915996754,
+      "forgot": 5.1908930696844315
+    },
+    "d2": {
+      "familiar": 288.25299622340094,
+      "vague": 14.478431152544609,
+      "forgot": 3.603162452792512
+    },
+    "d3": {
+      "familiar": 217.5498647979776,
+      "vague": 12.806389424632265,
+      "forgot": 2.7193733099747197
+    },
+    "d5": {
+      "familiar": 141.0833739709954,
+      "vague": 10.65181516041807,
+      "forgot": 1.7635421746374427
+    },
+    "d10": {
+      "familiar": 64.80538821510068,
+      "vague": 7.721583853841373,
+      "forgot": 0.8100673526887585
+    }
+  },
+  "familiarSequence_d0_5": [
+    {
+      "step": 1,
+      "rating": "familiar",
+      "p": 1.0,
+      "h": 141.0833739709954,
+      "d": 5.0,
+      "interval": 21
+    },
+    {
+      "step": 2,
+      "rating": "familiar",
+      "p": 0.9019703062345177,
+      "h": 292.27276443813514,
+      "d": 5.0,
+      "interval": 44
+    },
+    {
+      "step": 3,
+      "rating": "familiar",
+      "p": 0.9009105002505107,
+      "h": 580.8034633643106,
+      "d": 5.0,
+      "interval": 88
+    },
+    {
+      "step": 4,
+      "rating": "familiar",
+      "p": 0.9003050093163165,
+      "h": 1109.397939122994,
+      "d": 5.0,
+      "interval": 169
+    },
+    {
+      "step": 5,
+      "rating": "familiar",
+      "p": 0.8997930456590019,
+      "h": 2044.037546181452,
+      "d": 5.0,
+      "interval": 311
+    },
+    {
+      "step": 6,
+      "rating": "familiar",
+      "p": 0.8999084549982572,
+      "h": 3635.712005814142,
+      "d": 5.0,
+      "interval": 365
+    },
+    {
+      "step": 7,
+      "rating": "familiar",
+      "p": 0.9327788678763476,
+      "h": 4096.0,
+      "d": 5.0,
+      "interval": 365
+    },
+    {
+      "step": 8,
+      "rating": "familiar",
+      "p": 0.9401016550962379,
+      "h": 4096.0,
+      "d": 5.0,
+      "interval": 365
+    }
+  ],
+  "familiarSequence_d0_1": [
+    {
+      "step": 1,
+      "rating": "familiar",
+      "p": 1.0,
+      "h": 415.2714455747545,
+      "d": 1.0,
+      "interval": 63
+    },
+    {
+      "step": 2,
+      "rating": "familiar",
+      "p": 0.9001841083979023,
+      "h": 1347.858908084432,
+      "d": 1.0,
+      "interval": 205
+    },
+    {
+      "step": 3,
+      "rating": "familiar",
+      "p": 0.8999438711107869,
+      "h": 3960.4891624106567,
+      "d": 1.0,
+      "interval": 365
+    },
+    {
+      "step": 4,
+      "rating": "familiar",
+      "p": 0.9381169336840012,
+      "h": 4096.0,
+      "d": 1.0,
+      "interval": 365
+    },
+    {
+      "step": 5,
+      "rating": "familiar",
+      "p": 0.9401016550962379,
+      "h": 4096.0,
+      "d": 1.0,
+      "interval": 365
+    },
+    {
+      "step": 6,
+      "rating": "familiar",
+      "p": 0.9401016550962379,
+      "h": 4096.0,
+      "d": 1.0,
+      "interval": 365
+    }
+  ],
+  "familiarSequence_d0_10": [
+    {
+      "step": 1,
+      "rating": "familiar",
+      "p": 1.0,
+      "h": 64.80538821510068,
+      "d": 10.0,
+      "interval": 10
+    },
+    {
+      "step": 2,
+      "rating": "familiar",
+      "p": 0.8985631748585301,
+      "h": 119.53322210215309,
+      "d": 10.0,
+      "interval": 18
+    },
+    {
+      "step": 3,
+      "rating": "familiar",
+      "p": 0.9008846187960924,
+      "h": 210.85332051419343,
+      "d": 10.0,
+      "interval": 32
+    },
+    {
+      "step": 4,
+      "rating": "familiar",
+      "p": 0.9001489989339532,
+      "h": 361.8157077266051,
+      "d": 10.0,
+      "interval": 55
+    },
+    {
+      "step": 5,
+      "rating": "familiar",
+      "p": 0.899995011694025,
+      "h": 604.0538374835194,
+      "d": 10.0,
+      "interval": 92
+    },
+    {
+      "step": 6,
+      "rating": "familiar",
+      "p": 0.8998121139656802,
+      "h": 983.6587055324316,
+      "d": 10.0,
+      "interval": 150
+    }
+  ],
+  "forgetAfterHighH": [
+    {
+      "step": 1,
+      "rating": "familiar",
+      "p": 1.0,
+      "h": 141.0833739709954,
+      "d": 5.0,
+      "interval": 21
+    },
+    {
+      "step": 2,
+      "rating": "familiar",
+      "p": 0.9019703062345177,
+      "h": 292.27276443813514,
+      "d": 5.0,
+      "interval": 44
+    },
+    {
+      "step": 3,
+      "rating": "familiar",
+      "p": 0.9009105002505107,
+      "h": 580.8034633643106,
+      "d": 5.0,
+      "interval": 88
+    },
+    {
+      "step": 4,
+      "rating": "familiar",
+      "p": 0.9003050093163165,
+      "h": 1109.397939122994,
+      "d": 5.0,
+      "interval": 169
+    },
+    {
+      "step": 5,
+      "rating": "familiar",
+      "p": 0.8997930456590019,
+      "h": 2044.037546181452,
+      "d": 5.0,
+      "interval": 311
+    },
+    {
+      "step": 6,
+      "rating": "forgot",
+      "p": 0.8999084549982572,
+      "h": 26.8225616050763,
+      "d": 7.0,
+      "interval": 4
+    },
+    {
+      "step": 7,
+      "rating": "familiar",
+      "p": 0.9017952476989259,
+      "h": 56.52751474603014,
+      "d": 7.0,
+      "interval": 9
+    },
+    {
+      "step": 8,
+      "rating": "familiar",
+      "p": 0.89551251529061,
+      "h": 117.00515743629539,
+      "d": 7.0,
+      "interval": 18
+    }
+  ],
+  "forgetAfterLowH": [
+    {
+      "step": 1,
+      "rating": "vague",
+      "p": 1.0,
+      "h": 10.65181516041807,
+      "d": 5.0,
+      "interval": 2
+    },
+    {
+      "step": 2,
+      "rating": "forgot",
+      "p": 0.8779669725071787,
+      "h": 3.533820573592023,
+      "d": 7.0,
+      "interval": 1
+    },
+    {
+      "step": 3,
+      "rating": "familiar",
+      "p": 0.8218916690602042,
+      "h": 12.552870136474807,
+      "d": 7.0,
+      "interval": 2
+    }
+  ],
+  "newWordFamiliar_d5": [
+    {
+      "step": 1,
+      "rating": "familiar",
+      "p": 1.0,
+      "h": 141.0833739709954,
+      "d": 5.0,
+      "interval": 21
+    }
+  ],
+  "newWordVague_d5": [
+    {
+      "step": 1,
+      "rating": "vague",
+      "p": 1.0,
+      "h": 10.65181516041807,
+      "d": 5.0,
+      "interval": 2
+    }
+  ],
+  "newWordForgot_d5": [
+    {
+      "step": 1,
+      "rating": "forgot",
+      "p": 1.0,
+      "h": 1.7635421746374427,
+      "d": 7.0,
+      "interval": 1
+    }
+  ],
+  "predictDog": {
+    "ratings": [
+      "forgot",
+      "vague",
+      "familiar"
+    ],
+    "difficulty": 1,
+    "days": 1,
+    "steps": [
+      {
+        "after": "首评 forgot",
+        "level": 2,
+        "completes": false,
+        "predicts": {
+          "familiar": {
+            "first": false,
+            "days": 1,
+            "progress": 0.6,
+            "text": "今日进度60%"
+          },
+          "vague": {
+            "first": false,
+            "days": 1,
+            "progress": 0.4,
+            "text": "今日进度40%"
+          },
+          "forgot": {
+            "first": false,
+            "days": 1,
+            "progress": 0.2,
+            "text": "今日进度20%"
+          }
+        }
+      },
+      {
+        "after": "同日 vague",
+        "level": 1,
+        "completes": false,
+        "predicts": {
+          "familiar": {
+            "first": false,
+            "days": 1,
+            "progress": 0.8,
+            "text": "今日进度80%"
+          },
+          "vague": {
+            "first": false,
+            "days": 1,
+            "progress": 0.6,
+            "text": "今日进度60%"
+          },
+          "forgot": {
+            "first": false,
+            "days": 1,
+            "progress": 0.2,
+            "text": "今日进度20%"
+          }
+        }
+      },
+      {
+        "after": "同日 familiar",
+        "level": 4,
+        "completes": false,
+        "predicts": {
+          "familiar": {
+            "first": false,
+            "days": 1,
+            "progress": 1.0,
+            "text": "1 天后"
+          },
+          "vague": {
+            "first": false,
+            "days": 1,
+            "progress": 0.8,
+            "text": "今日进度80%"
+          },
+          "forgot": {
+            "first": false,
+            "days": 1,
+            "progress": 0.6,
+            "text": "今日进度60%"
+          }
+        }
+      }
+    ],
+    "first": {
+      "familiar": "63 天后",
+      "vague": "今日 / 3 天后",
+      "forgot": "今日 / 1 天后"
+    }
+  },
+  "sequences": {
+    "face": {
+      "ratings": [
+        "forgot",
+        "familiar",
+        "familiar"
+      ],
+      "difficulty": 1,
+      "days": 1,
+      "steps": [
+        {
+          "after": "首评 forgot",
+          "level": 2,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 1,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "vague": {
+              "first": false,
+              "days": 1,
+              "progress": 0.4,
+              "text": "今日进度40%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 1,
+              "progress": 0.2,
+              "text": "今日进度20%"
+            }
+          }
+        },
+        {
+          "after": "同日 familiar",
+          "level": 3,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 1,
+              "progress": 1.0,
+              "text": "1 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 1,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 1,
+              "progress": 0.4,
+              "text": "今日进度40%"
+            }
+          }
+        },
+        {
+          "after": "同日 familiar",
+          "level": 3,
+          "completes": true,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 1,
+              "progress": 1.0,
+              "text": "1 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 1,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 1,
+              "progress": 0.4,
+              "text": "今日进度40%"
+            }
+          }
+        }
+      ]
+    },
+    "cat": {
+      "ratings": [
+        "vague",
+        "vague",
+        "vague",
+        "forgot",
+        "forgot",
+        "familiar",
+        "familiar"
+      ],
+      "difficulty": 1,
+      "days": 3,
+      "steps": [
+        {
+          "after": "首评 vague",
+          "level": 1,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 0.8,
+              "text": "今日进度80%"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.2,
+              "text": "今日进度20%"
+            }
+          }
+        },
+        {
+          "after": "同日 vague",
+          "level": 3,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 1.0,
+              "text": "3 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.4,
+              "text": "今日进度40%"
+            }
+          }
+        },
+        {
+          "after": "同日 vague",
+          "level": 4,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 1.0,
+              "text": "3 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.8,
+              "text": "今日进度80%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            }
+          }
+        },
+        {
+          "after": "同日 forgot",
+          "level": 3,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 1.0,
+              "text": "3 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.4,
+              "text": "今日进度40%"
+            }
+          }
+        },
+        {
+          "after": "同日 forgot",
+          "level": 1,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 0.8,
+              "text": "今日进度80%"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.2,
+              "text": "今日进度20%"
+            }
+          }
+        },
+        {
+          "after": "同日 familiar",
+          "level": 4,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 1.0,
+              "text": "3 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.8,
+              "text": "今日进度80%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            }
+          }
+        },
+        {
+          "after": "同日 familiar",
+          "level": 4,
+          "completes": true,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 1.0,
+              "text": "3 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.8,
+              "text": "今日进度80%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            }
+          }
+        }
+      ]
+    },
+    "yellow": {
+      "ratings": [
+        "vague",
+        "vague",
+        "vague",
+        "forgot",
+        "familiar"
+      ],
+      "difficulty": 1,
+      "days": 3,
+      "steps": [
+        {
+          "after": "首评 vague",
+          "level": 1,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 0.8,
+              "text": "今日进度80%"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.2,
+              "text": "今日进度20%"
+            }
+          }
+        },
+        {
+          "after": "同日 vague",
+          "level": 3,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 1.0,
+              "text": "3 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.4,
+              "text": "今日进度40%"
+            }
+          }
+        },
+        {
+          "after": "同日 vague",
+          "level": 4,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 1.0,
+              "text": "3 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.8,
+              "text": "今日进度80%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            }
+          }
+        },
+        {
+          "after": "同日 forgot",
+          "level": 3,
+          "completes": false,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 1.0,
+              "text": "3 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.4,
+              "text": "今日进度40%"
+            }
+          }
+        },
+        {
+          "after": "同日 familiar",
+          "level": 3,
+          "completes": true,
+          "predicts": {
+            "familiar": {
+              "first": false,
+              "days": 3,
+              "progress": 1.0,
+              "text": "3 天后"
+            },
+            "vague": {
+              "first": false,
+              "days": 3,
+              "progress": 0.6,
+              "text": "今日进度60%"
+            },
+            "forgot": {
+              "first": false,
+              "days": 3,
+              "progress": 0.4,
+              "text": "今日进度40%"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "familiarity": {
+    "0/0": null,
+    "1/1": 1.0,
+    "1/3": 0.3333333333333333,
+    "3/7": 0.42857142857142855,
+    "7/5": 1.0,
+    "0/5": 0.0,
+    "5/0": null,
+    "0/-3": null
+  },
+  "intervalFromRetention": {
+    "h_0.1": 1,
+    "h_1.7635": 1,
+    "h_176.35": 27,
+    "h_4002.94": 365,
+    "h_100000": 365,
+    "h_50_r0.85": 12,
+    "h_50_r0.92": 6
+  }
+}

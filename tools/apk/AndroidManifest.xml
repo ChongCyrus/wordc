@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WordC · 最小 WebView 壳
+  - package 固定 com.wordc.app（签名/升级依赖 package 不变）
+  - minSdk 24（Android 7.0）/ targetSdk 34（Android 14）
+  - 应用名用中文字面量，避免额外 strings.xml
+  - 版本号由 tools/apk/build-apk.sh 在打包前从 package.json 注入（见占位符 @VERSION_NAME@）
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.wordc.app"
+    android:versionCode="@VERSION_CODE@"
+    android:versionName="@VERSION_NAME@">
+
+    <uses-sdk
+        android:minSdkVersion="24"
+        android:targetSdkVersion="34" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 仅 Android 9 及以下（API 24–28）写公共 Downloads 目录需要；API 29+ 走 MediaStore 无需权限 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!--
+      usesCleartextTraffic：PWA 本体走 https://appassets.local 拦截加载，不依赖明文；
+      保留 true 是为了后续内嵌代理/本地调试连接 http 服务时不至于被系统拦截。
+    -->
+    <application
+        android:label="WordC"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
+        android:allowBackup="true"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
