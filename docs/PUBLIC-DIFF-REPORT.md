@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-11T15:39:17.319Z
+- 生成时间：2026-11-11T16:43:59.804Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**289**；修改 **64**；新增 **3**；私有仓未进入公开树 **1664**
+- 公开文件：**292**；修改 **64**；新增 **3**；私有仓未进入公开树 **1662**
 
 ## 结论
 
@@ -86,6 +86,7 @@
 
 - `.secrets/apk-keystore-pass`
 - `.secrets/apk-release.jks`
+- `.secrets/bailian-key`
 - `.secrets/deepseek-key`
 - `.secrets/github-token`
 - `.secrets/github-token-delete`
@@ -108,7 +109,6 @@
 - `docs/E2E.md`
 - `docs/MIRRORS.md`
 - `docs/OFFICIAL-ALIGNMENT.md`
-- `docs/PLUGIN-GET-IT-FOR-FREE.md`
 - `docs/PUBLIC-PLAN.md`
 - `docs/PUBLIC-README.md`
 - `docs/PUBLIC-RELEASE.md`
@@ -128,8 +128,6 @@
 - `tools/apk`
 - `tools/e2e`
 - `tools/github`
-- `tools/list-suspicious-semantics.mjs`
-- `tools/merge-rerun-semantics.mjs`
 - `tools/sanitize-public.mjs`
 - `vendor/research-algo`
 
