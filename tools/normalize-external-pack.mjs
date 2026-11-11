@@ -106,6 +106,7 @@ export function normalizeEntries(inputs, opts = {}) {
   const errors = []
   const skipped = []
   const semantics = new Map()
+  const semGroups = new Map() // headwordLower -> {headword, meanings: Map(meaningIndex->meaning)}
   const content = new Map()
   for (const { entries, file } of inputs) {
     for (const raw of entries) {
@@ -116,10 +117,15 @@ export function normalizeEntries(inputs, opts = {}) {
       const lower = String(pick(raw, 'headwordLower', 'wordLower') ?? headword).toLowerCase()
       // 语义：per-c labels 或已聚合的 coreSenses/meaningMap
       if (Array.isArray(raw.meanings) && raw.meanings.some((m) => pick(m, 'coreSenseLabel', 'label', 'coreSense') !== undefined)) {
-        const target = { headword, headwordLower: lower, meanings: raw.meanings.map((m, i) => ({ meaningIndex: Number(m.meaningIndex ?? i + 1), cn: String(pick(m, 'cn', 'meaning', 'zh') ?? '') })) }
-        const agg = aggregateSemanticsLabels({ json: { items: [raw] }, targets: [target] })
-        if (agg.error) { errors.push({ where, message: agg.error }); continue }
-        for (const it of agg.byKey.values()) semantics.set(it.headwordLower, it)
+        // 归组：兼容「每词一行」与「flat per-c 多行」；同 headword 的 meanings 合并
+        const group = semGroups.get(lower) ?? { headword, headwordLower: lower, meanings: new Map() }
+        for (let i = 0; i < raw.meanings.length; i += 1) {
+          const m = raw.meanings[i]
+          const mi = Number(m.meaningIndex ?? m.meaning ?? i + 1)
+          if (!Number.isInteger(mi) || mi < 1) continue
+          group.meanings.set(mi, { ...m, meaningIndex: mi, cn: String(pick(m, 'cn', 'meaning', 'zh') ?? '') })
+        }
+        semGroups.set(lower, group)
         continue
       }
       if (Array.isArray(raw.coreSenses) && Array.isArray(raw.meaningMap)) {
@@ -142,6 +148,15 @@ export function normalizeEntries(inputs, opts = {}) {
       }
       content.set(key, cur)
     }
+  }
+  // 语义归组后聚合（同 headword 的所有 c 一次进 aggregate，保证覆盖/同 label 一致）
+  for (const group of semGroups.values()) {
+    const meanings = [...group.meanings.values()].sort((a, b) => a.meaningIndex - b.meaningIndex)
+    const raw = { headword: group.headword, meanings }
+    const target = { headword: group.headword, headwordLower: group.headwordLower, meanings: meanings.map((m) => ({ meaningIndex: m.meaningIndex, cn: m.cn })) }
+    const agg = aggregateSemanticsLabels({ json: { items: [raw] }, targets: [target] })
+    if (agg.error) { errors.push({ where: `${group.headwordLower} (grouped)`, message: agg.error }); continue }
+    for (const it of agg.byKey.values()) semantics.set(it.headwordLower, it)
   }
   // 去重/上限（按 en/text 规范化）
   for (const it of [...semantics.values(), ...content.values()]) {

@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-11T16:43:59.804Z
+- 生成时间：2026-11-11T16:46:23.376Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**292**；修改 **64**；新增 **3**；私有仓未进入公开树 **1662**
+- 公开文件：**294**；修改 **65**；新增 **3**；私有仓未进入公开树 **1664**
 
 ## 结论
 
@@ -78,6 +78,7 @@
 | `tools/apk/src/com/dsh/momoreword/MainActivity.java` | 配置/文案（Java） | 包名/文案变化（预期） |
 | `tools/e2e/package-lock.json` | 配置 | JSON 字段变化 |
 | `tools/e2e/package.json` | 配置 | JSON 字段变化 |
+| `tools/export-words-for-ai.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tools/lib/deck-words.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tools/make-deck-from-export.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `vite.config.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
@@ -107,6 +108,7 @@
 - `docs/DECISIONS.md`
 - `docs/DEMO-STORYBOARD.md`
 - `docs/E2E.md`
+- `docs/EXTERNAL-AI-PIPELINE.md`
 - `docs/MIRRORS.md`
 - `docs/OFFICIAL-ALIGNMENT.md`
 - `docs/PUBLIC-PLAN.md`
@@ -125,6 +127,7 @@
 - `scripts/logs`
 - `src/data`
 - `tests/e2e`
+- `tests/tools`
 - `tools/apk`
 - `tools/e2e`
 - `tools/github`
