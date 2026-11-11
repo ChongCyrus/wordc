@@ -315,15 +315,17 @@ describe('迁移包 v2（含今日 plan）', () => {
   it('export → clearAllData → import(replace)：今日 plan 恢复且状态一致', async () => {
     const { deck } = await setupDeck(10)
     await updateSettings({ 'study.dailyGoal': 5 })
-    const plan = await getTodayPlan({ now: NOW })
-    await rateInPlan({ wordId: plan.wordIds[0]!, rating: 'vague', now: NOW + 1000 })
+    // 迁移包只带「导出当天」的 plan：必须用真实当前时间，否则过零点后固定 NOW 会变昨天（跨零点测试 bug）
+    const now = Date.now()
+    const plan = await getTodayPlan({ now })
+    await rateInPlan({ wordId: plan.wordIds[0]!, rating: 'vague', now: now + 1000 })
     const planBefore = (await getDb().plans.get(plan.id))!
 
     const text = await (await exportMigration()).text()
     const file = JSON.parse(text) as { data: { plans?: DailyPlan[] }; counts: { plans?: number } }
     expect(file.data.plans).toHaveLength(1)
     expect(file.counts.plans).toBe(1)
-    expect(file.data.plans![0]!.date).toBe(localDateKey(NOW))
+    expect(file.data.plans![0]!.date).toBe(localDateKey(now))
 
     await clearAllData()
     expect(await getDb().plans.count()).toBe(0)
@@ -339,15 +341,16 @@ describe('迁移包 v2（含今日 plan）', () => {
   it('非今日 plan 导入时忽略（warning）；merge 模式保留本机 plan', async () => {
     await setupDeck(10)
     await updateSettings({ 'study.dailyGoal': 5 })
-    const plan = await getTodayPlan({ now: NOW })
+    const now = Date.now() // 同上：动态当天，避免跨零点
+    const plan = await getTodayPlan({ now })
     const text = await (await exportMigration({ includeReviewLogs: false })).text()
     const file = JSON.parse(text) as { data: { plans?: DailyPlan[] } }
-    file.data.plans![0]!.date = localDateKey(NOW - 1 * DAY) // 改成昨天
+    file.data.plans![0]!.date = localDateKey(now - 1 * DAY) // 改成昨天
     // 重算 checksum 太繁：用 force 走强制导入
     const report = await importMigration(stableStringify(file), { strategy: 'replace', force: true })
     expect(report.ok).toBe(true)
     expect(report.issues.some((issue) => issue.path === 'data.plans')).toBe(true)
-    expect((await getDb().plans.get(plan.id))!.date).toBe(localDateKey(NOW)) // 本机今日 plan 未被覆盖
+    expect((await getDb().plans.get(plan.id))!.date).toBe(localDateKey(now)) // 本机今日 plan 未被覆盖
   }, 120_000)
 })
 

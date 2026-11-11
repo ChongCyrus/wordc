@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-11T14:47:09.346Z
+- 生成时间：2026-11-11T15:39:17.319Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**281**；修改 **62**；新增 **3**；私有仓未进入公开树 **1659**
+- 公开文件：**289**；修改 **64**；新增 **3**；私有仓未进入公开树 **1664**
 
 ## 结论
 
@@ -68,6 +68,7 @@
 | `tests/e2e/data-robustness.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/demo-public.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/v2-e2e.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `tests/tools/deck-split.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/ui/brand.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/ui/files-bridge.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/ui/pages-smoke.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
@@ -77,6 +78,7 @@
 | `tools/apk/src/com/dsh/momoreword/MainActivity.java` | 配置/文案（Java） | 包名/文案变化（预期） |
 | `tools/e2e/package-lock.json` | 配置 | JSON 字段变化 |
 | `tools/e2e/package.json` | 配置 | JSON 字段变化 |
+| `tools/lib/deck-words.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tools/make-deck-from-export.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `vite.config.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 
@@ -87,9 +89,11 @@
 - `.secrets/deepseek-key`
 - `.secrets/github-token`
 - `.secrets/github-token-delete`
+- `.secrets/juflowai-key`
 - `.secrets/maimemo-token`
 - `.secrets/push-state.json`
 - `.secrets/user-export`
+- `.secrets/zhipu-key`
 - `START.md`
 - `data/raw`
 - `docs/ACCEPTANCE-0.2.0.md`
@@ -102,9 +106,9 @@
 - `docs/DECISIONS.md`
 - `docs/DEMO-STORYBOARD.md`
 - `docs/E2E.md`
-- `docs/FREE-LLM-PROVIDERS.md`
 - `docs/MIRRORS.md`
 - `docs/OFFICIAL-ALIGNMENT.md`
+- `docs/PLUGIN-GET-IT-FOR-FREE.md`
 - `docs/PUBLIC-PLAN.md`
 - `docs/PUBLIC-README.md`
 - `docs/PUBLIC-RELEASE.md`
@@ -120,16 +124,12 @@
 - `scripts/deliver.sh`
 - `scripts/logs`
 - `src/data`
-- `tests/data`
 - `tests/e2e`
-- `tests/tools`
-- `tests/ui`
-- `tools/analyze-semantics-pack.mjs`
 - `tools/apk`
 - `tools/e2e`
 - `tools/github`
-- `tools/lib`
-- `tools/merge-semantics-packs.mjs`
+- `tools/list-suspicious-semantics.mjs`
+- `tools/merge-rerun-semantics.mjs`
 - `tools/sanitize-public.mjs`
 - `vendor/research-algo`
 
