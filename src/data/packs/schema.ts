@@ -125,7 +125,7 @@ export const packFileSchema = z.object({
   createdAt: z.number().int().nonnegative(),
   generator: z.string().min(1),
   meta: packMetaSchema,
-  items: z.array(packItemSchema).min(1).max(20000),
+  items: z.array(packItemSchema).min(1).max(50000),
   checksum: z.string().min(8),
 })
 

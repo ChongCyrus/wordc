@@ -15,12 +15,13 @@ const meaningBase = {
   familiarity: 0,
 }
 
-function annotation(meanings: unknown[]): string {
+function annotation(meanings: unknown[], coreSenses: Array<{ label: string; note?: string; origin?: string }> = []): string {
   return renderToStaticMarkup(
     createElement(AnnotationStage, {
       headword: 'company',
       phonetic: '',
       showPhonetic: false,
+      coreSenses,
       meanings: meanings as never,
       examples: [],
       mnemonics: [],
@@ -71,6 +72,34 @@ describe('本义→引申链（task-77）', () => {
     expect(html).toContain('AI 推演，仅供参考')
     // 第二个 c 无链 → 只出现一次
     expect(html.match(/本义①/g)?.length).toBe(1)
+  })
+
+  it('注释面顶部列出本义1~n（task-98/101）；三层渲染 + 无 coreSenses 不显示', () => {
+    const two = annotation(
+      [{ ...meaningBase, derivation: { steps: ['车间', '研讨会'] } }],
+      [
+        { label: '基础', note: '事物的根本或起点', origin: '希腊 basis=基础' },
+        { label: '同伴' },
+      ],
+    )
+    expect(two).toContain('本义1「基础」')
+    expect(two).toContain('本义2「同伴」')
+    expect(two).toContain('事物的根本或起点')
+    expect(two).toContain('词源：希腊 basis=基础')
+    // 每个 c 行链保留，不折叠
+    expect(two).toContain('本义① 「车间」')
+
+    const single = annotation([meaningBase], [{ label: '公司' }])
+    expect(single).toContain('本义1「公司」')
+    expect(single).not.toContain('本义2')
+
+    const none = annotation([meaningBase])
+    expect(none).not.toContain('core-senses')
+
+    // 旧 v3 违规 label 兜底
+    const legacy = annotation([meaningBase], [{ label: '看是否指图纸' }])
+    expect(legacy).toContain('本义待重新生成')
+    expect(legacy).toContain('原标签：看是否指图纸')
   })
 
   it('w-c：当前 c 的链随 c 切换更新；长文本使用可换行样式', () => {

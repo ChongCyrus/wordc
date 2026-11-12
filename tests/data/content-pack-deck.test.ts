@@ -54,6 +54,14 @@ async function setupConflictDecks() {
           { pos: 'n.', cn: '拥抱（名词）' },
         ],
       },
+      // 仅受限商业词表存在的词：用于「packDeckId 不存在 → 回退任意 deck」的 CI 稳定断言
+      {
+        headword: 'solitary',
+        meanings: [
+          { pos: 'adj.', cn: '孤独的' },
+          { pos: 'adj.', cn: '独自的' },
+        ],
+      },
     ],
   })
   await updateSettings({ 'data.selectedDeckId': dagang.id }) // 默认选中大纲（旧行为会误命中）
@@ -248,13 +256,25 @@ describe('task-90：pack.meta.deckId 优先解析（多词库同 headword）', (
 
   it('meta.deckId 指向不存在的 deck：resolveAllDecks 时回退到任意 deck（不阻断）', async () => {
     const { hong } = await setupConflictDecks()
-    const file = await makePack([semanticsItem()], 'semantics', { deckId: 'missing-deck' })
+    // 用仅存在于受限商业词表的 headword，保证候选唯一（CI/本地一致，不依赖 deck 创建顺序）
+    const file = await makePack(
+      [
+        {
+          headword: 'solitary',
+          headwordLower: 'solitary',
+          meaningIndex: 2,
+          coreSenses: [{ index: 1, label: '独自', confidence: 'high' }],
+          meaningMap: [{ meaningIndex: 2, coreSenseIndex: 1 }],
+        },
+      ],
+      'semantics',
+      { deckId: 'missing-deck' },
+    )
     const imported = await importPack(JSON.stringify(file), { resolveAllDecks: true })
     expect(imported.ok).toBe(true)
     expect(imported.preview.matched).toHaveLength(1)
-    // 回退候选顺序不确定，但应命中某个真实词（受限商业词表 4 义或大纲 1 义）
-    expect(imported.preview.matched[0]!.wordId.endsWith(':embrace')).toBe(true)
-    expect([hong.id, 'missing-deck']).toContain(imported.preview.matched[0]!.deckId!)
+    expect(imported.preview.matched[0]!.wordId).toBe(`${hong.id}:solitary`)
+    expect(imported.preview.matched[0]!.deckId).toBe(hong.id)
   })
 
   it('reapplyPack：旧 pack 因误命中大纲而 skipped 的条目，可指定 deckId 重新应用', async () => {

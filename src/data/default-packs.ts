@@ -110,7 +110,7 @@ export interface EnsureDefaultPacksOptions {
   /** 进度回调（导入/补审/重应用；供 UI 进度条） */
   onProgress?: (progress: {
     path: string
-    phase: 'import' | 'approve' | 'apply' | ReapplyProgress['phase']
+    phase: 'import' | 'approve' | 'write' | 'apply' | ReapplyProgress['phase']
     done: number
     total: number
     retried?: number
@@ -178,6 +178,7 @@ export async function ensureDefaultContentPacks(
 
   for (const entry of entries) {
     const url = joinUrl(baseUrl, entry.path)
+    opts.onProgress?.({ path: entry.path, phase: 'import', done: 0, total: 1 })
     try {
       const response = await fetchImpl(url)
       if (!response.ok) {
@@ -189,7 +190,16 @@ export async function ensureDefaultContentPacks(
       }
       const text = await response.text()
       // 默认包可能属于任意词库（公开版=大纲；私版可同时有受限商业词表）→ 跨全部 deck 解析
-      const imported = await importContentPack(text, { resolveAllDecks: true })
+      const imported = await importContentPack(text, {
+        resolveAllDecks: true,
+        onProgress: (progress) =>
+          opts.onProgress?.({
+            path: entry.path,
+            phase: progress.phase,
+            done: progress.done,
+            total: progress.total,
+          }),
+      })
       if (!imported.ok) {
         const message = imported.issues.map((issue) => issue.message).join('；') || '内容包导入失败'
         allOk = false
@@ -246,8 +256,11 @@ export async function ensureDefaultContentPacks(
       const pendingIds = items.filter((item) => item.status === 'pending').map((item) => item.id)
       if (pendingIds.length > 0) await approveItems(imported.packId, pendingIds)
       opts.onProgress?.({ path: entry.path, phase: 'approve', done: 1, total: 1 })
-      const applied = await applyApproved(imported.packId)
-      opts.onProgress?.({ path: entry.path, phase: 'apply', done: 1, total: 1, applied: applied.applied })
+      const applied = await applyApproved(imported.packId, {
+        onProgress: (progress) =>
+          opts.onProgress?.({ path: entry.path, phase: 'apply', done: progress.done, total: progress.total }),
+      })
+      opts.onProgress?.({ path: entry.path, phase: 'apply', done: applied.applied, total: applied.applied, applied: applied.applied })
       importedTotal += imported.preview.counts.matched
       appliedTotal += applied.applied
       packs.push({ id: entry.id, path: entry.path, status: 'imported', imported: imported.preview.counts.matched, applied: applied.applied })

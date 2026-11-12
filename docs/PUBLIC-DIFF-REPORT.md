@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T02:45:24.309Z
+- 生成时间：2026-11-12T04:09:45.761Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**304**；修改 **71**；新增 **5**；私有仓未进入公开树 **1689**
+- 公开文件：**312**；修改 **72**；新增 **5**；私有仓未进入公开树 **1689**
 
 ## 结论
 
@@ -29,6 +29,7 @@
 | `docs/UI-APP.md` | 配置/文档 | 文本变化 |
 | `docs/UI-STUDY.md` | 配置/文档 | 文本变化 |
 | `docs/assets/demo/README.md` | 配置/文档 | 文本变化 |
+| `docs/prompts/semantics-v4.md` | 配置/文档 | 文本变化 |
 | `package.json` | 配置 | JSON 字段变化 |
 | `public/packs/dagang/semantics-v37.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
 | `public/packs/dagang/wc-content-full.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
@@ -128,7 +129,6 @@
 - `docs/QA-AUDIT-v2.md`
 - `docs/QA-v2.md`
 - `docs/QA.md`
-- `docs/RESOURCE-POLICY.md`
 - `docs/RUN.md`
 - `docs/SPEC-CONTENT-PACKS.md`
 - `docs/assets`

@@ -180,6 +180,8 @@ export interface GenerateResponse {
   costYuan: number
   /** 是否因取消而提前结束 */
   canceled: boolean
+  /** 本次生成使用的 prompt 版本（UI 写 pack.meta.promptVersion 用；task-100） */
+  promptVersion: string
 }
 
 /** 生成结果的单位置键：`headwordLower` 或 `headwordLower#meaningIndex` */

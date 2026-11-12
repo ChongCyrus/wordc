@@ -351,3 +351,318 @@ export function selfMeaningSemanticsItem(target: SemanticsValidateTarget): PackI
   }
 }
 
+
+// ============ v4：grouped semantics 校验器（task-96 规格，task-97 实现） ============
+
+/** v4 label 硬性格式：2–6 个纯汉字 */
+export const V4_LABEL_RE = /^[\u4e00-\u9fff]{2,6}$/
+/** v4 label 黑名单（出现即不合格） */
+export const V4_LABEL_BLACKLIST: readonly string[] = [
+  '是否', '看', '检查', '判断', '确认', '核对', '推导',
+  '源自', '源古', '来自', '出自', '词源', '词根',
+  '希腊', '拉丁', '英语', '法语', '德语', '古英语',
+  '→', '->', '第一步', '第二步',
+  '可能', '大概', '也许', '疑似',
+]
+/** v4 steps 黑名单 */
+export const V4_STEP_BLACKLIST: readonly string[] = [
+  '是否', '看', '检查', '判断', '确认', '核对', '来源',
+  '源自', '来自', '出自', '词源', '词根', '希腊', '拉丁', '英语', '法语', '德语', '→', '->', '推导',
+]
+const V4_DOUBLE_DE = /的[^的]{0,6}的/
+const V4_PUNCT = /[，。；：、！？"'“”‘’（）()\[\]【】<>《》\d]/
+const V4_ORIGIN_OK = /(=|＝|即|意为|意思是|指)/
+const V4_ORIGIN_BAD_PREFIX = /^(源自|来自|出自)/
+const V4_CONFIDENCE: readonly string[] = ['high', 'medium', 'low']
+
+/** v4 模型原始条目（宽容 schema：先接住，再由校验器修/判） */
+export const semanticsV4ItemSchema = z.object({
+  headword: z.string().min(1).max(120),
+  headwordLower: z.string().max(120).optional(),
+  coreSenses: z
+    .array(
+      z.object({
+        index: z.number().int().min(1).max(99),
+        label: z.string().max(120).default(''),
+        gloss: z.string().max(200).optional(),
+        note: z.string().max(200).optional(),
+        origin: z.string().max(120).optional(),
+        confidence: z.string().max(20).optional(),
+      }),
+    )
+    .min(1)
+    .max(8),
+  meaningMap: z.array(
+    z.object({
+      meaningIndex: z.number().int().min(1).max(200),
+      coreSenseIndex: z.number().int().min(1).max(99),
+      steps: z.array(z.string().max(200)).max(12).optional(),
+    }),
+  ),
+})
+export const semanticsV4ResponseSchema = z.object({ items: z.array(semanticsV4ItemSchema).max(500) })
+
+export interface SemanticsV4ItemResult {
+  headword: string
+  ok: boolean
+  errors: string[]
+  warnings: string[]
+  item?: PackItemV1
+}
+
+export interface SemanticsV4ValidationResult {
+  byKey: Map<string, PackItemV1>
+  items: SemanticsV4ItemResult[]
+  errors: string[]
+  warnings: string[]
+}
+
+/** label 归一（§2.4）：NFKC 全角→半角、去空白、去结尾「的」；不做小写（中文 label） */
+export function normalizeV4Label(raw: string): string {
+  return raw
+    .normalize('NFKC')
+    .replace(/[\s\u3000]+/g, '')
+    .trim()
+    .replace(/的$/, '')
+}
+
+function editDistanceAtMost1(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false
+  if (a === b) return true
+  let i = 0
+  while (i < a.length && i < b.length && a[i] === b[i]) i += 1
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1) // 替换
+  if (a.length > b.length) return a.slice(i + 1) === b.slice(i) // 删除
+  return a.slice(i) === b.slice(i + 1) // 插入
+}
+
+function weakestConfidenceOf(list: string[]): 'high' | 'medium' | 'low' {
+  const valid = list.filter((item): item is 'high' | 'medium' | 'low' => V4_CONFIDENCE.includes(item))
+  if (valid.length !== list.length) valid.push('low')
+  if (valid.length === 0) return 'low'
+  return valid.reduce((acc, cur) => (CONFIDENCE_RANK[cur] < CONFIDENCE_RANK[acc] ? cur : acc), 'high')
+}
+
+/** 校验/修复单个 v4 条目 */
+function validateV4ItemAgainstTarget(
+  raw: z.infer<typeof semanticsV4ItemSchema>,
+  target: SemanticsValidateTarget,
+): SemanticsV4ItemResult {
+  const errors: string[] = []
+  const warnings: string[] = []
+  const M = Math.max(1, target.meanings.length)
+
+  // 1) trim + 按 index 排序/重排（不连续/重复 → 按数组顺序修复）
+  const senses = raw.coreSenses.map((sense) => ({
+    index: sense.index,
+    label: (sense.label ?? '').trim(),
+    gloss: (sense.gloss ?? sense.note ?? '').trim(),
+    origin: (sense.origin ?? '').trim(),
+    confidenceRaw: (sense.confidence ?? '').trim(),
+  }))
+  const indexSorted = senses.slice().sort((a, b) => a.index - b.index)
+  const originalIndices = indexSorted.map((sense) => sense.index)
+  const uniqueIndices = new Set(originalIndices)
+  if (uniqueIndices.size !== originalIndices.length) {
+    warnings.push('E_SENSE_INDEX_FIXED:duplicate-index')
+  }
+  const reordered = indexSorted.map((sense, i) => ({ ...sense, oldIndex: sense.index, index: i + 1 }))
+  if (reordered.length > 4) errors.push('E_SENSE_COUNT:>4')
+  if (reordered.length === 0) errors.push('E_SENSE_COUNT:0')
+
+  // 2) label/gloss/origin/confidence 逐项校验
+  for (const sense of reordered) {
+    const label = sense.label
+    if (!V4_LABEL_RE.test(label)) errors.push(`E_LABEL_FORMAT:${label || '(空)'}`)
+    else if (V4_PUNCT.test(label)) errors.push(`E_LABEL_PUNCT:${label}`)
+    else if (V4_LABEL_BLACKLIST.some((word) => label.includes(word))) errors.push(`E_LABEL_BANNED:${label}`)
+    else if (V4_DOUBLE_DE.test(label)) errors.push(`E_LABEL_DE:${label}`)
+    if (!sense.gloss) warnings.push(`E_GLOSS_MISSING:${label || '(空)'}`)
+    else if (sense.gloss.length > 40) errors.push(`E_GLOSS_LEN:${label}`)
+    if (sense.origin) {
+      if (sense.origin.length > 20) errors.push(`E_ORIGIN_LEN:${label}`)
+      else if (V4_ORIGIN_BAD_PREFIX.test(sense.origin) || !V4_ORIGIN_OK.test(sense.origin)) {
+        errors.push(`E_ORIGIN_NO_EXPLAIN:${label}`)
+      }
+    }
+    if (sense.confidenceRaw && !V4_CONFIDENCE.includes(sense.confidenceRaw)) {
+      warnings.push(`E_CONFIDENCE_FIXED:${label}`)
+    }
+  }
+
+  // 3) label 近义合并（§2.4 规则 1–3；规则 4 编辑距离 ≤1 仅 warning）
+  const parent = reordered.map((_, i) => i)
+  const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x]!)))
+  const union = (a: number, b: number) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb)
+  }
+  const normalized = reordered.map((sense) => normalizeV4Label(sense.label))
+  for (let i = 0; i < reordered.length; i += 1) {
+    for (let j = i + 1; j < reordered.length; j += 1) {
+      const a = normalized[i]!
+      const b = normalized[j]!
+      if (!a || !b) continue
+      if (a === b) {
+        union(i, j)
+        warnings.push(`E_LABEL_DUP_MERGED:${reordered[i]!.label}/${reordered[j]!.label}`)
+      } else if (a.length >= 2 && b.length >= 2 && (a.includes(b) || b.includes(a))) {
+        union(i, j)
+        warnings.push(`E_LABEL_SIMILAR_MERGED:${reordered[i]!.label}/${reordered[j]!.label}`)
+      } else if (editDistanceAtMost1(a, b)) {
+        warnings.push(`E_LABEL_SIMILAR:${reordered[i]!.label}/${reordered[j]!.label}`)
+      }
+    }
+  }
+  // 分组（按最小原始 index 顺序）；label 取最短成员（包含关系合并为较短者）
+  const groupMap = new Map<number, typeof reordered>()
+  for (const sense of reordered) {
+    const root = find(reordered.indexOf(sense))
+    const list = groupMap.get(root) ?? []
+    list.push(sense)
+    groupMap.set(root, list)
+  }
+  const groups = [...groupMap.values()]
+    .map((members) => {
+      const sortedByLen = members.slice().sort((a, b) => a.label.length - b.label.length || a.index - b.index)
+      const chosen = sortedByLen[0]!
+      const gloss = chosen.gloss || members.find((sense) => sense.gloss)?.gloss || ''
+      const origin = chosen.origin || members.find((sense) => sense.origin)?.origin || ''
+      return {
+        label: chosen.label,
+        gloss,
+        origin,
+        confidence: weakestConfidenceOf(members.map((sense) => sense.confidenceRaw)),
+        minIndex: Math.min(...members.map((sense) => sense.index)),
+        oldIndices: members.map((sense) => sense.oldIndex),
+      }
+    })
+    .sort((a, b) => a.minIndex - b.minIndex)
+  const oldIndexToGroup = new Map<number, number>()
+  groups.forEach((group, index) => {
+    for (const oldIndex of group.oldIndices) oldIndexToGroup.set(oldIndex, index + 1)
+  })
+
+  // 4) meaningMap 校验（范围/重复/coreSenseIndex 有效；无效引用丢弃后触发缺失）
+  const seenMeanings = new Set<number>()
+  const mapped: Array<{ meaningIndex: number; coreSenseIndex: number; steps?: string[] }> = []
+  for (const entry of raw.meaningMap) {
+    if (entry.meaningIndex < 1 || entry.meaningIndex > M) {
+      errors.push(`E_MAP_RANGE:${entry.meaningIndex}`)
+      continue
+    }
+    if (seenMeanings.has(entry.meaningIndex)) {
+      errors.push(`E_MAP_DUP:${entry.meaningIndex}`)
+      continue
+    }
+    const groupIndex = oldIndexToGroup.get(entry.coreSenseIndex)
+    if (!groupIndex) {
+      errors.push(`E_MAP_INDEX:${entry.meaningIndex}`)
+      continue
+    }
+    seenMeanings.add(entry.meaningIndex)
+    const validSteps: string[] = []
+    if (entry.steps && entry.steps.length > 0) {
+      const trimmed = entry.steps.map((step) => step.trim()).filter(Boolean)
+      const stepsOk =
+        trimmed.length >= 2 &&
+        trimmed.length <= 4 &&
+        trimmed.every((step) => step.length >= 2 && step.length <= 20 && !V4_STEP_BLACKLIST.some((word) => step.includes(word)))
+      if (stepsOk) validSteps.push(...trimmed)
+      else warnings.push(`E_STEPS_DROPPED:${entry.meaningIndex}`)
+    }
+    mapped.push({
+      meaningIndex: entry.meaningIndex,
+      coreSenseIndex: groupIndex,
+      ...(validSteps.length > 0 ? { steps: validSteps } : {}),
+    })
+  }
+  for (let i = 1; i <= M; i += 1) {
+    if (!seenMeanings.has(i)) errors.push(`E_MAP_MISSING:${i}`)
+  }
+
+  // 5) 孤儿本义：删除未被引用的 coreSenses，重排 + 重映射
+  const usedGroups = new Set(mapped.map((entry) => entry.coreSenseIndex))
+  const keptGroups = groups.filter((_, index) => usedGroups.has(index + 1))
+  if (keptGroups.length !== groups.length) {
+    warnings.push('E_SENSE_UNUSED_FIXED')
+    const groupNewIndex = new Map<number, number>()
+    groups.forEach((_, index) => {
+      const old = index + 1
+      if (usedGroups.has(old)) groupNewIndex.set(old, keptGroups.findIndex((group) => group === groups[index]) + 1)
+    })
+    for (const entry of mapped) {
+      entry.coreSenseIndex = groupNewIndex.get(entry.coreSenseIndex) ?? entry.coreSenseIndex
+    }
+  }
+  if (keptGroups.length === 0) errors.push('E_SENSE_COUNT:0')
+
+  const headword = raw.headword.trim()
+  const lower = normalizeHeadword(raw.headwordLower ?? raw.headword)
+  if (errors.length > 0) return { headword, ok: false, errors, warnings }
+
+  const coreSenses: CoreSense[] = keptGroups.map((group, index) => ({
+    index: index + 1,
+    label: group.label,
+    ...(group.gloss ? { note: group.gloss } : {}),
+    ...(group.origin ? { origin: group.origin } : {}),
+    confidence: group.confidence,
+  }))
+  const meaningMap: MeaningMapEntry[] = mapped
+    .sort((a, b) => a.meaningIndex - b.meaningIndex)
+    .map((entry) => ({
+      meaningIndex: entry.meaningIndex,
+      coreSenseIndex: entry.coreSenseIndex,
+      ...(entry.steps ? { steps: entry.steps } : {}),
+    }))
+  const item: PackItemV1 = {
+    headword: target.headword,
+    headwordLower: lower,
+    ...(target.meaningIndex != null ? { meaningIndex: target.meaningIndex } : {}),
+    coreSenses,
+    meaningMap,
+  }
+  return { headword, ok: true, errors, warnings, item }
+}
+
+/**
+ * v4 grouped semantics 校验 + 自动修复（纯函数；App/CLI 共用）。
+ *
+ * 输入：模型 JSON（`{items:[{headword,coreSenses,meaningMap}]}`）+ 目标词含义列表；
+ * 输出：通过校验的 `PackItemV1`（gloss→coreSense.note）+ 每个词的 errors/warnings。
+ * 自动修复顺序见 docs/SEMANTICS-FORMAT.md §5.4；结构不变量/质量硬错误不通过 → 触发 repair 重试。
+ */
+export function validateSemanticsV4Items(input: {
+  json: unknown
+  targets: readonly SemanticsValidateTarget[]
+}): SemanticsV4ValidationResult {
+  const byKey = new Map<string, PackItemV1>()
+  const items: SemanticsV4ItemResult[] = []
+  const errors: string[] = []
+  const warnings: string[] = []
+  const parsed = semanticsV4ResponseSchema.safeParse(input.json)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    const message = `schema 校验失败：${issue?.path.join('.') ?? ''} ${issue?.message ?? ''}`.trim()
+    return { byKey, items, errors: [message], warnings }
+  }
+  const targetsByLower = new Map<string, SemanticsValidateTarget>()
+  for (const target of input.targets) {
+    targetsByLower.set(target.headwordLower ?? normalizeHeadword(target.headword), target)
+  }
+  for (const raw of parsed.data.items) {
+    const lower = normalizeHeadword(raw.headwordLower ?? raw.headword)
+    const target = targetsByLower.get(lower)
+    if (!target) {
+      warnings.push(`E_UNKNOWN_HEADWORD:${raw.headword}`)
+      continue
+    }
+    const result = validateV4ItemAgainstTarget(raw, target)
+    items.push(result)
+    errors.push(...result.errors.map((error) => `${lower}:${error}`))
+    warnings.push(...result.warnings.map((warning) => `${lower}:${warning}`))
+    if (result.ok && result.item) byKey.set(targetKey(lower, target.meaningIndex), result.item)
+  }
+  return { byKey, items, errors, warnings }
+}

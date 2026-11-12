@@ -100,6 +100,20 @@ node tools/gen-pack-deepseek.mjs --deck kaoyan-2027-dagang --kind semantics \
 - 小样实测（v3.5 定稿，2026-11-11）：20 个实词 / 42 c，**映射 42/42、0 失败/0 invalid**；**同本义多 c 组 14、maxGroupSize 3、label 逐字一致 14/14=100%**；**steps 覆盖非首义 c 100%**（61 条）；coreSenses 27、multi-core 6/20（AI 自然拆合，不硬拆）；confidence high 22/medium 5/low 0；**¥0.0227 / 6.6s**；company/make/sheet/well 补充 4 词 ¥0.0068；
 - 全量预估：1317 词 / 2715 c，约 **¥1.5–2.5、5–8 分钟**（以 `--max-cost 15` 兜底）。
 
+### 3.6.1 v4 grouped 输出（task-96，推荐；解决「本义 label 写成检查步骤/词源」）
+
+v3 让模型对**每个 c**各写一次 `coreSenseLabel`，实测出现 plan 的「看是否指图纸」、base 的「源自希腊 basis」这类**非含义**标签，且同本义措辞漂移。**v4 改为 grouped：每词只输出一份 `coreSenses`，c 用 `coreSenseIndex` 引用 → 结构上保证同本义 label 逐字一致。**
+
+- 输出：`{items:[{headword, coreSenses:[{index,label,gloss,origin?,confidence}], meaningMap:[{meaningIndex,coreSenseIndex,steps?}]}]}`；
+- `label`：2–6 个汉字、必须是**含义**（基础/图纸/计划/抽取…）；黑名单：是否/看/检查/源自/源古/来自/词源/词根/希腊/拉丁/英语/→ 等；
+- `gloss`：≤40 字解释本义；`origin`：≤20 字且**必须含含义解释**（`拉丁 basis=基础`），没把握省略；`steps`：2–4 步、每步≤20 字，只写含义演变；
+- 校验器规则 + plan/base/abstract/tunnel 期望输出：见 **[docs/SEMANTICS-FORMAT.md](./SEMANTICS-FORMAT.md)**；
+- 代码常量：`src/data/ai/prompts.ts` 的 `PROMPT_VERSION_V4` / `SEMANTICS_JSON_SCHEMA_V4` / `buildSystemPromptV4()` / `buildUserPromptV4()` / `buildSemanticsRepairPromptV4()`；
+- **canonical 外部/子代理提示词：[docs/prompts/semantics-v4.md](./prompts/semantics-v4.md)**（与 `prompts.ts` 逐字一致，由 `tests/data/ai/semantics-prompt-consistency.test.ts` 守护）。外部 workflow/子代理**直接复制该 md 的 system+user 文本**；App/CLI 走 `prompts.ts`；
+- **落地状态（2026-11-12）**：App 内批量生成（`src/data/ai/generate.ts`）与 CLI（`tools/gen-pack-deepseek.mjs`）都已切到 v4 prompt + `validateSemanticsV4Items()`；CLI 打印/写入 `prompt=${PROMPT_VERSION_V4}`，pack `meta.promptVersion='v4.0-semantics-grouped'`，可追溯；
+- **强制规则**：从 v4 起，任何批量生成（App/CLI/外部 workflow/子代理）必须使用 v4 或更新版本模板，不得再用 v3 per-c `coreSenseLabel` 格式；pack 必须记录 `meta.promptVersion`；
+- 旧 v3 pack 迁移：按 `(headword,label)` 聚合 → label 命中黑名单则整词标记待重生成 → 通过后转 grouped（详见 SEMANTICS-FORMAT §6）。
+
 ## 4. 费用参考
 
 | 范围 | 请求数（20词/批） | tokens(入/出) 实测/估算 | 费用 |

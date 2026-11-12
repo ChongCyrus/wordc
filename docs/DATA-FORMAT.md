@@ -307,7 +307,7 @@ checksum  = sha256(canonical) 的小写 hex（64 位）
 ## 5. 隐私
 
 - 迁移包**不含 `data.maimemoToken`**（导出时过滤）；也不含任何账号密码/代理密钥；
-- `plans` 只含导出当天的计划；`reviewLogs` 默认最多 20000 条（可在导出选项调整）；
+- `plans` 只含导出当天的计划；`reviewLogs` 默认最多 50000 条（可在导出选项调整）；
 - 所有数据仅保存在本机 IndexedDB；导入/导出都不经过网络。
 
 ## 6. CSV / TXT 输入
@@ -335,7 +335,7 @@ checksum  = sha256(canonical) 的小写 hex（64 位）
 | `kind` | `"examples"`\|`"phrases"`\|`"mnemonics"`\|`"mixed"` | ✅ | 内容类型；`mixed` 允许条目内混合 |
 | `createdAt` | number | ✅ | 生成/导出时间（ms） |
 | `generator` | string | ✅ | 生成器标识（如 `wordc-ai@0.4.0`） |
-| `items` | array | ✅ | 条目数组（单文件建议 ≤20000 条，超出分片） |
+| `items` | array | ✅ | 条目数组（单文件建议 ≤50000 条，超出分片） |
 | `checksum` | string | ✅ | 见 §8.4 |
 | `meta` | object | 否 | `name/description/source`（`ai`\|`manual`\|`import`）/`provider`/`model`/`promptVersion`/`scope`/`createdBy`/`licenseNote` |
 

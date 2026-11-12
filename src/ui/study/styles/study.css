@@ -1265,3 +1265,21 @@ html.study-reduce-motion .study-page *::after {
   line-height: 16px;
   max-width: 100%;
 }
+
+/* ---------- 注释面本义列表（task-98） ---------- */
+.core-senses {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 2px;
+  padding: 6px 0;
+  border-top: 1px dashed var(--mm-border);
+  color: var(--mm-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.core-sense-title { display: block; }
+.core-sense-gloss { display: block; opacity: 0.85; font-size: 11px; }
+.core-sense-origin { display: block; opacity: 0.75; font-size: 11px; }
+.core-sense-note { opacity: 0.7; font-size: 11px; }

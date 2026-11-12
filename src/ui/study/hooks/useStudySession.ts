@@ -73,7 +73,7 @@ import { readOfficialBool } from '../../../app/hooks/officialSettings'
 
 /** getEffectiveContent 的语义部分（task-75/77；缺字段时安全回退） */
 interface EffectiveSemantics {
-  coreSenses?: Array<{ label?: string; source?: string }>
+  coreSenses?: Array<{ label?: string; note?: string; origin?: string; source?: string }>
   meaningMap?: Array<{
     meaningIndex: number
     coreSenseIndex?: number
@@ -131,6 +131,8 @@ export interface StudyViewModel {
   mnemonics: MnemonicView[]
   /** w-c 页显示的词组（含当前 w/c，最多 3 条） */
   memoryPhrases: PhraseView[]
+  /** 该词全部本义（task-98；无则不渲染） */
+  coreSenses: Array<{ label: string; note?: string; origin?: string }>
   /** w-c 当前 c 的本义→引申链（task-77；无映射 undefined） */
   memoryDerivation?: DerivationChainView
   progress: StudyProgress
@@ -891,6 +893,16 @@ export function useStudySession(options?: {
     mnemonics,
     memoryPhrases,
     memoryDerivation,
+    coreSenses: (effectiveSemantics?.coreSenses ?? [])
+      .filter(
+        (sense): sense is { label: string; note?: string; origin?: string } =>
+          Boolean(sense.label),
+      )
+      .map((sense) => ({
+        label: sense.label,
+        ...(sense.note ? { note: sense.note } : {}),
+        ...(sense.origin ? { origin: sense.origin } : {}),
+      })),
     nextHints,
     ratingLabels,
     progress,

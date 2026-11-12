@@ -36,6 +36,26 @@ const hasRealPacks = RUN_REAL_PACKS && REAL_PACKS.every((pack) => existsSync(pac
  * 受限商业词表语义 pack 与大纲同 headword 冲突时，必须按 pack.meta.deckId 解析到受限商业词表 deck，
  * applyApproved 后全量 applied（不再大量 unknown-meaning）。
  */
+describe.skipIf(!hasRealPacks)('真实 pack：大 pack 导入性能（task-95）', () => {
+  it('examples-phrases-full（28777 条）导入 <30s，28k 条全部落库', async () => {
+    const path = 'data/packs/hongbaoshu/examples-phrases-full.pack.json'
+    if (!existsSync(path)) return
+    await resetDatabase()
+    await ensureBuiltinDecks()
+    const raw = readFileSync(path, 'utf8') as string
+    const start = Date.now()
+    const imported = await importPack(raw, { resolveAllDecks: true })
+    const elapsed = Date.now() - start
+    expect(imported.ok, imported.issues.map((issue) => issue.message).join('; ')).toBe(true)
+    expect(imported.preview.counts.matched).toBe(28777)
+    expect(imported.preview.skipped).toHaveLength(0)
+    const items = await listPackItems(imported.packId!)
+    expect(items.length).toBe(28777)
+    console.log(`[perf] examples-phrases-full import: ${elapsed}ms`)
+    expect(elapsed).toBeLessThan(30_000)
+  }, 180_000)
+})
+
 describe.skipIf(!hasRealPacks)('真实 pack：meta.deckId 修复后全量应用', () => {
   it('受限商业词表 semantics-full-6702：6702 条全部 applied（skipped=0）', async () => {
     await resetDatabase()

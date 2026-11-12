@@ -268,7 +268,7 @@ describe('ai/semantics v3.4 · label 聚合（程序侧）', () => {
   })
 })
 
-describe('ai/semantics v3.4 · generate 端到端（mock）', () => {
+describe.skip('ai/semantics v3.4 · generate 端到端（已废弃：task-100 起引擎走 v4，见 generate-v4.test.ts；v3 仅保留纯模块/契约/聚合单测）', () => {
   it('成功：per-c label 聚合为 coreSenses/meaningMap；usage/cost 正常', async () => {
     const provider = fakeProvider(() => ok(payloadSameLabel(1)))
     const res = await generateItems(

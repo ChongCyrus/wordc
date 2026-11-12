@@ -289,6 +289,7 @@ export default function StudyPage() {
         {stage === 'annotation' && session ? (
           <AnnotationStage
             headword={session.word.headword}
+            coreSenses={study.coreSenses}
             phonetic={session.word.phonetic}
             showPhonetic={session.settings.showPhonetic}
             meanings={study.meanings}

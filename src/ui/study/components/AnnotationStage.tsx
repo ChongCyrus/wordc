@@ -8,6 +8,8 @@ export interface AnnotationStageProps {
   headword: string
   phonetic?: string
   showPhonetic: boolean
+  /** 该词全部本义（task-98/101；来自 getEffectiveContent().coreSenses，无则不渲染） */
+  coreSenses?: Array<{ label: string; note?: string; origin?: string }>
   meanings: MeaningView[]
   examples: ExampleView[]
   mnemonics: MnemonicView[]
@@ -24,10 +26,18 @@ export interface AnnotationStageProps {
  * 注释面：单词/音标 + 含义行（可点标记不熟 + 不熟悉度条）+ 例句/助记/词组。
  * 底部操作区由页面渲染（固定定位），便于滚动时保持可见。
  */
+/** 旧 v3 违规 label 判定（task-101）：>6 字或含说明性关键词 */
+export function isLegacySenseLabel(label: string): boolean {
+  const text = label.trim()
+  if (text.length > 6) return true
+  return /是否|看|检查|源自|英语|希腊|拉丁|词源|→/.test(text)
+}
+
 export function AnnotationStage({
   headword,
   phonetic,
   showPhonetic,
+  coreSenses = [],
   meanings,
   examples,
   mnemonics,
@@ -49,6 +59,28 @@ export function AnnotationStage({
           onSpeak={onSpeak}
         />
       </div>
+
+      {coreSenses.length > 0 ? (
+        <div className="core-senses">
+          {coreSenses.map((sense, index) => {
+            const legacy = isLegacySenseLabel(sense.label)
+            return (
+              <div className="core-sense-line" key={`${sense.label}-${index}`}>
+                <span className="core-sense-title">
+                  本义{index + 1}「{legacy ? '本义待重新生成' : sense.label}」
+                </span>
+                {legacy ? (
+                  <span className="core-sense-note"> 原标签：{sense.label}</span>
+                ) : null}
+                {sense.note ? <span className="core-sense-gloss">{sense.note}</span> : null}
+                {sense.origin ? (
+                  <span className="core-sense-origin">词源：{sense.origin}</span>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
 
       <div className="meanings">
         {meanings.length > 0 ? (

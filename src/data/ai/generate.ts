@@ -11,12 +11,13 @@ import { estimateBatchCost, estimateCost, addUsage, emptyUsage } from './cost'
 import {
   CONTENT_LIMITS,
   PROMPT_VERSION,
+  PROMPT_VERSION_V4,
   buildRepairPrompt,
-  buildSemanticsRepairPromptV3,
+  buildSemanticsRepairPromptV4,
   buildSystemPrompt,
-  buildSystemPromptV3,
+  buildSystemPromptV4,
   buildUserPrompt,
-  buildUserPromptV3,
+  buildUserPromptV4,
 } from './prompts'
 import { createLlmProvider, AiRequestError, sanitizeSnippet } from './provider'
 import type { LlmProvider } from './provider'
@@ -299,8 +300,8 @@ async function runPool<T>(items: readonly T[], limit: number, worker: (item: T, 
  */
 
 import {
-  aggregateSemanticsLabels,
   selfMeaningSemanticsItem,
+  validateSemanticsV4Items,
 } from './semantics'
 // ============ 批量生成主入口 ============
 
@@ -323,7 +324,10 @@ export async function generateItems(req: GenerateRequest, deps: GenerateDeps = {
   let costLimitHit = false
   let doneCount = 0
 
-  if (targets.length === 0) return { results: [], usage, costYuan: 0, canceled: false }
+  const usedPromptVersion = (): string => (kind === 'semantics' ? PROMPT_VERSION_V4 : PROMPT_VERSION)
+  if (targets.length === 0) {
+    return { results: [], usage, costYuan: 0, canceled: false, promptVersion: usedPromptVersion() }
+  }
 
   // semantics：单含义词短路（不调模型、不计成本）
   const workIndices: number[] = []
@@ -345,7 +349,7 @@ export async function generateItems(req: GenerateRequest, deps: GenerateDeps = {
 
   if (workIndices.length > 0 && !cfg.apiKey) {
     failWork('AI_NO_KEY', '未配置 AI API Key')
-    return { results: results as GenerateResult[], usage, costYuan: 0, canceled: false }
+    return { results: results as GenerateResult[], usage, costYuan: 0, canceled: false, promptVersion: usedPromptVersion() }
   }
 
   const provider = deps.provider ?? createLlmProvider({ http: deps.http, fetchImpl: deps.fetchImpl })
@@ -395,8 +399,10 @@ export async function generateItems(req: GenerateRequest, deps: GenerateDeps = {
       }
     }
 
-    const systemPrompt = kind === 'semantics' ? buildSystemPromptV3() : buildSystemPrompt()
-    const userPrompt = kind === 'semantics' ? buildUserPromptV3(batch) : buildUserPrompt({ kind: kind as SingleContentKind, targets: batch })
+    // semantics 使用 v4 grouped prompt（docs/prompts/semantics-v4.md）；
+    // 其余内容仍用 v1/v2 模板。v4 输出直接是 coreSenses+meaningMap，无需按 label 聚合。
+    const systemPrompt = kind === 'semantics' ? buildSystemPromptV4() : buildSystemPrompt()
+    const userPrompt = kind === 'semantics' ? buildUserPromptV4(batch) : buildUserPrompt({ kind: kind as SingleContentKind, targets: batch })
     let messages: Array<{ role: 'system' | 'user'; content: string }> = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
@@ -421,11 +427,16 @@ export async function generateItems(req: GenerateRequest, deps: GenerateDeps = {
         costYuan += estimateCost(res.usage, cfg.model)
 
         const extracted = extractJsonObject(res.text)
-        const validation = extracted.json
-          ? kind === 'semantics'
-            ? aggregateSemanticsLabels({ json: extracted.json, targets: batch })
-            : validateGeneratedItems({ json: extracted.json, kind: kind as SingleContentKind, targets: batch })
-          : { byKey: new Map<string, PackItemV1>(), error: extracted.error ?? '解析失败' }
+        let validation: { byKey: Map<string, PackItemV1>; error?: string }
+        if (!extracted.json) {
+          validation = { byKey: new Map<string, PackItemV1>(), error: extracted.error ?? '解析失败' }
+        } else if (kind === 'semantics') {
+          // v4：模型直接输出 grouped coreSenses/meaningMap；校验器负责修正 label/合并/覆盖检查
+          const v4 = validateSemanticsV4Items({ json: extracted.json, targets: batch })
+          validation = { byKey: v4.byKey, error: v4.errors[0] }
+        } else {
+          validation = validateGeneratedItems({ json: extracted.json, kind: kind as SingleContentKind, targets: batch })
+        }
         const parseError = 'error' in validation ? validation.error : undefined
 
         if (parseError) {
@@ -439,7 +450,7 @@ export async function generateItems(req: GenerateRequest, deps: GenerateDeps = {
           repair += 1
           const repairUser =
             kind === 'semantics'
-              ? buildSemanticsRepairPromptV3(userPrompt, parseError)
+              ? buildSemanticsRepairPromptV4(userPrompt, parseError)
               : buildRepairPrompt(userPrompt, parseError)
           messages = [
             { role: 'system', content: systemPrompt },
@@ -517,10 +528,11 @@ export async function generateItems(req: GenerateRequest, deps: GenerateDeps = {
     usage,
     costYuan: Math.round(costYuan * 1e6) / 1e6,
     canceled,
+    promptVersion: usedPromptVersion(),
   }
 }
 
-export { PROMPT_VERSION }
+export { PROMPT_VERSION, PROMPT_VERSION_V4 }
 
 
 // ============ semantics 兼容 re-export（实现在 ./semantics，纯模块供 CLI 共用） ============
@@ -536,10 +548,13 @@ export {
   semanticsMeaningsResponseSchema,
   semanticsResponseSchema,
   validateSemanticsItems,
+  validateSemanticsV4Items,
 } from './semantics'
 export type {
   SemanticsAggregateResult,
   SemanticsMeaningEntry,
   SemanticsMeaningItem,
   SemanticsValidateTarget,
+  SemanticsV4ItemResult,
+  SemanticsV4ValidationResult,
 } from './semantics'

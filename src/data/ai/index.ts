@@ -70,13 +70,17 @@ export {
   PACK_ITEMS_JSON_SCHEMA,
   PROMPT_VERSION,
   PROMPT_VERSION_V3,
+  PROMPT_VERSION_V4,
   SEMANTICS_JSON_SCHEMA,
   buildRepairPrompt,
   buildSemanticsRepairPromptV3,
+  buildSemanticsRepairPromptV4,
   buildSystemPrompt,
   buildSystemPromptV3,
+  buildSystemPromptV4,
   buildUserPrompt,
   buildUserPromptV3,
+  buildUserPromptV4,
   toCoreMnemonicType,
 } from './prompts'
 export type { BuildUserPromptOptions, RawPackItem, SemanticsPromptTarget } from './prompts'
@@ -124,6 +128,7 @@ export {
   stripCodeFence,
   validateGeneratedItems,
   validateSemanticsItems,
+  validateSemanticsV4Items,
 } from './generate'
 export type {
   GenerateDeps,

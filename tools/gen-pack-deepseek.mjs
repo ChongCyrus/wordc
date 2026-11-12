@@ -17,8 +17,8 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildRepairPrompt, buildSystemPrompt, buildUserPrompt, PROMPT_VERSION, CONTENT_LIMITS, buildSystemPromptV2, buildUserPromptV2, PROMPT_VERSION_V2, WC_CONTENT_LIMITS, buildSystemPromptV3, buildUserPromptV3, buildSemanticsRepairPromptV3, PROMPT_VERSION_V3 } from '../src/data/ai/prompts.ts'
-import { aggregateSemanticsLabels, normalizeCoreSenseLabel } from '../src/data/ai/semantics.ts'
+import { buildRepairPrompt, buildSystemPrompt, buildUserPrompt, PROMPT_VERSION, CONTENT_LIMITS, buildSystemPromptV2, buildUserPromptV2, PROMPT_VERSION_V2, WC_CONTENT_LIMITS, buildSystemPromptV4, buildUserPromptV4, buildSemanticsRepairPromptV4, PROMPT_VERSION_V4 } from '../src/data/ai/prompts.ts'
+import { validateSemanticsV4Items } from '../src/data/ai/semantics.ts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -230,7 +230,7 @@ async function generateBatch(key, system, kind, targets) {
 }
 
 async function main() {
-  const key = readKey()
+  // --dry-run 是离线路径：不读取/不要求 API Key（CI/无 Key 环境也能 smoke）
   const all = loadWords()
   let selected = plan(all)
   if (INCLUDE_WORDS.size > 0) selected = selected.filter((w) => INCLUDE_WORDS.has(w.headwordLower))
@@ -246,12 +246,12 @@ async function main() {
   if (SEMANTICS) {
     const cTotal = words.reduce((n, w) => n + w.meanings.length, 0)
     if (DRY) { console.log(`[dry-run] semantics：${words.length} 个多含义词 / ${cTotal} 个 c；每请求 ${SEM_BATCH} 词`); return }
-    await runSemantics(key, words, selected.length)
+    await runSemantics(readKey(), words, selected.length)
     return
   }
   if (PER_MEANING) {
     if (DRY) { console.log(`[dry-run] per-meaning：${words.length} 词 / ${words.reduce((n, w) => n + w.meanings.length, 0)} 个 c；每请求 ${WC_BATCH} 词`); return }
-    await runPerMeaning(key, words, selected.length)
+    await runPerMeaning(readKey(), words, selected.length)
     return
   }
   console.log(`[gen-pack] deck=${DECK} 词=${selected.length} 待生成=${words.length} kinds=${KINDS.join(',')} batch=${BATCH} concurrency=${CONCURRENCY}`)
@@ -260,6 +260,7 @@ async function main() {
     console.log(`[dry-run] 预计请求 ${batches * KINDS.length} 次（每批 ${BATCH} 词 × ${KINDS.length} kinds）`)
     return
   }
+  const key = readKey()
   const system = buildSystemPrompt()
   const merged = new Map()
   let usage = { prompt_tokens: 0, completion_tokens: 0 }
@@ -496,34 +497,23 @@ async function runPerMeaning(key, words, totalWords) {
  *   item: { headword, headwordLower, coreSenses:[{index,label,note?,origin?,confidence}], meaningMap:[{meaningIndex,coreSenseIndex,note?}] }
  *   只对 ≥2 个 c 的词生成；meaningMap 必须覆盖该词全部 c（1..N）。
  */
-/** v3.4 原始输出的 label 一致性统计（分组归一口径与 semantics.ts 一致） */
-function semanticsLabelStats(raw) {
+/** v4 grouped 输出的覆盖率统计（同本义 label 结构上唯一，exactGroups 恒等于 multiGroups） */
+function semanticsGroupedStats(items) {
   let groups = 0
   let multiGroups = 0
-  let exactGroups = 0
-  for (const it of Array.isArray(raw?.items) ? raw.items : []) {
-    const byLabel = new Map()
-    for (const m of Array.isArray(it?.meanings) ? it.meanings : []) {
-      const rawLabel = String(m?.coreSenseLabel ?? m?.coreSenseNote ?? '').trim()
-      const key = normalizeCoreSenseLabel(rawLabel) || '__unlabeled__'
-      const arr = byLabel.get(key) ?? []
-      arr.push(rawLabel)
-      byLabel.set(key, arr)
-    }
-    for (const arr of byLabel.values()) {
+  for (const it of items) {
+    for (const sense of Array.isArray(it?.coreSenses) ? it.coreSenses : []) {
       groups += 1
-      if (arr.length >= 2) {
-        multiGroups += 1
-        if (new Set(arr).size === 1) exactGroups += 1
-      }
+      const used = (Array.isArray(it?.meaningMap) ? it.meaningMap : []).filter((m) => m?.coreSenseIndex === sense.index)
+      if (used.length >= 2) multiGroups += 1
     }
   }
-  return { groups, multiGroups, exactGroups }
+  return { groups, multiGroups, exactGroups: multiGroups }
 }
 
-/** 本义/引申链（prompt v3）：每个多含义词一条 item（coreSenses+meaningMap） */
+/** 本义/引申链（prompt v4 grouped）：每个多含义词一条 item（coreSenses+meaningMap） */
 async function runSemantics(key, words, totalWords) {
-  const system = buildSystemPromptV3()
+  const system = buildSystemPromptV4()
   const batches = []
   for (let i = 0; i < words.length; i += SEM_BATCH) batches.push(words.slice(i, i + SEM_BATCH))
   const merged = new Map()
@@ -535,8 +525,9 @@ async function runSemantics(key, words, totalWords) {
   let skippedBatch = 0
   let labelGroups = 0
   let labelMultiGroups = 0
-  let labelExactGroups = 0
-  console.log(`[sem] words=${words.length}/${totalWords} batchWords=${SEM_BATCH} concurrency=${CONCURRENCY} prompt=${PROMPT_VERSION_V3}`)
+  let labelReferenced = 0
+  let warningCount = 0
+  console.log(`[sem] words=${words.length}/${totalWords} batchWords=${SEM_BATCH} concurrency=${CONCURRENCY} prompt=${PROMPT_VERSION_V4}`)
   const queue = [...batches]
   async function worker() {
     while (queue.length) {
@@ -555,7 +546,7 @@ async function runSemantics(key, words, totalWords) {
         headwordLower: w.headwordLower,
         meanings: w.meanings.map((m, i) => ({ meaningIndex: i + 1, cn: m.cn })),
       }))
-      let user = buildUserPromptV3(targets)
+      let user = buildUserPromptV4(targets)
       let lastErr = null
       try {
         let parsed = null
@@ -567,13 +558,17 @@ async function runSemantics(key, words, totalWords) {
             costYuan = (usage.prompt_tokens / 1e6) * PRICE.inputPerM + (usage.completion_tokens / 1e6) * PRICE.outputPerM
             try {
               const rawJson = extractJson(content)
-              const ls = semanticsLabelStats(rawJson)
-              const agg = aggregateSemanticsLabels({ json: rawJson, targets })
-              if (agg.error) { lastErr = new Error(agg.error); user = buildSemanticsRepairPromptV3(user, agg.error); continue }
-              const got = [...agg.byKey.values()]
+              const v4 = validateSemanticsV4Items({ json: rawJson, targets })
+              if (v4.errors.length > 0) {
+                const first = v4.errors[0]
+                lastErr = new Error(first)
+                user = buildSemanticsRepairPromptV4(user, first)
+                continue
+              }
+              const got = [...v4.byKey.values()]
               const missing = Math.max(0, slice.length - got.length)
-              parsed = { items: got, stats: ls, missing }
-            } catch (e) { user = buildSemanticsRepairPromptV3(user, e.message); lastErr = e }
+              parsed = { items: got, stats: semanticsGroupedStats(got), missing }
+            } catch (e) { user = buildSemanticsRepairPromptV4(user, e.message); lastErr = e }
           } catch (e) {
             lastErr = e
             if (!e.retryable || attempt >= 2) throw e
@@ -586,7 +581,8 @@ async function runSemantics(key, words, totalWords) {
         skippedBatch += parsed.missing
         labelGroups += parsed.stats.groups
         labelMultiGroups += parsed.stats.multiGroups
-        labelExactGroups += parsed.stats.exactGroups
+        labelReferenced += parsed.stats.referencedSenses
+        warningCount += parsed.warnings?.length ?? 0
         for (const it of parsed.items) merged.set(it.headwordLower, it)
       } catch (e) {
         failed++
@@ -611,13 +607,13 @@ async function runSemantics(key, words, totalWords) {
     generator: `wordc-ai-cli@${JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version}`,
     meta: {
       name: `WordC 本义/引申链 pack（${DECK} · ${items.length} 词）`,
-      source: 'ai', provider: 'deepseek', model: MODEL, promptVersion: PROMPT_VERSION_V3,
+      source: 'ai', provider: 'deepseek', model: MODEL, promptVersion: PROMPT_VERSION_V4,
       scope: { kind: 'deck', deckId: DECK, semantics: true, limitWords: LIMIT_WORDS, minMeanings: MIN_MEANINGS },
       createdBy: 'WordC', checksumAlgo: 'sha256',
       stats: {
         words: words.length, coveredWords: items.length, coreSenses: cores, mappedMeanings: maps,
         inputMeanings: words.reduce((n, w) => n + w.meanings.length, 0),
-        failedBatches: failed, invalidItems: invalidCount, labelGroups, labelMultiGroups, labelExactGroups, tokensIn: usage.prompt_tokens, tokensOut: usage.completion_tokens,
+        failedBatches: failed, invalidItems: invalidCount, labelGroups, labelMultiGroups, labelReferencedSenses: labelReferenced, validatorWarnings: warningCount, tokensIn: usage.prompt_tokens, tokensOut: usage.completion_tokens,
         costYuan: Number(costYuan.toFixed(4)),
       },
     },

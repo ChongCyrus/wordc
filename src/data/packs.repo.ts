@@ -216,18 +216,85 @@ interface ResolveOptions {
   /** task-90：pack.meta.deckId —— 有则**优先只在该 deck 解析**，找不到且 resolveAllDecks 才回退 */
   packDeckId?: string
   resolveAllDecks?: boolean
+  /** 导入进度（解析/写入分批）；供 UI 进度条 */
+  onProgress?: (progress: { phase: 'resolve' | 'write'; done: number; total: number }) => void
 }
 
-async function resolveItem(
+type WordIndex = Map<string, Word[]>
+
+/** 批量预取：headwordLower 去重后 anyOf 分批（每批 500），避免逐 item 查询 */
+const RESOLVE_BATCH = 500
+
+async function loadWordIndex(
+  lowers: string[],
+  deckId?: string,
+  fallbackAllDecks = false,
+): Promise<WordIndex> {
+  const db = getDb()
+  const index: WordIndex = new Map()
+  const unique = [...new Set(lowers)]
+  const wanted = new Set(unique)
+  if (deckId) {
+    // 单 deck pack（内置 seed 的常态）：一次 deckId 索引查询，fake-indexeddb/浏览器都快
+    const rows = await db.words.where('deckId').equals(deckId).toArray()
+    for (const word of rows) {
+      if (!wanted.has(word.headwordLower)) continue
+      const list = index.get(word.headwordLower) ?? []
+      list.push(word)
+      index.set(word.headwordLower, list)
+    }
+    // pack.deckId 不存在/词不在该 deck 时，resolveAllDecks 才回退到任意 deck（CI/旧 pack 修复场景）
+    if (!fallbackAllDecks) return index
+    const missing = unique.filter((lower) => !index.has(lower))
+    if (missing.length === 0) return index
+    for (let offset = 0; offset < missing.length; offset += RESOLVE_BATCH) {
+      const batch = missing.slice(offset, offset + RESOLVE_BATCH)
+      const fallbackRows = await db.words.where('headwordLower').anyOf(batch).toArray()
+      for (const word of fallbackRows) {
+        const list = index.get(word.headwordLower) ?? []
+        list.push(word)
+        index.set(word.headwordLower, list)
+      }
+    }
+    return index
+  }
+  for (let offset = 0; offset < unique.length; offset += RESOLVE_BATCH) {
+    const batch = unique.slice(offset, offset + RESOLVE_BATCH)
+    const rows = await db.words.where('headwordLower').anyOf(batch).toArray()
+    for (const word of rows) {
+      const list = index.get(word.headwordLower) ?? []
+      list.push(word)
+      index.set(word.headwordLower, list)
+    }
+  }
+  return index
+}
+
+/** 批量预取拒绝记忆：headwordLower → hash 集合（同样 anyOf 分批） */
+async function loadRejectIndex(): Promise<Map<string, Set<string>>> {
+  const db = getDb()
+  const index = new Map<string, Set<string>>()
+  // 拒绝表通常很小：整表读一次，避免 anyOf 大数组在 fake-indexeddb 下慢
+  const rows = await db.contentRejects.toArray()
+  for (const row of rows) {
+    const set = index.get(row.headwordLower) ?? new Set<string>()
+    set.add(row.hash)
+    index.set(row.headwordLower, set)
+  }
+  return index
+}
+
+/** 纯解析（使用预取索引，零 DB 查询） */
+function resolveWithIndexes(
   item: PackItemV1,
   index: number,
   opts: ResolveOptions,
-): Promise<{ ok: true; resolved: ResolvedItem } | { ok: false; skip: SkipRecord }> {
-  const db = getDb()
+  wordIndex: WordIndex,
+  selectedDeckId: string,
+): { ok: true; resolved: ResolvedItem } | { ok: false; skip: SkipRecord } {
   const lower = normalizeHeadword(item.headwordLower || item.headword)
-  const settings = await getSettings()
-  const deckId = opts.deckId ?? settings['data.selectedDeckId']
-  const candidates = await db.words.where('headwordLower').equals(lower).toArray()
+  const candidates = wordIndex.get(lower) ?? []
+  const deckId = opts.deckId ?? selectedDeckId
   const meaningFits = (candidate: Word): boolean =>
     item.meaningIndex == null || Boolean(candidate.meanings[item.meaningIndex - 1])
   let word: Word | undefined
@@ -236,7 +303,6 @@ async function resolveItem(
     const inPackDeck = candidates.filter((candidate) => candidate.deckId === opts.packDeckId)
     word = inPackDeck.find(meaningFits) ?? inPackDeck[0]
     if (!word && opts.resolveAllDecks) {
-      // 找不到才回退：优先能匹配 meaningIndex 的任意词（避免回退到大纲少义项词再 skipped）
       word = candidates.find(meaningFits) ?? candidates[0]
     }
   } else {
@@ -255,18 +321,16 @@ async function resolveItem(
       },
     }
   }
-  if (item.meaningIndex != null) {
-    if (!word.meanings[item.meaningIndex - 1]) {
-      return {
-        ok: false,
-        skip: {
-          headwordLower: lower,
-          meaningIndex: item.meaningIndex,
-          reason: 'unknown-meaning',
-          detail: `${word.headword} 只有 ${word.meanings.length} 个含义`,
-          item,
-        },
-      }
+  if (item.meaningIndex != null && !word.meanings[item.meaningIndex - 1]) {
+    return {
+      ok: false,
+      skip: {
+        headwordLower: lower,
+        meaningIndex: item.meaningIndex,
+        reason: 'unknown-meaning',
+        detail: `${word.headword} 只有 ${word.meanings.length} 个含义`,
+        item,
+      },
     }
   }
   return {
@@ -281,6 +345,18 @@ async function resolveItem(
   }
 }
 
+/** 单条解析（reapplyPack 等小批量场景；逐条查询） */
+async function resolveItem(
+  item: PackItemV1,
+  index: number,
+  opts: ResolveOptions,
+): Promise<{ ok: true; resolved: ResolvedItem } | { ok: false; skip: SkipRecord }> {
+  const lower = normalizeHeadword(item.headwordLower || item.headword)
+  const settings = await getSettings()
+  const wordIndex = await loadWordIndex([lower])
+  return resolveWithIndexes(item, index, opts, wordIndex, settings['data.selectedDeckId'])
+}
+
 /** 预览：只解析目标（不写库），返回 matched/skipped 报告 */
 export async function previewPack(
   file: PackFileV1,
@@ -289,11 +365,18 @@ export async function previewPack(
   const matched: ResolvedItem[] = []
   const skipped: SkipRecord[] = []
   const resolveOpts: ResolveOptions = { ...opts, ...(file.meta?.deckId ? { packDeckId: file.meta.deckId } : {}) }
-  for (const [index, item] of file.items.entries()) {
-    const result = await resolveItem(item, index, resolveOpts)
+  const lowers = file.items.map((item) => normalizeHeadword(item.headwordLower || item.headword))
+  // 一次性批量预取（500/批），不再逐 item 查 words
+  const [wordIndex, settings] = await Promise.all([
+    loadWordIndex(lowers, resolveOpts.packDeckId ?? opts.deckId, Boolean(opts.resolveAllDecks)),
+    getSettings(),
+  ])
+  const selectedDeckId = settings['data.selectedDeckId']
+  file.items.forEach((item, index) => {
+    const result = resolveWithIndexes(item, index, resolveOpts, wordIndex, selectedDeckId)
     if (result.ok) matched.push(result.resolved)
     else skipped.push(result.skip)
-  }
+  })
   return {
     matched,
     skipped,
@@ -356,35 +439,50 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
       ],
     }
   }
-  const preview = await previewPack(file, opts)
-  const existingItems = await db.packItems
-    .where('status')
-    .anyOf(['pending', 'approved', 'applied'])
-    .toArray()
+  // 批量预取：words（按 headwordLower 去重 anyOf 500/批）+ 拒绝记忆一次预取；不再逐 item 查询
+  const lowers = file.items.map((item) => normalizeHeadword(item.headwordLower || item.headword))
+  const resolveOpts: ResolveOptions = { ...opts, ...(file.meta?.deckId ? { packDeckId: file.meta.deckId } : {}) }
+  opts.onProgress?.({ phase: 'resolve', done: 0, total: file.items.length })
+  const [wordIndex, rejectIndex, settings] = await Promise.all([
+    loadWordIndex(lowers, resolveOpts.packDeckId ?? opts.deckId, Boolean(opts.resolveAllDecks)),
+    loadRejectIndex(),
+    getSettings(),
+  ])
+  const selectedDeckId = settings['data.selectedDeckId']
+  const resolvedList: Array<{ index: number; result: ReturnType<typeof resolveWithIndexes> }> = []
+  file.items.forEach((item, index) => {
+    resolvedList.push({ index, result: resolveWithIndexes(item, index, resolveOpts, wordIndex, selectedDeckId) })
+  })
+  opts.onProgress?.({ phase: 'resolve', done: file.items.length, total: file.items.length })
+  const skipped: SkipRecord[] = resolvedList.filter((entry) => !entry.result.ok).map((entry) => (entry.result as { ok: false; skip: SkipRecord }).skip)
+  // 已有条目 hash（含 skipped，保证幂等；重复导入不会产生新包）
+  const existingItems = await db.packItems.toArray()
   const existingHashes = new Set(existingItems.flatMap((item) => item.contentHashes))
-  const skipped: SkipRecord[] = [...preview.skipped]
   const matched: ResolvedItem[] = []
   const now = Date.now()
   const packId = newPackId(now)
   const itemRecords: PackItemRecord[] = []
   let seq = 0
 
-  for (const resolved of preview.matched) {
+  for (const entry of resolvedList) {
+    if (!entry.result.ok) continue
+    const resolved = entry.result.resolved
+    const lower = normalizeHeadword(resolved.item.headwordLower || resolved.item.headword)
     const hashes = itemContentHashes(resolved.item)
-    const rejectedHashes = await rejectedHashesFor(resolved.item.headwordLower || normalizeHeadword(resolved.item.headword))
+    const rejectedHashes = rejectIndex.get(lower) ?? new Set<string>()
     // 只有「全部内容都已存在」才算重复整条跳过；部分重复允许（apply 时逐条只补缺/去重）
     if (hashes.length > 0 && hashes.every((hash) => existingHashes.has(hash))) {
       skipped.push({
-        headwordLower: normalizeHeadword(resolved.item.headwordLower || resolved.item.headword),
+        headwordLower: lower,
         meaningIndex: resolved.item.meaningIndex,
         reason: 'duplicate',
-        detail: '已存在相同内容（pending/approved/applied）',
+        detail: '已存在相同内容',
       })
       continue
     }
     if (hashes.length > 0 && hashes.every((hash) => rejectedHashes.has(hash))) {
       skipped.push({
-        headwordLower: normalizeHeadword(resolved.item.headwordLower || resolved.item.headword),
+        headwordLower: lower,
         meaningIndex: resolved.item.meaningIndex,
         reason: 'rejected',
         detail: '该内容已被标记为拒绝',
@@ -397,7 +495,7 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
       packId,
       seq,
       headword: resolved.item.headword,
-      headwordLower: normalizeHeadword(resolved.item.headwordLower || resolved.item.headword),
+      headwordLower: lower,
       ...(resolved.item.meaningIndex != null ? { meaningIndex: resolved.item.meaningIndex } : {}),
       wordId: resolved.wordId,
       ...(resolved.meaningId ? { meaningId: resolved.meaningId } : {}),
@@ -430,7 +528,6 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
   }
 
   if (itemRecords.length === 0) {
-    // 全部被跳过（未知词/重复/已拒绝）→ 不建空包，只返回预览报告
     return {
       ok: true,
       checksum: file.checksum,
@@ -460,9 +557,14 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
     createdAt: now,
     updatedAt: now,
   }
+  opts.onProgress?.({ phase: 'write', done: 0, total: itemRecords.length })
+  const ITEM_BATCH = 500
   await db.transaction('rw', [db.packs, db.packItems], async () => {
     await db.packs.put(pack)
-    if (itemRecords.length > 0) await db.packItems.bulkPut(itemRecords)
+    for (let offset = 0; offset < itemRecords.length; offset += ITEM_BATCH) {
+      await db.packItems.bulkPut(itemRecords.slice(offset, offset + ITEM_BATCH))
+      opts.onProgress?.({ phase: 'write', done: Math.min(offset + ITEM_BATCH, itemRecords.length), total: itemRecords.length })
+    }
   })
   return {
     ok: true,
@@ -483,13 +585,20 @@ export async function approveItems(packId: string, itemIds: string[]): Promise<n
   const db = getDb()
   const now = Date.now()
   let changed = 0
+  const BATCH = 500
   await db.transaction('rw', [db.packItems, db.packs], async () => {
-    for (const id of itemIds) {
-      const item = await db.packItems.get(id)
-      if (!item || item.packId !== packId || (item.status !== 'pending' && item.status !== 'rejected')) continue
-      await db.packItems.update(id, { status: 'approved' })
-      changed += 1
+    // 批量读 + 批量写（28k 条 seed 时避免 2×N 次单条 IDB 往返）
+    const rows = await db.packItems.bulkGet(itemIds)
+    const updates: PackItemRecord[] = []
+    for (const item of rows) {
+      if (!item || item.packId !== packId) continue
+      if (item.status !== 'pending' && item.status !== 'rejected') continue
+      updates.push({ ...item, status: 'approved' })
     }
+    for (let i = 0; i < updates.length; i += BATCH) {
+      await db.packItems.bulkPut(updates.slice(i, i + BATCH))
+    }
+    changed = updates.length
     await refreshPack(packId, now)
   })
   return changed
@@ -560,58 +669,63 @@ export interface ApplyResult {
 /** 应用某 pack 的全部 approved 条目（单事务；幂等：已存在内容不重复追加） */
 export async function applyApproved(
   packId: string,
-  opts: { retrySkipped?: boolean } = {},
+  opts: {
+    retrySkipped?: boolean
+    /** 每批进度（merge 后/写完后；供 UI 进度条）；默认 500 条/批 */
+    onProgress?: (progress: { phase: 'apply'; done: number; total: number }) => void
+    batchSize?: number
+  } = {},
 ): Promise<ApplyResult> {
   const db = getDb()
   const now = Date.now()
-  return db.transaction(
-    'rw',
-    [db.words, db.packItems, db.packs, db.contentRejects],
-    async () => {
-      const items = opts.retrySkipped
-        ? (await db.packItems.where('packId').equals(packId).toArray()).filter(
-            (item) =>
-              item.status === 'approved' ||
-              (item.status === 'skipped' &&
-                (item.skipReason === 'unknown-word' || item.skipReason === 'unknown-meaning')),
-          )
-        : await db.packItems.where('[packId+status]').equals([packId, 'approved']).toArray()
-      let applied = 0
-      let skipped = 0
-      const skippedDetails: SkipRecord[] = []
-      for (const item of items) {
-        if (!item.wordId) {
-          await db.packItems.update(item.id, { status: 'skipped', skipReason: 'unknown-word' })
+  const items = opts.retrySkipped
+    ? (await db.packItems.where('packId').equals(packId).toArray()).filter(
+        (item) =>
+          item.status === 'approved' ||
+          (item.status === 'skipped' &&
+            (item.skipReason === 'unknown-word' || item.skipReason === 'unknown-meaning')),
+      )
+    : await db.packItems.where('[packId+status]').equals([packId, 'approved']).toArray()
+  const rejectIndex = await loadRejectIndex()
+  const BATCH = Math.max(100, Math.min(500, Math.floor(opts.batchSize ?? 500)))
+  let applied = 0
+  let skipped = 0
+  const skippedDetails: SkipRecord[] = []
+  const total = items.length
+  opts.onProgress?.({ phase: 'apply', done: 0, total })
+  // task-96：按 BATCH 拆事务（不再单个巨型事务）；每批 commit 后可进下一批/让出主线程。
+  // 幂等：mergeItemIntoWord 去重；中途失败已提交的批次不会重复追加内容。
+  for (let offset = 0; offset < items.length; offset += BATCH) {
+    const batch = items.slice(offset, offset + BATCH)
+    await db.transaction('rw', [db.words, db.packItems], async () => {
+      const wordIds = [...new Set(batch.map((item) => item.wordId).filter((id): id is string => Boolean(id)))]
+      const wordRows = wordIds.length > 0 ? await db.words.bulkGet(wordIds) : []
+      const words = new Map<string, Word>()
+      wordRows.forEach((word, index) => {
+        if (word) words.set(wordIds[index]!, word)
+      })
+      const updatedWords = new Map<string, Word>()
+      const updatedItems: PackItemRecord[] = []
+      for (const item of batch) {
+        let word = item.wordId ? (updatedWords.get(item.wordId) ?? words.get(item.wordId)) : undefined
+        if (!word || !item.wordId) {
+          updatedItems.push({ ...item, status: 'skipped', skipReason: 'unknown-word' })
           skipped += 1
           skippedDetails.push({ headwordLower: item.headwordLower, meaningIndex: item.meaningIndex, reason: 'unknown-word', itemId: item.id })
           continue
         }
-        const word = await db.words.get(item.wordId)
-        if (!word) {
-          await db.packItems.update(item.id, { status: 'skipped', skipReason: 'unknown-word' })
-          skipped += 1
-          skippedDetails.push({ headwordLower: item.headwordLower, meaningIndex: item.meaningIndex, reason: 'unknown-word', itemId: item.id })
-          continue
-        }
-        const rejected = await rejectedHashesFor(item.headwordLower)
         const payload = item.payload
-        const wordContent = {
-          examples: payload.examples,
-          phrases: payload.phrases,
-          mnemonics: payload.mnemonics,
-        }
         const hasWordContent = Boolean(
-          (wordContent.examples?.length ?? 0) > 0 ||
-            (wordContent.phrases?.length ?? 0) > 0 ||
-            (wordContent.mnemonics?.length ?? 0) > 0,
+          (payload.examples?.length ?? 0) > 0 ||
+            (payload.phrases?.length ?? 0) > 0 ||
+            (payload.mnemonics?.length ?? 0) > 0,
         )
         const hasSemantics = Boolean((payload.coreSenses?.length ?? 0) > 0 || (payload.meaningMap?.length ?? 0) > 0)
-        // v3 语义条目（task-75）：校验映射后直接标记 applied（不写 Word；effective 查询时合并展示）
         let semanticsOk = false
         if (hasSemantics) {
           const check = validateSemanticsItem(word, payload)
           if (!check.ok) {
-            await db.packItems.update(item.id, { status: 'skipped', skipReason: check.reason })
+            updatedItems.push({ ...item, status: 'skipped', skipReason: check.reason })
             skipped += 1
             skippedDetails.push({
               headwordLower: item.headwordLower,
@@ -624,10 +738,10 @@ export async function applyApproved(
           }
           semanticsOk = true
         }
+        const rejected = rejectIndex.get(item.headwordLower) ?? new Set<string>()
         const result = hasWordContent
           ? mergeItemIntoWord(word, payload, rejected, item.meaningIndex)
           : { word, changed: false, added: { examples: [], phrases: [], mnemonics: [] }, skipped: [] }
-        // 内容级跳过（已有/上限/拒绝/越界）也进应用报告（UI 显示「跳过 Y 条」）
         for (const skip of result.skipped) {
           skippedDetails.push({
             headwordLower: item.headwordLower,
@@ -637,9 +751,13 @@ export async function applyApproved(
             itemId: item.id,
           })
         }
-        if (result.changed) await db.words.put(result.word)
+        if (result.changed) {
+          updatedWords.set(item.wordId, result.word)
+          word = result.word
+        }
         if (result.changed || semanticsOk) {
-          await db.packItems.update(item.id, {
+          updatedItems.push({
+            ...item,
             status: 'applied',
             appliedAt: now,
             appliedContent: result.added,
@@ -647,15 +765,24 @@ export async function applyApproved(
           applied += 1
         } else {
           const reason: MergeSkip['reason'] = result.skipped[0]?.reason ?? 'duplicate'
-          await db.packItems.update(item.id, { status: 'skipped', skipReason: reason })
+          updatedItems.push({ ...item, status: 'skipped', skipReason: reason })
           skipped += 1
           skippedDetails.push({ headwordLower: item.headwordLower, meaningIndex: item.meaningIndex, reason, itemId: item.id })
         }
       }
-      const pack = await refreshPack(packId, now)
-      return { applied, skipped, packStatus: pack?.status ?? 'empty', skippedDetails }
-    },
-  )
+      const WRITE_BATCH = 500
+      const wordValues = [...updatedWords.values()]
+      for (let i = 0; i < wordValues.length; i += WRITE_BATCH) {
+        await db.words.bulkPut(wordValues.slice(i, i + WRITE_BATCH))
+      }
+      for (let i = 0; i < updatedItems.length; i += WRITE_BATCH) {
+        await db.packItems.bulkPut(updatedItems.slice(i, i + WRITE_BATCH))
+      }
+    })
+    opts.onProgress?.({ phase: 'apply', done: Math.min(offset + batch.length, total), total })
+  }
+  const pack = await refreshPack(packId, now)
+  return { applied, skipped, packStatus: pack?.status ?? 'empty', skippedDetails }
 }
 
 /**
@@ -778,10 +905,12 @@ async function refreshPack(packId: string, now: number): Promise<PackRecord | un
   const db = getDb()
   const pack = await db.packs.get(packId)
   if (!pack) return undefined
-  const items = await db.packItems.where('packId').equals(packId).toArray()
+  // task-92 性能：按状态索引 count()，不读取该包全部 items（28k 包也不占内存）
   const counts = emptyCounts()
-  counts.items = items.length
-  for (const item of items) counts[item.status] += 1
+  for (const status of ['pending', 'approved', 'applied', 'rejected', 'skipped'] as const) {
+    counts[status] = await db.packItems.where('[packId+status]').equals([packId, status]).count()
+  }
+  counts.items = counts.pending + counts.approved + counts.applied + counts.rejected + counts.skipped
   const remaining = counts.pending + counts.approved
   let status: PackRecord['status'] = 'reviewing'
   if (counts.applied > 0 && remaining === 0) status = 'applied'

@@ -416,6 +416,7 @@ export function AiGeneratePanel({
   const [customTotal, setCustomTotal] = useState(0)
   const [selectedWordIds, setSelectedWordIds] = useState<string[]>([])
   const [truncated, setTruncated] = useState(false)
+  const [promptVersion, setPromptVersion] = useState('v1')
   const [kinds, setKinds] = useState<GenerationKind[]>(['examples'])
   const [excludes, setExcludes] = useState<AiExcludeKey[]>(['rejected'])
   const [targetCount, setTargetCount] = useState(0)
@@ -536,6 +537,7 @@ export function AiGeneratePanel({
             },
           })
           cost = res.costYuan
+          if (res.promptVersion) setPromptVersion(res.promptVersion)
           for (const result of res.results) {
             if (!result.item) {
               errorCodes.push(result.error?.code)
@@ -627,7 +629,7 @@ export function AiGeneratePanel({
             source: 'ai',
             provider: settings.config.provider,
             model: settings.config.model,
-            promptVersion: 'v1',
+            promptVersion,
             checksumAlgo: checksum.algo,
           },
         }

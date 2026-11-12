@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '24'
   PNPM_VERSION: '10'
   # 与本地开发一致（unit-data 等有日期/日期键断言；避免 runner 默认 UTC 造成时区相关红点）
   TZ: Asia/Shanghai
