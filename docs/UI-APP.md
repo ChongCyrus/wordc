@@ -182,6 +182,20 @@
 - 内容包 name/subtitle 同样换行显示；窄屏 360px 与深色模式沿用 tokens。
 - 验收：设置页「减少动效」等长副标题完整可见；内容包名称/说明不出现省略号；按钮不溢出。
 
+## 2.6.7 AI 面板替换校验/草稿守卫（task-126）
+
+- replace 前校验待应用语义条目 `coreSenses/meaningMap` 非空，应用后校验 `applied>0`；失败 toast 并保留草稿/旧本义，不清空。
+- 完成态草稿（`draftCursor>=draftTotal`）再点开始 → 提示「草稿已生成完成：请先审核/应用或放弃草稿」并 return，不空跑、不清草稿。
+- 费用预估接 `estimateBatchCost`（失败回退 0）；目标数按分页 total 展示。
+- 面板重新打开时清空旧 summary/error/progress；replace/cover 审核条目标注「（将替换）」。
+
+## 2.6.6 AI 草稿生命周期修复（task-123）
+
+- 保存成功应用后立即 `clearGenerationDraft` 并重置草稿状态（关闭面板），重开不再出现「继续/放弃」。
+- 存在未完成草稿且未继续时点开始 → 提示「存在未完成的生成草稿：请先继续或放弃草稿」，禁止静默新建/清空。
+- 失败/超时且未产出条目才清理空草稿；已有条目保留。
+- 任何范围/类型/模式/选择变化都会清空旧 summary/error/progress。
+
 ## 2.6.5 内容包管理修复（task-116）
 
 - 列表过滤草稿包（`pack.draft`），不再出现「AI 生成 … · examples · 0/0」；来源标注「内置/AI/手工」。

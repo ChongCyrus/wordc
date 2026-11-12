@@ -76,6 +76,7 @@ export {
   resetSemanticsData,
   reapplyAppliedPacks,
   reapplyPack,
+  applyReplacementPack,
   clearContentForReplace,
   rejectGeneratedItem,
 } from './packs.repo'

@@ -1,13 +1,13 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T10:17:37.203Z
+- 生成时间：2026-11-12T11:23:26.023Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**329**；修改 **75**；新增 **5**；私有仓未进入公开树 **1744**
+- 公开文件：**329**；修改 **74**；新增 **5**；私有仓未进入公开树 **1747**
 
 ## 结论
 
-- **逻辑变更：1** ⚠ 需人工复核
+- **逻辑变更：0** ✅（仅文案/注释/配置/数据 meta 变化）
 - **deck 数据语义差异：0** ✅（仅 generator/版本类字段允许差异）
 
 ## 修改文件明细
@@ -76,7 +76,6 @@
 | `tests/e2e/algo-independent.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/data-robustness.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/demo-public.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
-| `tests/e2e/s23-upgrade.mjs` | 逻辑⚠ | token 序列不同，需人工复核 |
 | `tests/e2e/v2-e2e.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/tools/clean-steps.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/tools/deck-split.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
@@ -113,6 +112,7 @@
 - `data/packs`
 - `data/raw`
 - `docs/ACCEPTANCE-0.2.0.md`
+- `docs/AI-CONTENT-SPEC.md`
 - `docs/API-IMPORT.md`
 - `docs/APK.md`
 - `docs/ARCH-CONTENT-PACKS.md`
@@ -135,7 +135,9 @@
 - `docs/RUN.md`
 - `docs/SPEC-CONTENT-PACKS.md`
 - `docs/assets`
+- `docs/qa`
 - `docs/research`
+- `logs/ai-proxy-qa.log`
 - `logs/steps-bailian-a.log`
 - `logs/steps-bailian-b.log`
 - `logs/steps-bailian.log`
@@ -152,7 +154,6 @@
 - `tests/e2e`
 - `tools/apk`
 - `tools/e2e`
-- `tools/gen-steps.mjs`
 - `tools/github`
 - `tools/sanitize-public.mjs`
 - `vendor/research-algo`

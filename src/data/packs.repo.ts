@@ -1596,19 +1596,33 @@ export async function reapplyAppliedPacks(): Promise<{ packs: number; items: num
 
 export { LIMITS }
 
+function packItemMatchesKinds(
+  item: PackItemRecord,
+  kinds: Array<'examples' | 'phrases' | 'mnemonics' | 'semantics'>,
+): boolean {
+  const payload = item.payload
+  if (kinds.includes('semantics') && ((payload.coreSenses ?? []).length > 0 || (payload.meaningMap ?? []).length > 0)) return true
+  if (kinds.includes('examples') && (payload.examples ?? []).length > 0) return true
+  if (kinds.includes('phrases') && (payload.phrases ?? []).length > 0) return true
+  if (kinds.includes('mnemonics') && (payload.mnemonics ?? []).length > 0) return true
+  return false
+}
+
 /**
- * task-107：生成模式「覆盖」应用前清理目标词已应用的同类内容。
- * - examples/phrases/mnemonics：清空 Word 对应列（含义级 examples 一并清）；
- * - semantics：删除目标词的语义 packItems（v4 迁移后旧链不再参与 effective）。
+ * task-107/124：生成模式「覆盖」应用前清理目标词已应用的同类内容。
+ * - 只删除**旧 pack**（excludePackId 之外）的同类 packItems；
+ * - examples/phrases/mnemonics 同时清空 Word 对应列（含义级 examples 一并清）；
+ * - semantics 不写 Word，只删旧 packItems。
  */
 export async function clearContentForReplace(
   wordIds: string[],
   kinds: Array<'examples' | 'phrases' | 'mnemonics' | 'semantics'>,
-): Promise<{ words: number; semanticsItems: number }> {
+  opts: { excludePackId?: string } = {},
+): Promise<{ words: number; items: number }> {
   const db = getDb()
   const ids = [...new Set(wordIds)].filter(Boolean)
-  if (ids.length === 0 || kinds.length === 0) return { words: 0, semanticsItems: 0 }
-  let semanticsItems = 0
+  if (ids.length === 0 || kinds.length === 0) return { words: 0, items: 0 }
+  let items = 0
   let words = 0
   await db.transaction('rw', [db.words, db.packItems], async () => {
     if (kinds.some((kind) => kind !== 'semantics')) {
@@ -1629,20 +1643,74 @@ export async function clearContentForReplace(
       }
       if (updated.length > 0) await db.words.bulkPut(updated)
     }
-    if (kinds.includes('semantics')) {
-      for (const wordId of ids) {
-        const items = await db.packItems.where('wordId').equals(wordId).toArray()
-        const removable = items.filter(
-          (item) => (item.payload.coreSenses ?? []).length > 0 || (item.payload.meaningMap ?? []).length > 0,
-        )
-        if (removable.length > 0) {
-          await db.packItems.bulkDelete(removable.map((item) => item.id))
-          semanticsItems += removable.length
-        }
+    for (const wordId of ids) {
+      const rows = await db.packItems.where('wordId').equals(wordId).toArray()
+      const removable = rows.filter(
+        (item) =>
+          item.packId !== opts.excludePackId &&
+          (item.status === 'applied' || item.status === 'approved' || item.status === 'pending') &&
+          packItemMatchesKinds(item, kinds),
+      )
+      if (removable.length > 0) {
+        await db.packItems.bulkDelete(removable.map((item) => item.id))
+        items += removable.length
       }
     }
   })
-  return { words, semanticsItems }
+  return { words, items }
+}
+
+/**
+ * task-124：替换类应用（先快照旧词/旧 items → 清理 → 补审 → apply；失败回滚）。
+ * 只用于生成模式 replace；append/missing 仍走普通 approve/apply。
+ */
+export async function applyReplacementPack(
+  packId: string,
+  wordIds: string[],
+  kinds: Array<'examples' | 'phrases' | 'mnemonics' | 'semantics'>,
+): Promise<ApplyResult & { replaced: number }> {
+  const db = getDb()
+  const ids = [...new Set(wordIds)].filter(Boolean)
+  const newItems = (await db.packItems.where('packId').equals(packId).toArray()).filter(
+    (item) => item.wordId != null && ids.includes(item.wordId) && packItemMatchesKinds(item, kinds),
+  )
+  // task-124：新条目必须非空；空输出绝不能先清旧数据
+  if (newItems.length === 0) {
+    throw new Error('替换内容为空：旧本义已保留，请重新生成后再试')
+  }
+  const wordsSnapshot = await db.words.bulkGet(ids)
+  const itemsSnapshot: PackItemRecord[] = []
+  for (const wordId of ids) {
+    const rows = await db.packItems.where('wordId').equals(wordId).toArray()
+    for (const item of rows) if (item.packId !== packId) itemsSnapshot.push(item)
+  }
+  let replaced = 0
+  try {
+    const cleared = await clearContentForReplace(ids, kinds, { excludePackId: packId })
+    replaced = cleared.items
+    const pending = await db.packItems.where('packId').equals(packId).toArray()
+    const pendingIds = pending
+      .filter((item) => item.status === 'pending' || item.status === 'rejected')
+      .map((item) => item.id)
+    if (pendingIds.length > 0) await approveItems(packId, pendingIds)
+    const result = await applyApproved(packId)
+    const newApplied = await db.packItems
+      .where('packId')
+      .equals(packId)
+      .filter((item) => item.status === 'applied' && item.wordId != null && ids.includes(item.wordId))
+      .count()
+    if (newApplied === 0) throw new Error('替换内容未应用成功：旧本义已保留')
+    // 重复替换同一 pack 时 pending 为空、newApplied 已存在 → 幂等成功
+    return { ...result, applied: Math.max(result.applied, newApplied), replaced }
+  } catch (error) {
+    // compensating rollback：恢复旧 Word/旧 items，避免清空后失败丢本义
+    await db.transaction('rw', [db.words, db.packItems], async () => {
+      const words = wordsSnapshot.filter((word): word is Word => Boolean(word))
+      if (words.length > 0) await db.words.bulkPut(words)
+      if (itemsSnapshot.length > 0) await db.packItems.bulkPut(itemsSnapshot)
+    })
+    throw error
+  }
 }
 
 

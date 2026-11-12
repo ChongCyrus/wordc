@@ -22,9 +22,10 @@ import {
 } from '../../app/hooks/aiUi'
 import {
   appendGenerationDraftItems,
+  estimateBatchCost,
   applyApproved,
   approveItems,
-  clearContentForReplace,
+  applyReplacementPack,
   clearGenerationDraft,
   createGenerationDraft,
   listGenerationDrafts,
@@ -574,6 +575,9 @@ export function AiGeneratePanel({
   let canceled = false
 
   useEffect(() => {
+    setSummary(null)
+    setError(null)
+    setProgress(null)
     if (!open) return
     void (async () => {
       const drafts = await listGenerationDrafts()
@@ -665,6 +669,8 @@ export function AiGeneratePanel({
 
   const refreshEstimate = async () => {
     setError(null)
+    setSummary(null)
+    setProgress(null)
     try {
       // 指定含义但未勾选：目标数应为 0/请选择含义
       if (scope === 'meanings' && selectedMeaningIndexes.length === 0) {
@@ -679,7 +685,17 @@ export function AiGeneratePanel({
       setBudgetText(
         `预计费用按所选类型 × 目标数估算；单次上限 ${settings.config.maxCostPerRun > 0 ? `¥${settings.config.maxCostPerRun.toFixed(2)}` : '不限'}；全量预算 ¥${settings.pregenBudget}`,
       )
-      setEstimateText(formatAiBudget(0, settings.config.maxCostPerRun))
+      try {
+        const estimated = estimateBatchCost({
+          kind: kinds[0] ?? 'examples',
+          targets: targets.length,
+          model: settings.config.model,
+          limit: 500,
+        } as never)
+        setEstimateText(formatAiBudget(Number(estimated) || 0, settings.config.maxCostPerRun))
+      } catch {
+        setEstimateText(formatAiBudget(0, settings.config.maxCostPerRun))
+      }
     } catch (err) {
       setError(aiErrorMessage((err as { code?: string })?.code, '读取生成目标失败'))
     }
@@ -692,8 +708,17 @@ export function AiGeneratePanel({
 
   const handleStart = () => {
     void (async () => {
+      if (draftId && draftTotal > 0 && draftCursor >= draftTotal) {
+        setSummary('草稿已生成完成：请先审核/应用或放弃草稿，再开始新的生成')
+        return
+      }
+      if (draftPrompt && !draftId) {
+        setSummary('存在未完成的生成草稿：请先点「继续」或「放弃草稿」，再开始新的生成')
+        return
+      }
       setError(null)
       setSummary(null)
+      setProgress(null)
       setRunning(true)
       const nextController = new AbortController()
       setController(nextController)
@@ -771,7 +796,10 @@ export function AiGeneratePanel({
             allResults.push({
               key: keyOf({ kind, target: result.target }),
               headword: result.target.headword,
-              kindLabel: aiKindLabel(kind),
+              kindLabel:
+                (modes[kind] ?? 'missing') === 'missing'
+                  ? aiKindLabel(kind)
+                  : `${aiKindLabel(kind)}（将替换）`,
               lines: itemLines(kind, result.item),
             })
           }
@@ -838,6 +866,14 @@ export function AiGeneratePanel({
         )
       } catch (err) {
         const code = (err as { code?: string })?.code
+        // 失败/超时且未产出条目 → 清理空草稿，避免残留 0/0
+        if (draftId) {
+          await clearGenerationDraft(draftId).catch(() => undefined)
+          setDraftId(null)
+          setDraftCursor(0)
+          setDraftDone(0)
+          setDraftTotal(0)
+        }
         if (code === 'AI_CANCELED') {
           setSummary('已取消。')
         } else {
@@ -855,6 +891,7 @@ export function AiGeneratePanel({
 
   const handleApply = () => {
     void (async () => {
+      const activeDraftId = draftId
       try {
         const selectedEntries = pending.filter((entry) => selected.has(keyOf(entry)))
         if (selectedEntries.length === 0) return
@@ -897,17 +934,44 @@ export function AiGeneratePanel({
           throw new Error(imported.issues?.[0]?.message ?? '内容包导入失败')
         }
         const replaceEntries = selectedEntries.filter((entry) => entry.mode === 'replace')
+        // P1：replace 时必须有待应用语义内容，且应用后确有替换，否则保留旧内容/草稿
+        if (replaceEntries.length > 0) {
+          const hasSemantics = replaceEntries.every((entry) => {
+            const item = entry.item as unknown as
+              | { coreSenses?: unknown[]; meaningMap?: unknown[] }
+              | undefined
+            return (
+              entry.kind !== 'semantics' ||
+              ((item?.coreSenses?.length ?? 0) > 0 && (item?.meaningMap?.length ?? 0) > 0)
+            )
+          })
+          if (!hasSemantics) {
+            throw new Error('替换内容为空或格式不完整：已保留原内容与草稿，请重新生成')
+          }
+        }
+        let applied: Awaited<ReturnType<typeof applyApproved>>
         if (replaceEntries.length > 0) {
           const wordIds = [...new Set(replaceEntries.map((entry) => entry.target.wordId))]
           const kinds = [...new Set(replaceEntries.map((entry) => entry.kind))]
-          await clearContentForReplace(wordIds, kinds as never)
+          const replacement = await applyReplacementPack(imported.packId, wordIds, kinds as never)
+          if (replacement.applied <= 0) throw new Error('替换未应用任何内容，旧数据已保留')
+          applied = replacement
+        } else {
+          const records = await listPackItems(imported.packId)
+          const pendingIds = records.filter((record) => record.status === 'pending').map((record) => record.id)
+          await approveItems(imported.packId, pendingIds)
+          applied = await applyApproved(imported.packId)
         }
-        const records = await listPackItems(imported.packId)
-        const pendingIds = records.filter((record) => record.status === 'pending').map((record) => record.id)
-        await approveItems(imported.packId, pendingIds)
-        const applied = await applyApproved(imported.packId)
+        if (replaceEntries.length > 0 && applied.applied <= 0) {
+          throw new Error('替换未生效：已保留原内容与草稿，请重试')
+        }
         toast.success(`已应用 ${applied.applied} 条生成内容（跳过 ${applied.skipped}）`)
-        if (draftId) await clearGenerationDraft(draftId)
+        if (activeDraftId) await clearGenerationDraft(activeDraftId)
+        setDraftId(null)
+        setDraftCursor(0)
+        setDraftDone(0)
+        setDraftTotal(0)
+        setDraftPrompt(null)
         onApplied?.()
         onClose()
         setItems([])
