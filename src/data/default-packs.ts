@@ -28,7 +28,7 @@ import type { ReapplyProgress } from './packs.repo'
 
 export const DEFAULT_PACKS_META_KEY = 'packs.defaultSeeded'
 /** 内置包集合版本：pack 内容/清单变化时 +1，触发重新导入检查（task-88：+私版清单后升到 2） */
-export const DEFAULT_PACKS_VERSION = 5
+export const DEFAULT_PACKS_VERSION = 6
 /** task-114：历史内置 semantics pack checksum（0.3.20/0.3.21 设备上已 seed 的旧版；seed 后清理，不误删手工包） */
 const LEGACY_BUILTIN_SEMANTICS_CHECKSUMS: readonly string[] = [
   // hongbaoshu full v4（domain 修正前/步骤清洗前；当前 6edb5dec 不在列表）
