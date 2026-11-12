@@ -47,6 +47,7 @@ export function mergeItemIntoWord(
   item: PackItemV1,
   rejectedHashes: ReadonlySet<string>,
   meaningIndexOverride?: number,
+  opts: { allowOverLimit?: boolean } = {},
 ): MergeResult {
   const next = cloneWord(word)
   const headwordLower = word.headwordLower
@@ -76,7 +77,7 @@ export function mergeItemIntoWord(
             skipped.push({ kind: 'examples', reason: 'duplicate', value: en })
             continue
           }
-          if (list.length >= LIMITS.meaningExamples) {
+          if (!opts.allowOverLimit && list.length >= LIMITS.meaningExamples) {
             skipped.push({ kind: 'examples', reason: 'limit', value: en })
             continue
           }
@@ -102,7 +103,7 @@ export function mergeItemIntoWord(
           skipped.push({ kind: 'examples', reason: 'duplicate', value: en })
           continue
         }
-        if (list.length >= LIMITS.wordExamples) {
+        if (!opts.allowOverLimit && list.length >= LIMITS.wordExamples) {
           skipped.push({ kind: 'examples', reason: 'limit', value: en })
           continue
         }
@@ -137,7 +138,7 @@ export function mergeItemIntoWord(
       skipped.push({ kind: 'phrases', reason: 'duplicate', value: en })
       continue
     }
-    if (next.phrases.length >= LIMITS.phrases) {
+    if (!opts.allowOverLimit && next.phrases.length >= LIMITS.phrases) {
       skipped.push({ kind: 'phrases', reason: 'limit', value: en })
       continue
     }
@@ -172,7 +173,7 @@ export function mergeItemIntoWord(
           skipped.push({ kind: 'mnemonics', reason: 'duplicate', value: key })
           continue
         }
-        if (next.mnemonics.length >= LIMITS.mnemonics) {
+        if (!opts.allowOverLimit && next.mnemonics.length >= LIMITS.mnemonics) {
           skipped.push({ kind: 'mnemonics', reason: 'limit', value: key })
           continue
         }

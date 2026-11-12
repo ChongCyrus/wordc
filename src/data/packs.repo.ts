@@ -677,6 +677,8 @@ export async function applyApproved(
     /** 每批进度（merge 后/写完后；供 UI 进度条）；默认 500 条/批 */
     onProgress?: (progress: { phase: 'apply'; done: number; total: number }) => void
     batchSize?: number
+    /** task-132：append 模式允许超出每词上限（不静默 skip limit） */
+    allowOverLimit?: boolean
   } = {},
 ): Promise<ApplyResult> {
   const db = getDb()
@@ -743,7 +745,7 @@ export async function applyApproved(
         }
         const rejected = rejectIndex.get(item.headwordLower) ?? new Set<string>()
         const result = hasWordContent
-          ? mergeItemIntoWord(word, payload, rejected, item.meaningIndex)
+          ? mergeItemIntoWord(word, payload, rejected, item.meaningIndex, { allowOverLimit: opts.allowOverLimit })
           : { word, changed: false, added: { examples: [], phrases: [], mnemonics: [] }, skipped: [] }
         for (const skip of result.skipped) {
           skippedDetails.push({
@@ -1795,7 +1797,10 @@ export async function resetSemanticsData(): Promise<{ removedPacks: number; remo
 }
 
 /** task-130：普通生成包应用（补审→apply）的失败回滚封装；replace 仍走 applyReplacementPack。 */
-export async function applyGeneratedPack(packId: string): Promise<ApplyResult> {
+export async function applyGeneratedPack(
+  packId: string,
+  opts: { allowOverLimit?: boolean } = {},
+): Promise<ApplyResult> {
   const db = getDb()
   const packItems = await db.packItems.where('packId').equals(packId).toArray()
   const wordIds = [...new Set(packItems.map((item) => item.wordId).filter((id): id is string => Boolean(id)))]
@@ -1810,7 +1815,7 @@ export async function applyGeneratedPack(packId: string): Promise<ApplyResult> {
       .filter((item) => item.status === 'pending' || item.status === 'rejected')
       .map((item) => item.id)
     if (pendingIds.length > 0) await approveItems(packId, pendingIds)
-    return await applyApproved(packId)
+    return await applyApproved(packId, { allowOverLimit: opts.allowOverLimit })
   } catch (error) {
     await db.transaction('rw', [db.words, db.packItems], async () => {
       const words = wordsSnapshot.filter((word): word is Word => Boolean(word))

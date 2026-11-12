@@ -561,6 +561,7 @@ export function AiGeneratePanel({
   const [truncated, setTruncated] = useState(false)
   const [promptVersion, setPromptVersion] = useState('v1')
   const startLockRef = useRef(false)
+  const startedAtRef = useRef(0)
   const applyLockRef = useRef(false)
   const [applying, setApplying] = useState(false)
   const [batchLimit, setBatchLimit] = useState<AiBatchLimit>(100)
@@ -737,6 +738,7 @@ export function AiGeneratePanel({
       setError(null)
       setSummary(null)
       setProgress(null)
+      startedAtRef.current = Date.now()
       setRunning(true)
       const nextController = new AbortController()
       setController(nextController)
@@ -778,6 +780,39 @@ export function AiGeneratePanel({
           setDraftCursor(0)
         }
         setDraftTotal(total)
+        if (activeDraftId) {
+          // 无论是否点“继续”，开始生成前都把已落草稿的 items 并入 pending/items，避免覆盖丢历史
+          const history = await listGenerationDraftItems(activeDraftId)
+          const historyEntries = history.map((record) => ({
+            kind: record.kind as GenerationKind,
+            mode: 'missing' as AiGenerationMode,
+            target: {
+              wordId: record.headwordLower,
+              headwordLower: record.headwordLower,
+              ...(record.meaningIndex != null ? { meaningIndex: record.meaningIndex } : {}),
+            },
+            item: record.payload,
+          }))
+          setPending((prev) => {
+            const map = new Map(prev.map((entry) => [keyOf(entry), entry]))
+            for (const entry of historyEntries) map.set(keyOf(entry), entry)
+            return [...map.values()]
+          })
+          setItems((prev) => {
+            const map = new Map(prev.map((item) => [item.key, item]))
+            for (const record of history) {
+              const kind = record.kind as GenerationKind
+              const key = `${kind}:${record.headwordLower}#${record.meaningIndex ?? ''}`
+              map.set(key, {
+                key,
+                headword: record.payload.headword,
+                kindLabel: aiKindLabel(kind),
+                lines: itemLines(kind, record.payload),
+              })
+            }
+            return [...map.values()]
+          })
+        }
         const batchSize = batchSizeForLimit(batchLimit, total - startCursor)
         const slice = pairs.slice(startCursor, startCursor + batchSize)
         const allItems: PackItemV1[] = []
@@ -848,7 +883,21 @@ export function AiGeneratePanel({
             setDraftCursor(cursor)
           }
         }
-        setPending(allEntries)
+        setPending((prev) => {
+          const map = new Map(prev.map((entry) => [keyOf(entry), entry]))
+          for (const entry of allEntries) map.set(keyOf(entry), entry)
+          return [...map.values()]
+        })
+        setItems((prev) => {
+          const map = new Map(prev.map((item) => [item.key, item]))
+          for (const item of allResults) map.set(item.key, item)
+          return [...map.values()]
+        })
+        setSelected((prev) => {
+          const next = new Set(prev)
+          for (const item of allResults) next.add(item.key)
+          return next
+        })
         // task-117：失败/超时且 0 条目 → 清理空生成草稿（取消时保留）
         if (allItems.length === 0 && activeDraftId && !canceled) {
           try { await clearGenerationDraft(activeDraftId) } catch { /* ignore */ }
@@ -858,6 +907,15 @@ export function AiGeneratePanel({
           setDraftCursor(0)
         }
         // QA S18 P2：402/429/408 等不能只显示「失败 N 条」，要展示分类文案
+        const failureSummary = summarizeAiFailures(errorCodes)
+        const fatalMessage = pickAiFailureMessage(errorCodes)
+        if (failureSummary) {
+          setSummary((prev) => (prev ? `${prev} · ${failureSummary}` : failureSummary))
+        }
+        if (fatalMessage) {
+          setError(fatalMessage)
+        }
+
         if (canceled) {
           let persistedDone = done
           if (activeDraftId) {
@@ -877,16 +935,7 @@ export function AiGeneratePanel({
           )
           return
         }
-        const failureSummary = summarizeAiFailures(errorCodes)
-        const fatalMessage = pickAiFailureMessage(errorCodes)
-        if (failureSummary) {
-          setSummary((prev) => (prev ? `${prev} · ${failureSummary}` : failureSummary))
-        }
-        if (fatalMessage && (allItems.length === 0 || errorCodes.some((code) => code != null))) {
-          setError(fatalMessage)
-        }
-        setItems(allResults)
-        setSelected(new Set(allResults.map((item) => item.key)))
+
         const failed = total - allItems.length
         setSummary(
           formatAiSummary({
@@ -1003,7 +1052,8 @@ export function AiGeneratePanel({
             appliedTotal += replacement.applied
             skippedTotal += replacement.skipped
           } else {
-            const applied = await applyGeneratedPack(imported.packId)
+            const allowOverLimit = entries.some((entry) => entry.mode === 'append')
+            const applied = await applyGeneratedPack(imported.packId, { allowOverLimit })
             appliedTotal += applied.applied
             skippedTotal += applied.skipped
           }
@@ -1143,7 +1193,10 @@ export function AiGeneratePanel({
             )
           }
           onStart={handleStart}
-          onCancel={() => controller?.abort()}
+          onCancel={() => {
+            if (Date.now() - startedAtRef.current < 800) return
+            controller?.abort()
+          }}
           onClose={onClose}
         />
       </Dialog>

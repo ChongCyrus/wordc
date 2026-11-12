@@ -182,6 +182,15 @@
 - 内容包 name/subtitle 同样换行显示；窄屏 360px 与深色模式沿用 tokens。
 - 验收：设置页「减少动效」等长副标题完整可见；内容包名称/说明不出现省略号；按钮不溢出。
 
+## 2.6.11 AI 回归 P0/P1 修复（task-132）
+
+- 每次开始生成前（不论是否点「继续」）都 `listGenerationDraftItems` 并入 pending/items/selected，再合并本次结果 → 审核/保存包含历史，关掉审核框再生成不丢历史。
+- 生成结束即使未完成（如多 c/多 kind）也填充审核数据并弹审核框；完成态不再早退。
+- 失败/401 等优先 `setError`（HTTP 状态可见），不再被「已生成…上限」summary 覆盖。
+- 注解面按 c 渲染 `meaning.examples`（例句 en/cn 小字，挂对应含义行下）。
+- append 模式应用传 `allowOverLimit`（arch task-132），词组/例句/助记追加不被 content limit 静默跳过。
+- 开始后 800ms 内忽略取消点击，双击不会第二击变取消。
+
 ## 2.6.10 AI 生成按钮/落库修复（task-130）
 
 - 开始按钮只按 `kinds.length`/运行态禁用，不再用异步 `targetCount`（0 目标由 handleStart 提示），避免第一次点击被忽略。

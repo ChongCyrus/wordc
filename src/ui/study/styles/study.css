@@ -1293,3 +1293,7 @@ html.study-reduce-motion .study-page *::after {
   overflow-wrap: anywhere;
 }
 .meaning-mnemonic-type { margin-right: 4px; color: var(--mm-text-3); }
+
+.meaning-example { margin-top: 4px; font-size: 12px; line-height: 18px; }
+.meaning-example-en { display: block; color: var(--mm-text-2); overflow-wrap: anywhere; }
+.meaning-example-cn { display: block; color: var(--mm-text-3); overflow-wrap: anywhere; }

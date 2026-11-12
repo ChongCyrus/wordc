@@ -7,6 +7,8 @@ import type { DerivationChainView } from './DerivationChain'
 
 /** 一条中文含义 + 用户对该含义的点击/遇到计数 */
 export interface MeaningView {
+  /** 该含义的例句（task-132；来自 meaning.examples，无则不渲染） */
+  examples?: Array<{ en: string; cn: string }>
   /** 本义→引申链（task-77；无映射不渲染） */
   derivation?: DerivationChainView
   meaningId: string

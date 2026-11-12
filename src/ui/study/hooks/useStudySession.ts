@@ -802,6 +802,9 @@ export function useStudySession(options?: {
         clicks: stat.clicks,
         encounters: stat.encounters,
         familiarity: familiarity(stat.clicks, stat.encounters),
+        ...((meaning as unknown as { examples?: Array<{ en: string; cn: string }> }).examples?.length
+          ? { examples: (meaning as unknown as { examples: Array<{ en: string; cn: string }> }).examples }
+          : {}),
         derivation: derivationFor(effectiveSemantics, index + 1),
       }
     })

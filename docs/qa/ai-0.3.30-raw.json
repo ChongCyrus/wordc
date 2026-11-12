@@ -1,0 +1,458 @@
+{
+  "startedAt": "2026-11-12T13:15:18.715Z",
+  "finishedAt": "2026-11-12T21:40:33+08:00",
+  "base": "http://127.0.0.1:4173/",
+  "build": "index-D8r_Ueij.js",
+  "version": "v0.3.30",
+  "profile": "/tmp/qa030-profile（由 /tmp/qa028-profile 复制并把 IndexedDB origin 4190→4173）",
+  "settings": {
+    "enabled": true,
+    "keyStorage": "persistent",
+    "hasKey": true
+  },
+  "scenarios": {
+    "S1 单击生效/双击": {
+      "target": 1,
+      "startCalls": 1,
+      "runningAfter400ms": true,
+      "reviewItems": 1,
+      "saveClick": "single",
+      "closed": true,
+      "newPacks": 1,
+      "landedExamples": 2,
+      "dbPack": "pk_1794489543957_hhillo",
+      "dbPackStatus": "applied",
+      "dblclickStart": {
+        "requests": 0,
+        "result": "第二次点击落在「取消生成」→ 取消，未产生重复请求",
+        "summary": "已取消，草稿已保存：已生成 0 / 总 1"
+      },
+      "dblclickSave": {
+        "requests": 1,
+        "reviewItems": 1,
+        "packDelta": 1,
+        "appliedQa7Items": 1,
+        "annotation": [
+          "QA7-1 example for address QA7 例句 1"
+        ],
+        "closed": true
+      }
+    },
+    "S2 多c": {
+      "target": 2,
+      "requests": 1,
+      "reviewItems": 2,
+      "saved": true,
+      "dbPack": "pk_1794489740506_15089a",
+      "dbAppliedItems": 2,
+      "dbMapping": "c1←『Please write your address clearly…』『She moved…』；c2←『The president delivered an address…』『His address at the ceremony…』",
+      "annotationAfterSave": {
+        "examples": [
+          "address an audience 向听众发表讲话",
+          "Please write your address on the envelope clearly. 请把地址清楚地写在信封上。",
+          "The president delivered a short address to the nation. — 总统向全国发表了简短讲话。"
+        ],
+        "perMeaningExamplesVisible": false
+      }
+    },
+    "S3 多kind": {
+      "target": 2,
+      "requests": 2,
+      "reviewItems": 2,
+      "reviewKinds": [
+        "例句",
+        "词组"
+      ],
+      "replaceNotice": false,
+      "dbPack": "pk_1794489871089_pq1ym8",
+      "dbItems": [
+        {
+          "kind": "examples",
+          "status": "applied"
+        },
+        {
+          "kind": "phrases",
+          "status": "skipped",
+          "skipReason": "limit"
+        }
+      ],
+      "annotation": {
+        "examplesAdded": 1,
+        "phrasesAdded": 0
+      }
+    },
+    "S4 续跑": {
+      "target": 2,
+      "firstRequests": 1,
+      "firstDone": 1,
+      "firstCursor": 1,
+      "firstTotal": 2,
+      "firstReviewShown": false,
+      "resumeReviewItems": 1,
+      "resumeReviewText": "address · 例句 QA1-1 example for address — QA1 例句 c1",
+      "afterStartReviewItems": 1,
+      "afterStartReviewText": "address · 例句 QA1-2 example for address — QA1 例句 c2",
+      "savedDbItems": 1,
+      "savedMeaningIndex": 2,
+      "historyApplied": false,
+      "annotationShowsHistory": false
+    },
+    "S5 助记逐c": {
+      "target": 2,
+      "requests": 1,
+      "draftDone": 2,
+      "draftTotal": 2,
+      "reviewShown": false,
+      "panelSummary": "已生成 2 / 总 2（草稿已保存） · 本次已达上限 100，可点「生成一片先停」/重新打开继续",
+      "errorShown": false,
+      "applied": false
+    },
+    "S6 错误/append/按钮": {
+      "error401": {
+        "requests": 1,
+        "toast": [],
+        "panelSummary": "已生成 1 / 总 1（草稿已保存） · 本次已达上限 100…",
+        "hasHttp401": false
+      },
+      "appendReview": {
+        "requests": 1,
+        "items": 1,
+        "replaceNotice": false,
+        "text": "address · 例句 QA6-1 example for address — QA6 例句 1"
+      },
+      "startButtonHitTest": {
+        "tag": "BUTTON",
+        "text": "开始生成"
+      },
+      "console": {
+        "errors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        ],
+        "pageErrors": []
+      }
+    }
+  },
+  "dbEvidence": {
+    "addressWords": [
+      {
+        "id": "kaoyan-2027-dagang:address",
+        "deckId": "kaoyan-2027-dagang",
+        "meaningCount": 1,
+        "ex": 1,
+        "ph": 8,
+        "mn": 1
+      },
+      {
+        "id": "kaoyan-hongbaoshu-2025:address",
+        "deckId": "kaoyan-hongbaoshu-2025",
+        "meaningCount": 12,
+        "ex": 4,
+        "ph": 8,
+        "mn": 0
+      }
+    ],
+    "aiPackRows": [
+      {
+        "id": "pk_1794489543957_hhillo:1",
+        "pack": "AI 生成",
+        "packStatus": "applied",
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "meaningIndex": null,
+        "status": "applied",
+        "skipReason": null,
+        "ex": [
+          "Please write your address on the envelope clearly.",
+          "The president delivered a short address to the nation."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "id": "pk_1794489740506_15089a:1",
+        "pack": "AI 生成",
+        "packStatus": "applied",
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "meaningIndex": 1,
+        "status": "applied",
+        "skipReason": null,
+        "ex": [
+          "Please write your address clearly on the envelope.",
+          "She moved to a new address last month."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "id": "pk_1794489740506_15089a:2",
+        "pack": "AI 生成",
+        "packStatus": "applied",
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "meaningIndex": 2,
+        "status": "applied",
+        "skipReason": null,
+        "ex": [
+          "The president delivered an address to the nation.",
+          "His address at the ceremony was short but moving."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "id": "pk_1794489871089_pq1ym8:1",
+        "pack": "AI 生成",
+        "packStatus": "applied",
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "meaningIndex": null,
+        "status": "applied",
+        "skipReason": null,
+        "ex": [
+          "QA1-1 example for address"
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "id": "pk_1794489871089_pq1ym8:2",
+        "pack": "AI 生成",
+        "packStatus": "applied",
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "meaningIndex": null,
+        "status": "skipped",
+        "skipReason": "limit",
+        "ex": [],
+        "ph": [
+          "address QA2-1 up"
+        ],
+        "mn": []
+      },
+      {
+        "id": "pk_1794490035937_urf1az:1",
+        "pack": "AI 生成",
+        "packStatus": "applied",
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "meaningIndex": 2,
+        "status": "applied",
+        "skipReason": null,
+        "ex": [
+          "QA1-2 example for address"
+        ],
+        "ph": [],
+        "mn": []
+      }
+    ],
+    "effectiveExamples": [
+      {
+        "en": "address an audience",
+        "m": null
+      },
+      {
+        "en": "Please write your address on the envelope clearly.",
+        "m": null
+      },
+      {
+        "en": "The president delivered a short address to the nation.",
+        "m": null
+      },
+      {
+        "en": "QA1-1 example for address",
+        "m": null
+      }
+    ],
+    "perMeaning": [
+      {
+        "c": 1,
+        "cn": "地址",
+        "ex": [
+          "Write your address clearly on the envelope.",
+          "Please write your address clearly on the envelope.",
+          "She moved to a new address last month."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 2,
+        "cn": "演讲",
+        "ex": [
+          "The president gave a short address to the nation.",
+          "The president delivered an address to the nation.",
+          "His address at the ceremony was short but moving.",
+          "QA1-2 example for address"
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 3,
+        "cn": "致辞",
+        "ex": [
+          "He delivered the opening address at the conference."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 4,
+        "cn": "说话的技巧",
+        "ex": [
+          "Her address in front of the crowd was calm and clear."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 5,
+        "cn": "称呼",
+        "ex": [
+          "In English we use \"Mr\" as a form of address."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 6,
+        "cn": "演说",
+        "ex": [
+          "The mayor addressed the crowd from the steps."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 7,
+        "cn": "从事",
+        "ex": [
+          "The committee must address the problem of waste."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 8,
+        "cn": "忙于",
+        "ex": [
+          "She addressed herself to the pile of letters on her desk."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 9,
+        "cn": "写姓名地址",
+        "ex": [
+          "Please address the parcel to my office."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 10,
+        "cn": "向…致辞",
+        "ex": [
+          "He addressed the guests at the wedding dinner."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 11,
+        "cn": "与…说话",
+        "ex": [
+          "She turned and addressed the stranger politely."
+        ],
+        "ph": [],
+        "mn": []
+      },
+      {
+        "c": 12,
+        "cn": "提出",
+        "ex": [
+          "They addressed a formal protest to the embassy."
+        ],
+        "ph": [],
+        "mn": []
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "F01",
+      "severity": "P0",
+      "title": "续跑：关闭『继续』审核框后再生成，历史草稿不进入审核/保存，最终只落本次 1 条",
+      "item": 4,
+      "evidence": [
+        "S4-02-draft-banner.png",
+        "S4-03-resume-review.png",
+        "S4-04-resume-plus-new-review.png",
+        "S4-05-after-save.png"
+      ]
+    },
+    {
+      "id": "F02",
+      "severity": "P0",
+      "title": "助记逐 c：草稿 2/2 已完成但不弹审核框，用户无法保存（无报错）",
+      "item": 5,
+      "evidence": [
+        "S5-02-mnemonic-review.png"
+      ]
+    },
+    {
+      "id": "F03",
+      "severity": "P1",
+      "title": "多 c 内容已写入 c1/c2 的 meaning.examples，但注解面不渲染 per-c 例句",
+      "item": 2,
+      "evidence": [
+        "S2-03-multic-after-save.png"
+      ]
+    },
+    {
+      "id": "F04",
+      "severity": "P1",
+      "title": "多 kind：词组条目被 skipReason=limit 跳过，例句+词组未同时落地",
+      "item": 3,
+      "evidence": [
+        "S3-02-multikind-review.png",
+        "S3-03-multikind-after-save.png"
+      ]
+    },
+    {
+      "id": "F05",
+      "severity": "P1",
+      "title": "错误静默：401 无 toast/错误文案、无 HTTP 状态，反而显示『已生成 1/总1…本次已达上限』",
+      "item": 6,
+      "evidence": [
+        "S6-01-error-401.png"
+      ]
+    },
+    {
+      "id": "F06",
+      "severity": "P2",
+      "title": "快速双击『开始生成』时第二次点击命中『取消生成』，本轮被取消（未重复请求）",
+      "item": 1,
+      "evidence": [
+        "S1-04-dblclick-review.png"
+      ]
+    }
+  ],
+  "pass": [
+    "单击开始 400ms 内进入生成、1 次请求",
+    "单次保存关闭、1 个 pack、无重复",
+    "双击保存 1 次请求/1 pack/1 条",
+    "多 c 目标/审核/DB 均 2",
+    "append 审核无『将替换』",
+    "底部开始按钮可点（hit=BUTTON）",
+    "401 错误无 JavaScript 异常"
+  ],
+  "cost": {
+    "realRequests": 2,
+    "realModels": [
+      "deepseek-chat"
+    ],
+    "estimateYuan": 0.02,
+    "note": "S1 1 条 + S2 2 条；未打印 Key"
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "pageErrors": []
+}

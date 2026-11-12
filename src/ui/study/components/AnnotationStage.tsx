@@ -88,6 +88,12 @@ export function AnnotationStage({
             <div key={meaning.meaningId}>
               <MeaningRow meaning={meaning} onMark={onMarkMeaning} />
               {meaning.derivation ? <DerivationChain {...meaning.derivation} /> : null}
+              {meaning.examples?.map((example, exampleIndex) => (
+                <div className="meaning-example" key={`${meaning.meaningId}-ex-${exampleIndex}`}>
+                  <span className="meaning-example-en">{example.en}</span>
+                  <span className="meaning-example-cn">{example.cn}</span>
+                </div>
+              ))}
               {mnemonics
                 .filter((mnemonic) => mnemonic.meaningId === meaning.meaningId)
                 .map((mnemonic, index) => (
