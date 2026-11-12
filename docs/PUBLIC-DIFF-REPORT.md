@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T11:28:34.912Z
+- 生成时间：2026-11-12T12:26:56.546Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**329**；修改 **74**；新增 **5**；私有仓未进入公开树 **1756**
+- 公开文件：**337**；修改 **74**；新增 **5**；私有仓未进入公开树 **1810**
 
 ## 结论
 
@@ -112,7 +112,6 @@
 - `data/packs`
 - `data/raw`
 - `docs/ACCEPTANCE-0.2.0.md`
-- `docs/AI-CONTENT-SPEC.md`
 - `docs/API-IMPORT.md`
 - `docs/APK.md`
 - `docs/ARCH-CONTENT-PACKS.md`

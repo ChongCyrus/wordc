@@ -1,0 +1,44 @@
+{
+  "startedAt": "2026-11-12T12:21:49.303Z",
+  "base": "http://127.0.0.1:4173/",
+  "build": "index-DXu1HZnm.js",
+  "versionText": "v0.3.27",
+  "findings": [],
+  "scenarios": {
+    "S0 设置与连通性": {
+      "ok": true,
+      "ms": 16434,
+      "test401": {
+        "text": "连接失败：Key 无效或已过期：请检查 API Key 后重试。（AI 鉴权失败（请检查 Key）：{\"error\":{\"message\":\"invalid api key\"}}）",
+        "hasHttp": false
+      },
+      "test402": {
+        "text": "连接失败：账户余额不足：请充值后重试。（AI 配额/余额不足：{\"error\":{\"message\":\"insufficient balance\"}}）",
+        "hasHttp": false
+      },
+      "test429": {
+        "text": "连接失败：请求过于频繁：已自动退避重试，请稍后再试。（AI 接口限流，请稍后重试：{\"error\":{\"message\":\"rate limit\"}}）",
+        "hasHttp": false
+      },
+      "versionText": "v0.3.27"
+    }
+  },
+  "consoleErrors": [
+    {
+      "scenario": "S0",
+      "console": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 402 (Payment Required)",
+        "Failed to load resource: the server responded with a status of 429 (Too Many Requests)"
+      ]
+    }
+  ],
+  "pageErrors": [],
+  "screenshots": [],
+  "cost": {
+    "realCalls": 0,
+    "prompt": 0,
+    "completion": 0
+  },
+  "notes": []
+}

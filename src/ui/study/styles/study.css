@@ -1283,3 +1283,13 @@ html.study-reduce-motion .study-page *::after {
 .core-sense-gloss { display: block; opacity: 0.85; font-size: 11px; }
 .core-sense-origin { display: block; opacity: 0.75; font-size: 11px; }
 .core-sense-note { opacity: 0.7; font-size: 11px; }
+
+/* ---------- 注释面按含义显示助记（task-128） ---------- */
+.meaning-mnemonic {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--mm-text-2);
+  overflow-wrap: anywhere;
+}
+.meaning-mnemonic-type { margin-right: 4px; color: var(--mm-text-3); }

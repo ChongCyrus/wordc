@@ -1,0 +1,16 @@
+import { launch, newContext, setupAi, prepareClean, prepareWord, openAiPanel, makeMockState, installRouter, sleep, panelText, waitSeededHome, clickHomeLearn, enterAnnotation } from './ai-qa-lib.mjs'
+const browser=await launch(); const {context,page}=await newContext(browser)
+await installRouter(page,makeMockState())
+await prepareClean(page); await setupAi(page); await prepareWord(page,{headword:'address'})
+await page.evaluate(async()=>{const db=await new Promise(r=>{const q=indexedDB.open('momo-reword');q.onsuccess=()=>r(q.result)});const words=await new Promise(r=>{const q=db.transaction('words','readonly').objectStore('words').getAll();q.onsuccess=()=>r(q.result)});const base=words.find(w=>w.headwordLower==='address');const src=JSON.parse(JSON.stringify(base));const mk=(n,ex)=>({...src,id:'qa-small:'+n,deckId:'qa-small',headword:n,headwordLower:n,order:ex?1:2,examples:ex?src.examples:[],phrases:[],mnemonics:[],meanings:src.meanings.map(m=>({...m,examples:[]}))});await new Promise((res,rej)=>{const tx=db.transaction(['words','decks'],'readwrite');tx.objectStore('words').put(mk('qaword1',true));tx.objectStore('words').put(mk('qaword2',false));tx.objectStore('decks').put({id:'qa-small',name:'QA小词库（2 词）',description:'',source:'manual',isDefault:false,wordCount:2,dataVersion:1,createdAt:Date.now(),updatedAt:Date.now()});tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})})
+await page.goto('http://127.0.0.1:4174/',{waitUntil:'domcontentloaded'}); await waitSeededHome(page); await clickHomeLearn(page); await enterAnnotation(page); const gen=await openAiPanel(page); await sleep(2500)
+const dump=async(label)=>{const t=await panelText(page);const scopes=[];for(const s of ['今日要学','当前词库','当前词','指定含义','选择词库','自定义选词']){const b=gen.getByRole('button',{name:s,exact:true}); if((await b.getAttribute('class')).includes('primary')) scopes.push(s)}console.log(label, '| scope', scopes.join(','), '| target', t.match(/目标：(\d+)/)?.[1], '| disabled', await gen.getByRole('button',{name:'开始生成',exact:true}).isDisabled())}
+await dump('open')
+await gen.getByRole('button',{name:'选择词库',exact:true}).click(); await sleep(1000)
+const btns=gen.locator('button.mm-row'); console.log('labels', await btns.allInnerTexts())
+const small=gen.getByRole('button',{name:/QA小词库/}).first(); console.log('small count', await small.count()); await small.click(); await sleep(5000); await dump('small missing')
+await gen.getByLabel('例句生成模式').selectOption('append'); await sleep(5000); await dump('small append')
+await gen.getByLabel('例句生成模式').selectOption('replace'); await sleep(5000); await dump('small replace')
+await gen.getByLabel('例句生成模式').selectOption('missing'); await sleep(5000); await dump('small missing2')
+await gen.getByRole('button',{name:'当前词库',exact:true}).click(); await sleep(5000); await dump('current deck')
+await context.close(); await browser.close()

@@ -1,0 +1,358 @@
+{
+  "startedAt": "2026-11-12T12:20:06.895Z",
+  "base": "http://127.0.0.1:4173/",
+  "build": "index-DXu1HZnm.js",
+  "versionText": null,
+  "findings": [],
+  "scenarios": {
+    "S1 选项/错误/草稿/取消/UI": {
+      "ok": true,
+      "ms": 84794,
+      "errors": {
+        "401": {
+          "text": "Key 无效或已过期：请检查 API Key 后重试。",
+          "calls": 1,
+          "hasHttp": false,
+          "errorAfterScope": 0,
+          "summaryAfterScope": ""
+        },
+        "402": {
+          "text": "账户余额不足：请充值后重试。",
+          "calls": 1,
+          "hasHttp": false,
+          "errorAfterScope": 0,
+          "summaryAfterScope": ""
+        },
+        "429": {
+          "text": "请求过于频繁：已自动退避重试，请稍后再试。",
+          "calls": 4,
+          "hasHttp": false,
+          "errorAfterScope": 0,
+          "summaryAfterScope": ""
+        }
+      },
+      "draft": {
+        "bannerText": "AI 扩充内容 已生成 1 / 总 1（草稿已保存） 继续 放弃草稿 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 ✓ 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 助记 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 / 助记 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 开始生成 关闭",
+        "banner": true,
+        "draftsBefore": [
+          {
+            "id": "draft_1794486081662_yvz1w9",
+            "name": "AI 生成 2026/11/12 20:21:21",
+            "kind": "mixed",
+            "status": "reviewing",
+            "draft": {
+              "scope": {
+                "kind": "word",
+                "wordId": "kaoyan-hongbaoshu-2025:address"
+              },
+              "kind": [
+                "examples",
+                "mnemonics"
+              ],
+              "cursor": 1,
+              "targetTotal": 1,
+              "updatedAt": 1794486081745
+            },
+            "done": 1,
+            "items": [
+              {
+                "status": "pending",
+                "headword": "address"
+              }
+            ]
+          }
+        ],
+        "bannerCount": 0,
+        "startPrompt": "AI 扩充内容 已生成 1 / 总 1（草稿已保存） 继续 放弃草稿 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 ✓ 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 助记 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 / 助记 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 草稿已生成完成：请先审核/应用或放弃草稿，再开始新的生成 开始生成 关闭",
+        "startCalls": 0,
+        "draftsAfterStart": [
+          {
+            "id": "draft_1794486081662_yvz1w9",
+            "name": "AI 生成 2026/11/12 20:21:21",
+            "kind": "mixed",
+            "status": "reviewing",
+            "draft": {
+              "scope": {
+                "kind": "word",
+                "wordId": "kaoyan-hongbaoshu-2025:address"
+              },
+              "kind": [
+                "examples",
+                "mnemonics"
+              ],
+              "cursor": 1,
+              "targetTotal": 1,
+              "updatedAt": 1794486081745
+            },
+            "done": 1,
+            "items": [
+              {
+                "status": "pending",
+                "headword": "address"
+              }
+            ]
+          }
+        ],
+        "afterDiscard": [],
+        "bannerAfterDiscard": false
+      },
+      "zero": {
+        "target": 0,
+        "text": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：0 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.00 / 单次上限 ¥3.00 没有可生成的词（已有/被排除） 开始生成 关闭",
+        "prompt": true,
+        "disabled": true,
+        "drafts": []
+      },
+      "cancel": {
+        "runningText": "AI 扩充内容 已生成 0 / 总 1（草稿已保存） 继续 放弃草稿 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 ✓ 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 助记 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 / 助记 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 正在生成 0 / 1 · 已用 ¥0.00 取消生成 关闭",
+        "startDisabledOrCancel": true,
+        "afterText": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 ✓ 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 助记 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 / 助记 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 已取消，草稿已保存：已生成 1 / 总 1（草稿已保存） 开始生成 关闭",
+        "drafts": [
+          {
+            "id": "draft_1794486088364_zywhln",
+            "name": "AI 生成 2026/11/12 20:21:28",
+            "kind": "mixed",
+            "status": "reviewing",
+            "draft": {
+              "scope": {
+                "kind": "word",
+                "wordId": "kaoyan-hongbaoshu-2025:address"
+              },
+              "kind": [
+                "examples",
+                "mnemonics"
+              ],
+              "cursor": 0,
+              "targetTotal": 0,
+              "updatedAt": 1794486088364
+            },
+            "done": 0,
+            "items": []
+          }
+        ]
+      },
+      "ui": {
+        "longOverflow": {
+          "sw": 390,
+          "cw": 390,
+          "rowSw": 300,
+          "rowCw": 300
+        },
+        "longReviewText": "审核生成内容（1） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句（将替换） QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong QAlong"
+      },
+      "word": {
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "headword": "address",
+        "meaningCount": 12,
+        "meanings": [
+          {
+            "cn": "地址",
+            "pos": "n."
+          },
+          {
+            "cn": "演讲",
+            "pos": "n."
+          },
+          {
+            "cn": "致辞",
+            "pos": "n."
+          },
+          {
+            "cn": "说话的技巧",
+            "pos": "n."
+          },
+          {
+            "cn": "称呼",
+            "pos": "n."
+          },
+          {
+            "cn": "演说",
+            "pos": "vt."
+          },
+          {
+            "cn": "从事",
+            "pos": "vt."
+          },
+          {
+            "cn": "忙于",
+            "pos": "vt."
+          },
+          {
+            "cn": "写姓名地址",
+            "pos": "vt."
+          },
+          {
+            "cn": "向…致辞",
+            "pos": "vt."
+          },
+          {
+            "cn": "与…说话",
+            "pos": "vt."
+          },
+          {
+            "cn": "提出",
+            "pos": "vt."
+          }
+        ]
+      },
+      "meaningCount": 12,
+      "panelInitial": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：0 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.00 / 单次上限 ¥3.00 没有可生成的词（已有/被排除） 开始生成 关闭",
+      "defaultPressed": [
+        "100",
+        "✓ 例句",
+        "✓ 已拒绝"
+      ],
+      "t1": 1,
+      "est1": 0.22,
+      "meaningTarget1": 1,
+      "estC1": 0.22,
+      "meaningTarget2": 2,
+      "estC1C2": 0.44,
+      "f01Samples": [
+        {
+          "ms": 0,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 150,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 300,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 450,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 600,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 750,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 900,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 1050,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 1200,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 1350,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 1500,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 1650,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 1800,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 1950,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 2100,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 2250,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 2400,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 2550,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 2700,
+          "target": 0,
+          "disabled": true
+        },
+        {
+          "ms": 2850,
+          "target": 0,
+          "disabled": true
+        }
+      ],
+      "f01Target": 0,
+      "f01Disabled": true,
+      "f01Text": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 选择含义（可多选） c1 n. 地址 c2 n. 演讲 c3 n. 致辞 c4 n. 说话的技巧 c5 n. 称呼 c6 vt. 演说 c7 vt. 从事 c8 vt. 忙于 c9 vt. 写姓名地址 c10 vt. 向…致辞 c11 vt. 与…说话 c12 vt. 提出 请至少选择一个含义 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：0 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 请先勾选要生成的含义（c） 没有可生成的词（已有/被排除） 开始生成 关闭",
+      "f01Warn": true,
+      "f01Max": 0,
+      "c1Target": 1,
+      "c1Est": 0.22,
+      "c1c2Target": 2,
+      "c1c2Est": 0.44,
+      "draftsAfterErrors": [],
+      "reviewText": "审核生成内容（1） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句（将替换） QA mock example 1 for address — QA 例句翻译 1 ❌ 全不选 保存已选（1） 关闭",
+      "afterApply": {
+        "drafts": [],
+        "packs": [
+          {
+            "kind": "examples",
+            "draft": null,
+            "status": "applied"
+          }
+        ]
+      },
+      "afterReopenText": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 开始生成 关闭",
+      "afterReopenBanner": false
+    }
+  },
+  "consoleErrors": [
+    {
+      "scenario": "S1",
+      "console": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 402 (Payment Required)",
+        "Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
+        "Failed to load resource: the server responded with a status of 429 (Too Many Requests)",
+        "Failed to load resource: the server responded with a status of 429 (Too Many Requests)"
+      ]
+    }
+  ],
+  "pageErrors": [],
+  "screenshots": [],
+  "cost": {
+    "realCalls": 0,
+    "prompt": 0,
+    "completion": 0
+  },
+  "notes": []
+}

@@ -497,7 +497,11 @@ function keyOf(entry: { kind: GenerationKind; target: { headwordLower: string; m
   return `${entry.kind}:${entry.target.headwordLower}#${entry.target.meaningIndex ?? ''}`
 }
 
-export function itemLines(kind: GenerationKind, item: PackItemV1): string[] {
+export function itemLines(
+  kind: GenerationKind,
+  item: PackItemV1,
+  target?: { meanings?: Array<{ cn: string }> },
+): string[] {
   if (kind === 'semantics') {
     const semantics = item as unknown as {
       coreSenses?: Array<{ index?: number; label: string; confidence?: string; note?: string }>
@@ -515,7 +519,16 @@ export function itemLines(kind: GenerationKind, item: PackItemV1): string[] {
   }
   if (kind === 'examples') return (item.examples ?? []).map((example) => `${example.en} — ${example.cn}`)
   if (kind === 'phrases') return (item.phrases ?? []).map((phrase) => `${phrase.en} — ${phrase.cn}`)
-  return (item.mnemonics ?? []).map((mnemonic) => `[${mnemonic.type}] ${mnemonic.text}`)
+  const meaningIndex = item.meaningIndex
+  const meaningCn =
+    meaningIndex != null
+      ? (target?.meanings?.[meaningIndex - 1]?.cn ?? '')
+      : ''
+  const prefix =
+    meaningIndex != null
+      ? `c${meaningIndex}${meaningCn ? ` ${meaningCn}` : ''} → `
+      : ''
+  return (item.mnemonics ?? []).map((mnemonic) => `${prefix}[${mnemonic.type}] ${mnemonic.text}`)
 }
 
 export interface AiGeneratePanelProps {
@@ -800,7 +813,7 @@ export function AiGeneratePanel({
               kindLabel: ['cover', 'replace'].includes(modes[kind] ?? 'missing')
                 ? `${aiKindLabel(kind)}（将替换）`
                 : aiKindLabel(kind),
-              lines: itemLines(kind, result.item),
+              lines: itemLines(kind, result.item, result.target),
             })
           }
           const appendItems = res.results

@@ -174,8 +174,8 @@ export function normalizeEn(en: string): string {
 }
 
 /** 助记去重 key：`type:text` 规范化 */
-export function mnemonicKey(mnemonic: PackMnemonicV1): string {
-  return `${String(mnemonic.type ?? '其他').trim()}:${String(mnemonic.text ?? '').trim()}`
+export function mnemonicKey(mnemonic: PackMnemonicV1 & { meaningId?: string }): string {
+  return `${String(mnemonic.type ?? '其他').trim()}:${String(mnemonic.meaningId ?? '').trim()}:${String(mnemonic.text ?? '').trim()}`
 }
 
 /** 英文/别名助记类型 → core 中文枚举（AI prompt 用 root/assoc/story；task-70 对齐） */

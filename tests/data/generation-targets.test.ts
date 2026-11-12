@@ -259,4 +259,13 @@ describe('task-84：生成目标范围扩展 / 分页 / 语义多含义过滤', 
 
   })
 
+
+  it('task-128：mnemonics deck scope 按每个 c 生成目标（带 meaningIndex）', async () => {
+    const deck = await setupDeck()
+    const page = await selectTargetPage({ kind: 'deck', deckId: deck.id }, 'mnemonics')
+    const apple = page.targets.filter((target) => target.headwordLower === 'apple')
+    expect(apple.map((target) => target.meaningIndex)).toEqual([1, 2])
+    expect(page.targets.filter((target) => target.headwordLower === 'apricot').map((target) => target.meaningIndex)).toEqual([1])
+  })
+
 })

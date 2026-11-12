@@ -15,7 +15,11 @@ const meaningBase = {
   familiarity: 0,
 }
 
-function annotation(meanings: unknown[], coreSenses: Array<{ label: string; note?: string; origin?: string }> = []): string {
+function annotation(
+  meanings: unknown[],
+  coreSenses: Array<{ label: string; note?: string; origin?: string }> = [],
+  mnemonics: Array<{ type: string; text: string; meaningId?: string }> = [],
+): string {
   return renderToStaticMarkup(
     createElement(AnnotationStage, {
       headword: 'company',
@@ -24,7 +28,7 @@ function annotation(meanings: unknown[], coreSenses: Array<{ label: string; note
       coreSenses,
       meanings: meanings as never,
       examples: [],
-      mnemonics: [],
+      mnemonics,
       phrases: [],
       showPhrases: false,
       speaking: false,
@@ -47,6 +51,20 @@ describe('本义→引申链（task-77）', () => {
     expect(html).toContain('→ 公司')
     expect(html).toContain('AI 推演，仅供参考')
     expect(html).toContain('derivation-chain')
+  })
+
+  it('注释面按 c 显示助记，词级旧助记仍显示（task-128）', () => {
+    const html = annotation(
+      [meaningBase, { ...meaningBase, meaningId: 'w#M2', cn: '河岸' }],
+      [],
+      [
+        { type: '联想', text: 'c1 助记内容', meaningId: 'w#M1' },
+        { type: '谐音', text: '词级旧助记' },
+      ],
+    )
+    expect(html).toContain('c1 助记内容')
+    expect(html).toContain('词级旧助记')
+    expect(html).toContain('meaning-mnemonic')
   })
 
   it('v4 label 与 steps 分离（task-110）：括号显示 label，不显示 steps[0]', () => {

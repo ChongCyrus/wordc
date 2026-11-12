@@ -1451,7 +1451,12 @@ export async function selectTargetPage(
     const fallbackIndex = meaningFilter?.wordId === word.id ? meaningFilter.meaningIndex : undefined
     const indexes = kind === 'semantics'
       ? [undefined]
-      : scopeMeaningIndexes ?? (fallbackIndex != null ? [fallbackIndex] : [undefined])
+      : scopeMeaningIndexes ??
+        (fallbackIndex != null
+          ? [fallbackIndex]
+          : kind === 'mnemonics'
+            ? word.meanings.map((_, meaningIndex) => meaningIndex + 1)
+            : [undefined])
     for (const index of indexes) {
       if (index != null && (index < 1 || index > word.meanings.length)) continue
       const meaningId = index != null ? meaningIdOf(word.id, index) : undefined

@@ -63,6 +63,19 @@ describe('AI 扩充 UI（task-71）', () => {
     expect(formatDeckOption('QA空词库', 0)).toBe('QA空词库（0 词）')
   })
 
+  it('助记审核显示「cX 中文 → 助记」（task-128）', () => {
+    const lines = itemLines(
+      'mnemonics',
+      {
+        headword: 'bank',
+        meaningIndex: 2,
+        mnemonics: [{ type: '联想', text: 'bank 河岸→银行' }],
+      } as never,
+      { meanings: [{ cn: '银行' }, { cn: '河岸' }] },
+    )
+    expect(lines[0]).toContain('c2 河岸 → [联想] bank 河岸→银行')
+  })
+
   it('失败分类计数汇总（13 类；S18 P2）', () => {
     expect(summarizeAiFailures(['AI_QUOTA', 'AI_QUOTA', 'AI_RATE_LIMIT'])).toBe(
       '失败 3 条：余额不足 2、请求过于频繁 1',

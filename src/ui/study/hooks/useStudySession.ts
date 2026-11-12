@@ -814,7 +814,13 @@ export function useStudySession(options?: {
 
   const mnemonics = useMemo<MnemonicView[]>(() => {
     if (!word) return []
-    return word.mnemonics.map((mnemonic) => ({ type: mnemonic.type, text: mnemonic.text }))
+    return word.mnemonics.map((mnemonic) => ({
+      type: mnemonic.type,
+      text: mnemonic.text,
+      ...((mnemonic as { meaningId?: string }).meaningId
+        ? { meaningId: (mnemonic as { meaningId?: string }).meaningId }
+        : {}),
+    }))
   }, [word])
 
   const activeMeaning = useMemo(() => {

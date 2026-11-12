@@ -88,6 +88,14 @@ export function AnnotationStage({
             <div key={meaning.meaningId}>
               <MeaningRow meaning={meaning} onMark={onMarkMeaning} />
               {meaning.derivation ? <DerivationChain {...meaning.derivation} /> : null}
+              {mnemonics
+                .filter((mnemonic) => mnemonic.meaningId === meaning.meaningId)
+                .map((mnemonic, index) => (
+                  <div className="meaning-mnemonic" key={`${meaning.meaningId}-${index}`}>
+                    <span className="meaning-mnemonic-type">[{mnemonic.type}]</span>
+                    {mnemonic.text}
+                  </div>
+                ))}
             </div>
           ))
         ) : (
@@ -113,11 +121,13 @@ export function AnnotationStage({
         </>
       ) : null}
 
-      {mnemonics.length > 0 ? (
+      {mnemonics.filter((mnemonic) => !mnemonic.meaningId).length > 0 ? (
         <>
           <div className="section-band">助记</div>
           <div className="section-body">
-            {mnemonics.map((mnemonic, index) => (
+            {mnemonics
+              .filter((mnemonic) => !mnemonic.meaningId)
+              .map((mnemonic, index) => (
               <p className="mnemonic-item" key={`${mnemonic.text}-${index}`}>
                 <span className="mnemonic-type">{mnemonic.type}</span>
                 {mnemonic.text}

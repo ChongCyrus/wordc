@@ -73,6 +73,41 @@ export function buildSystemPrompt(): string {
   ].join('\n')
 }
 
+/** task-128：助记 prompt 版本 */
+export const PROMPT_VERSION_MNEMONIC = 'v3.0-mnemonic-c'
+
+/** 助记 system prompt：帮助记住「单词 w → 具体含义 c」的映射（docs/AI-CONTENT-SPEC §3.1） */
+export function buildSystemPromptMnemonic(): string {
+  return [
+    `你是英语词汇助记编辑（prompt ${PROMPT_VERSION_MNEMONIC}）。给定一批「单词 + 指定含义 c（含 meaningIndex/词性/中文）」，为每个 c 生成 1 条助记。`,
+    '目标：帮助学习者记住「这个单词 w → 这个具体含义 c」的映射，不是只解释词根。',
+    '要求：',
+    '1) 只输出严格 JSON（不要 Markdown/解释/前后缀），schema 见下；',
+    '2) 每条助记必须同时锚定「单词拼写/发音/构词」+「该 c 的中文含义」：读完能由 w 想起 c；',
+    '3) 允许形式（贴合该词即可，可混合）：①词根/构词拆解 + 一句话桥接到中文含义（如 ad(向)+dress(引导) → 把话引向某人 → 致辞）；②自然谐音/近音；③形象/场景故事（把拼写片段与含义绑定）；④与易混词/同词其它 c 对比；',
+    '4) 禁止：只写词源/词根解释而没有「→ 该 c 中文含义」的桥接；只重复中文释义；与目标 c 无关的通用助记；编造词源；',
+    '5) 每个输入 target 必须原样返回 headword 与 meaningIndex（1 起，与输入一致），不得串到同词其它 c；',
+    '6) 长度：1–2 句、≤60 字，中文为主，可含英文词根/单词；每个 target 仅 1 条；',
+    '7) 输出 mnemonics type ∈ {"root","assoc","story"}。',
+    'JSON schema:',
+    PACK_ITEMS_JSON_SCHEMA,
+  ].join('\n')
+}
+
+/** 助记 user prompt：逐条列出 (headword, meaningIndex, pos, cn) */
+export function buildUserPromptMnemonic(targets: GenerateTarget[]): string {
+  const payload = targets.map((target) => ({
+    headword: target.headword,
+    meaningIndex: target.meaningIndex,
+    meaning: target.meaningIndex != null ? target.meanings[target.meaningIndex - 1] : undefined,
+  }))
+  return [
+    'kind = mnemonics（每个 target 对应一个具体含义 c；必须返回 headword+meaningIndex，并为该 c 生成 1 条助记）',
+    'targets（逐条返回，headword+meaningIndex 必须一致）：',
+    JSON.stringify(payload),
+  ].join('\n')
+}
+
 /** 某批次里每个目标的输入摘要（避免把 Word 全量塞进 prompt） */
 function targetPayload(target: GenerateTarget): Record<string, unknown> {
   const payload: Record<string, unknown> = {

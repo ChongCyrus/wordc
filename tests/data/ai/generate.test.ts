@@ -73,6 +73,7 @@ function payloadFor(targets: GenerateTarget[], kind: 'examples' | 'phrases' | 'm
     }
     return {
       headword: t.headword,
+      ...(t.meaningIndex != null ? { meaningIndex: t.meaningIndex } : {}),
       mnemonics: [{ type: 'root', text: `${t.headword} 的词根助记` }],
     }
   })

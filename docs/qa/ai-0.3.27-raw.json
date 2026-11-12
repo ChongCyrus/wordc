@@ -1,0 +1,402 @@
+{
+  "startedAt": "2026-11-12T12:15:46.590Z",
+  "base": "http://127.0.0.1:4173/",
+  "build": "index-DXu1HZnm.js",
+  "versionText": null,
+  "findings": [],
+  "scenarios": {
+    "S2 真实API替换本义": {
+      "ok": true,
+      "ms": 58231,
+      "word": {
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "headword": "address",
+        "meaningCount": 12,
+        "meanings": [
+          {
+            "cn": "地址",
+            "pos": "n."
+          },
+          {
+            "cn": "演讲",
+            "pos": "n."
+          },
+          {
+            "cn": "致辞",
+            "pos": "n."
+          },
+          {
+            "cn": "说话的技巧",
+            "pos": "n."
+          },
+          {
+            "cn": "称呼",
+            "pos": "n."
+          },
+          {
+            "cn": "演说",
+            "pos": "vt."
+          },
+          {
+            "cn": "从事",
+            "pos": "vt."
+          },
+          {
+            "cn": "忙于",
+            "pos": "vt."
+          },
+          {
+            "cn": "写姓名地址",
+            "pos": "vt."
+          },
+          {
+            "cn": "向…致辞",
+            "pos": "vt."
+          },
+          {
+            "cn": "与…说话",
+            "pos": "vt."
+          },
+          {
+            "cn": "提出",
+            "pos": "vt."
+          }
+        ]
+      },
+      "semTarget1": 1,
+      "semKinds": [
+        "100",
+        "✓ 本义/引申链",
+        "✓ 已拒绝"
+      ],
+      "replace1": {
+        "label": "1",
+        "calls": 0,
+        "reviewText": "审核生成内容（1） 覆盖模式：保存后将替换已选词对应类型的内容（旧内容被清空后写入新内容） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 本义/引申链（将替换） 本义1 「地址」（high） 本义2 「演讲」（high） 本义3 「致词」（medium） 本义4 「处理应对」（medium） c1 → 本义1：指向某处 → 标明所在位置 c2 → 本义2：面向听众说话 → 正式讲话 c3 → 本义3：向人说话 → 正式致辞 c4 → 本义3：向人说话 → 说话的技巧 c5 → 本义3：向人说话 → 对人的称呼 c6 → 本义2：面向听众说话 → 发表演说 c7 → 本义4：着手应对 → 从事某事 c8 → 本义4：着手应对 → 忙于某事 c9 → 本义1：标明位置 → 写姓名地址 c10 → 本义3：向人说话 → 向…致辞 c11 → 本义3：向人说话 → 与…说话 c12 → 本义4：着手应对 → 提出某事 ❌ 全不选 保存已选（1） 关闭",
+        "items": 1,
+        "replaceNotice": true,
+        "annotation": {
+          "core": [
+            "本义1「地址」 人或事物所在的具体位置信息 词源：法语 adresser=直接指向",
+            "本义2「演讲」 面向听众发表的正式讲话",
+            "本义3「致词」 向某人说或写的话语，尤指正式表达",
+            "本义4「处理应对」 着手从事或应对某事"
+          ],
+          "chains": [
+            "本义① 「地址」 → 指向某处 → 标明所在位置（AI 推演，仅供参考）",
+            "本义② 「演讲」 → 面向听众说话 → 正式讲话（AI 推演，仅供参考）",
+            "本义③ 「致词」 → 向人说话 → 正式致辞（AI 推演，仅供参考）",
+            "本义③ 「致词」 → 向人说话 → 说话的技巧（AI 推演，仅供参考）",
+            "本义③ 「致词」 → 向人说话 → 对人的称呼（AI 推演，仅供参考）",
+            "本义② 「演讲」 → 面向听众说话 → 发表演说（AI 推演，仅供参考）",
+            "本义④ 「处理应对」 → 着手应对 → 从事某事（AI 推演，仅供参考）",
+            "本义④ 「处理应对」 → 着手应对 → 忙于某事（AI 推演，仅供参考）",
+            "本义① 「地址」 → 标明位置 → 写姓名地址（AI 推演，仅供参考）",
+            "本义③ 「致词」 → 向人说话 → 向…致辞（AI 推演，仅供参考）",
+            "本义③ 「致词」 → 向人说话 → 与…说话（AI 推演，仅供参考）",
+            "本义④ 「处理应对」 → 着手应对 → 提出某事（AI 推演，仅供参考）"
+          ],
+          "bodyHasEmpty": false
+        },
+        "snapshot": {
+          "id": "kaoyan-2027-dagang:address",
+          "headword": "address",
+          "meanings": [
+            {
+              "cn": "演说、地址",
+              "examples": 0
+            }
+          ],
+          "coreSenses": null,
+          "meaningMap": null,
+          "examples": [
+            {
+              "en": "address an audience",
+              "cn": "向听众发表讲话"
+            }
+          ],
+          "phrases": [
+            {
+              "en": "email address",
+              "cn": "电子邮箱信箱"
+            },
+            {
+              "en": "ip address",
+              "cn": "网络地址，IP地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "address book",
+              "cn": "通讯簿；住址名册"
+            },
+            {
+              "en": "home address",
+              "cn": "家庭住址；标识地址；内部地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "mailing address",
+              "cn": "邮寄地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "network address",
+              "cn": "网络地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "address space",
+              "cn": "地址空间",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "address as",
+              "cn": "称呼"
+            }
+          ],
+          "mnemonics": [],
+          "appliedItems": [],
+          "state": null
+        },
+        "packs": [
+          {
+            "id": "pk_1794485791525_s49bkl",
+            "kind": "semantics",
+            "status": "applied",
+            "draft": null
+          }
+        ],
+        "drafts": [],
+        "realStatuses": [
+          200
+        ]
+      },
+      "realUsage1": {
+        "prompt": 1800,
+        "completion": 391,
+        "total": 2191
+      },
+      "realCalls1": 1,
+      "reopenBannerAfterSave": false,
+      "replace2": {
+        "label": "2",
+        "calls": 1,
+        "reviewText": "审核生成内容（1） 覆盖模式：保存后将替换已选词对应类型的内容（旧内容被清空后写入新内容） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 本义/引申链（将替换） 本义1 「地址」（high） 本义2 「演讲」（high） 本义3 「称呼」（medium） 本义4 「着手处理」（medium） c1 → 本义1：导向某处 → 所在位置 → 地址 c2 → 本义2：向人讲话 → 正式发言 → 演讲 c3 → 本义2：向人讲话 → 正式发言 → 致辞 c4 → 本义2：向人讲话 → 言辞表达 → 说话的技巧 c5 → 本义3：向人打招呼 → 称谓 → 称呼 c6 → 本义2：向人讲话 → 发表演说 c7 → 本义4：导向某事 → 着手去做 → 从事 c8 → 本义4：导向某事 → 投入精力 → 忙于 c9 → 本义1：所在位置 → 写上位置 → 写姓名地址 c10 → 本义2：向人讲话 → 正式发言 → 向…致辞 c11 → 本义2：向人讲话 → 与…说话 c12 → 本义4：导向某事 → 提出来谈 → 提出 ❌ 全不选 保存已选（1） 关闭",
+        "items": 1,
+        "replaceNotice": true,
+        "annotation": {
+          "core": [
+            "本义1「地址」 指人或事物所在的具体位置信息 词源：法语 adresser=导向",
+            "本义2「演讲」 指面向听众发表的正式讲话",
+            "本义3「称呼」 指对人使用的称谓或招呼方式",
+            "本义4「着手处理」 指把精力或行动投向某件事"
+          ],
+          "chains": [
+            "本义① 「地址」 → 导向某处 → 所在位置 → 地址（AI 推演，仅供参考）",
+            "本义② 「演讲」 → 向人讲话 → 正式发言 → 演讲（AI 推演，仅供参考）",
+            "本义② 「演讲」 → 向人讲话 → 正式发言 → 致辞（AI 推演，仅供参考）",
+            "本义② 「演讲」 → 向人讲话 → 言辞表达 → 说话的技巧（AI 推演，仅供参考）",
+            "本义③ 「称呼」 → 向人打招呼 → 称谓 → 称呼（AI 推演，仅供参考）",
+            "本义② 「演讲」 → 向人讲话 → 发表演说（AI 推演，仅供参考）",
+            "本义④ 「着手处理」 → 导向某事 → 着手去做 → 从事（AI 推演，仅供参考）",
+            "本义④ 「着手处理」 → 导向某事 → 投入精力 → 忙于（AI 推演，仅供参考）",
+            "本义① 「地址」 → 所在位置 → 写上位置 → 写姓名地址（AI 推演，仅供参考）",
+            "本义② 「演讲」 → 向人讲话 → 正式发言 → 向…致辞（AI 推演，仅供参考）",
+            "本义② 「演讲」 → 向人讲话 → 与…说话（AI 推演，仅供参考）",
+            "本义④ 「着手处理」 → 导向某事 → 提出来谈 → 提出（AI 推演，仅供参考）"
+          ],
+          "bodyHasEmpty": false
+        },
+        "snapshot": {
+          "id": "kaoyan-2027-dagang:address",
+          "headword": "address",
+          "meanings": [
+            {
+              "cn": "演说、地址",
+              "examples": 0
+            }
+          ],
+          "coreSenses": null,
+          "meaningMap": null,
+          "examples": [
+            {
+              "en": "address an audience",
+              "cn": "向听众发表讲话"
+            }
+          ],
+          "phrases": [
+            {
+              "en": "email address",
+              "cn": "电子邮箱信箱"
+            },
+            {
+              "en": "ip address",
+              "cn": "网络地址，IP地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "address book",
+              "cn": "通讯簿；住址名册"
+            },
+            {
+              "en": "home address",
+              "cn": "家庭住址；标识地址；内部地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "mailing address",
+              "cn": "邮寄地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "network address",
+              "cn": "网络地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "address space",
+              "cn": "地址空间",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "address as",
+              "cn": "称呼"
+            }
+          ],
+          "mnemonics": [],
+          "appliedItems": [],
+          "state": null
+        },
+        "packs": [
+          {
+            "id": "pk_1794485791525_s49bkl",
+            "kind": "semantics",
+            "status": "applied",
+            "draft": null
+          },
+          {
+            "id": "pk_1794485797872_8kfgxz",
+            "kind": "semantics",
+            "status": "applied",
+            "draft": null
+          }
+        ],
+        "drafts": [],
+        "realStatuses": [
+          200,
+          200
+        ]
+      },
+      "realUsage2": {
+        "prompt": 3600,
+        "completion": 803,
+        "total": 4403
+      },
+      "realCalls2": 2,
+      "idempotent": {
+        "coreCount": [
+          4,
+          4
+        ],
+        "chains": [
+          12,
+          12
+        ],
+        "duplicateLabels": false,
+        "labelsChanged": true,
+        "emptyPacks": []
+      },
+      "mnTarget": 1,
+      "mnemonicReview": "审核生成内容（1） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 助记（将替换） [assoc] ad（向）+ dress（整理）：把信息整理好“向”某处投递→地址；向众人讲话→演讲 ❌ 全不选 保存已选（1） 关闭",
+      "mnemonicSnapshot": {
+        "id": "kaoyan-2027-dagang:address",
+        "headword": "address",
+        "meanings": [
+          {
+            "cn": "演说、地址",
+            "examples": 0
+          }
+        ],
+        "coreSenses": null,
+        "meaningMap": null,
+        "examples": [
+          {
+            "en": "address an audience",
+            "cn": "向听众发表讲话"
+          }
+        ],
+        "phrases": [
+          {
+            "en": "email address",
+            "cn": "电子邮箱信箱"
+          },
+          {
+            "en": "ip address",
+            "cn": "网络地址，IP地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address book",
+            "cn": "通讯簿；住址名册"
+          },
+          {
+            "en": "home address",
+            "cn": "家庭住址；标识地址；内部地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "mailing address",
+            "cn": "邮寄地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "network address",
+            "cn": "网络地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address space",
+            "cn": "地址空间",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address as",
+            "cn": "称呼"
+          }
+        ],
+        "mnemonics": [],
+        "appliedItems": [],
+        "state": null
+      },
+      "draftsAfterMnemonic": [],
+      "mnemonicReopen": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） 例句 词组 ✓ 助记 本义/引申链 生成模式（按类型） 助记 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 助记 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.14 / 单次上限 ¥3.00 开始生成 关闭",
+      "mnemonicReopenBanner": false,
+      "realUsage": {
+        "prompt": 4178,
+        "completion": 855,
+        "total": 5033
+      },
+      "realCalls": 3,
+      "realStatuses": [
+        200,
+        200,
+        200
+      ]
+    }
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "screenshots": [],
+  "cost": {
+    "realCalls": 3,
+    "prompt": 4178,
+    "completion": 855
+  },
+  "notes": [
+    {
+      "kind": "p0-store",
+      "msg": "Word.coreSenses 为空但注解面已有本义（内容存于 pack/effective）",
+      "core": 4
+    }
+  ]
+}

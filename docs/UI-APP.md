@@ -182,6 +182,12 @@
 - 内容包 name/subtitle 同样换行显示；窄屏 360px 与深色模式沿用 tokens。
 - 验收：设置页「减少动效」等长副标题完整可见；内容包名称/说明不出现省略号；按钮不溢出。
 
+## 2.6.9 助记 w→c 展示（task-128）
+
+- 审核框助记条目显示「cX 中文 → [类型] 助记」（`item.meaningIndex` + target 含义中文）。
+- 注解面：`MnemonicView.meaningId` 存在时助记显示在对应 c 行下方（`.meaning-mnemonic`，12px 次要色）；无 meaningId 的词级旧助记仍显示在单词级助记区。
+- targets/生成侧按 c 展开由 arch 负责（prompt v3.0-mnemonic-c）；UI 只负责展示位置与文案。
+
 ## 2.6.8 AI 面板 QA P2 修复（task-127）
 
 - 错误文案补 HTTP 状态：401/402/429/408 显示「（HTTP 401）」等（`aiErrorMessage` 映射）；测试连接与生成共用。

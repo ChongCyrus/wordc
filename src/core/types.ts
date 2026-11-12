@@ -43,6 +43,8 @@ export interface Mnemonic {
   /** 助记类型（对齐MaiMemo：联想/谐音/词根/词源/串记/其他…） */
   type: '联想' | '谐音' | '词根' | '词源' | '串记' | '口诀' | '其他'
   text: string
+  /** task-128：归属含义 id（`${wordId}#M{i}`）；缺省=词级（旧数据兼容） */
+  meaningId?: string
 }
 
 export interface Phrase {

@@ -20,7 +20,7 @@ export interface MergeSkip {
 export interface MergeResult {
   word: Word
   changed: boolean
-  added: { examples: string[]; phrases: string[]; mnemonics: Array<{ type: Mnemonic['type']; text: string }> }
+  added: { examples: string[]; phrases: string[]; mnemonics: Array<{ type: Mnemonic['type']; text: string; meaningId?: string }> }
   skipped: MergeSkip[]
 }
 
@@ -51,7 +51,7 @@ export function mergeItemIntoWord(
   const next = cloneWord(word)
   const headwordLower = word.headwordLower
   const skipped: MergeSkip[] = []
-  const added = { examples: [] as string[], phrases: [] as string[], mnemonics: [] as Array<{ type: Mnemonic['type']; text: string }> }
+  const added = { examples: [] as string[], phrases: [] as string[], mnemonics: [] as Array<{ type: Mnemonic['type']; text: string; meaningId?: string }> }
   let changed = false
 
   // —— examples：含义级（item.meaningIndex 或 override）或词级 ——
@@ -147,31 +147,40 @@ export function mergeItemIntoWord(
     changed = true
   }
 
-  // —— mnemonics：词级，type:text 去重 ——
+  // —— mnemonics：按含义归属（task-128；无 meaningIndex 时词级兼容） ——
   if ((item.mnemonics ?? []).length > 0) {
-    const existing = new Set(next.mnemonics.map((mnemonic) => mnemonicKey({ type: mnemonic.type, text: mnemonic.text })))
-    for (const mnemonic of item.mnemonics ?? []) {
-      const text = String(mnemonic.text ?? '').trim()
-      if (!text) continue
-      const type = normalizeMnemonicType(mnemonic.type)
-      const key = mnemonicKey({ type, text })
-      const hash = contentHash('mnemonics', headwordLower, undefined, key)
-      if (rejectedHashes.has(hash)) {
-        skipped.push({ kind: 'mnemonics', reason: 'rejected', value: key })
-        continue
+    const mnemonicMeaningIndex = meaningIndexOverride ?? item.meaningIndex
+    const meaningId =
+      mnemonicMeaningIndex != null ? meaningIdOf(word.id, mnemonicMeaningIndex) : undefined
+    if (mnemonicMeaningIndex != null && !next.meanings[mnemonicMeaningIndex - 1]) {
+      skipped.push({ kind: 'mnemonics', reason: 'unknown-meaning', value: `meaningIndex=${mnemonicMeaningIndex}` })
+    } else {
+      const existing = new Set(
+        next.mnemonics.map((mnemonic) => mnemonicKey({ type: mnemonic.type, text: mnemonic.text, meaningId: mnemonic.meaningId })),
+      )
+      for (const mnemonic of item.mnemonics ?? []) {
+        const text = String(mnemonic.text ?? '').trim()
+        if (!text) continue
+        const type = normalizeMnemonicType(mnemonic.type)
+        const key = mnemonicKey({ type, text, meaningId })
+        const hash = contentHash('mnemonics', headwordLower, mnemonicMeaningIndex, key)
+        if (rejectedHashes.has(hash)) {
+          skipped.push({ kind: 'mnemonics', reason: 'rejected', value: key })
+          continue
+        }
+        if (existing.has(key)) {
+          skipped.push({ kind: 'mnemonics', reason: 'duplicate', value: key })
+          continue
+        }
+        if (next.mnemonics.length >= LIMITS.mnemonics) {
+          skipped.push({ kind: 'mnemonics', reason: 'limit', value: key })
+          continue
+        }
+        next.mnemonics.push({ type, text, ...(meaningId ? { meaningId } : {}) })
+        existing.add(key)
+        added.mnemonics.push({ type, text, ...(meaningId ? { meaningId } : {}) })
+        changed = true
       }
-      if (existing.has(key)) {
-        skipped.push({ kind: 'mnemonics', reason: 'duplicate', value: key })
-        continue
-      }
-      if (next.mnemonics.length >= LIMITS.mnemonics) {
-        skipped.push({ kind: 'mnemonics', reason: 'limit', value: key })
-        continue
-      }
-      next.mnemonics.push({ type, text })
-      existing.add(key)
-      added.mnemonics.push({ type, text })
-      changed = true
     }
   }
 

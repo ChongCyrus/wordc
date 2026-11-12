@@ -11,6 +11,9 @@ import { estimateBatchCost, estimateCost, addUsage, emptyUsage } from './cost'
 import {
   CONTENT_LIMITS,
   PROMPT_VERSION,
+  PROMPT_VERSION_MNEMONIC,
+  buildSystemPromptMnemonic,
+  buildUserPromptMnemonic,
   PROMPT_VERSION_V4,
   buildRepairPrompt,
   buildSemanticsRepairPromptV4,
@@ -324,7 +327,8 @@ export async function generateItems(req: GenerateRequest, deps: GenerateDeps = {
   let costLimitHit = false
   let doneCount = 0
 
-  const usedPromptVersion = (): string => (kind === 'semantics' ? PROMPT_VERSION_V4 : PROMPT_VERSION)
+  const usedPromptVersion = (): string =>
+    kind === 'semantics' ? PROMPT_VERSION_V4 : kind === 'mnemonics' ? PROMPT_VERSION_MNEMONIC : PROMPT_VERSION
   if (targets.length === 0) {
     return { results: [], usage, costYuan: 0, canceled: false, promptVersion: usedPromptVersion() }
   }
@@ -401,8 +405,18 @@ export async function generateItems(req: GenerateRequest, deps: GenerateDeps = {
 
     // semantics 使用 v4 grouped prompt（docs/prompts/semantics-v4.md）；
     // 其余内容仍用 v1/v2 模板。v4 输出直接是 coreSenses+meaningMap，无需按 label 聚合。
-    const systemPrompt = kind === 'semantics' ? buildSystemPromptV4() : buildSystemPrompt()
-    const userPrompt = kind === 'semantics' ? buildUserPromptV4(batch) : buildUserPrompt({ kind: kind as SingleContentKind, targets: batch })
+    const systemPrompt =
+      kind === 'semantics'
+        ? buildSystemPromptV4()
+        : kind === 'mnemonics'
+          ? buildSystemPromptMnemonic()
+          : buildSystemPrompt()
+    const userPrompt =
+      kind === 'semantics'
+        ? buildUserPromptV4(batch)
+        : kind === 'mnemonics'
+          ? buildUserPromptMnemonic(batch)
+          : buildUserPrompt({ kind: kind as SingleContentKind, targets: batch })
     let messages: Array<{ role: 'system' | 'user'; content: string }> = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },

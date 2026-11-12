@@ -1,0 +1,23 @@
+import { launch, newContext, BASE, waitSeededHome, setupAi, injectPlanForWord, waitDefaultPacksSeeded, enterAnnotation, makeMockState, installMock, sleep, listPacks } from './ai-qa-lib.mjs'
+const browser=await launch(); const {context,page,bag}=await newContext(browser); page.setDefaultTimeout(15000)
+await installMock(page, makeMockState())
+await page.goto(BASE,{waitUntil:'domcontentloaded',timeout:60000}); console.log('goto')
+await waitSeededHome(page); console.log('home')
+console.log('prepare', await page.evaluate(async()=>{
+  const db=await new Promise((res,rej)=>{const q=indexedDB.open('momo-reword');q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})
+  await new Promise((res,rej)=>{const tx=db.transaction(['meta','packs','packItems','contentRejects'],'readwrite');tx.objectStore('meta').put({key:'packs.defaultSeeded',value:{version:6},updatedAt:Date.now()});tx.objectStore('packs').clear();tx.objectStore('packItems').clear();tx.objectStore('contentRejects').clear();tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})
+  return true
+}))
+await page.reload({waitUntil:'domcontentloaded'}); console.log('reloaded'); await waitSeededHome(page); console.log('home2')
+console.log('packs count', (await listPacks(page)).length, 'seeded?', await waitDefaultPacksSeeded(page, 3000))
+await setupAi(page); await injectPlanForWord(page,1,{headword:'address'}); await page.reload({waitUntil:'domcontentloaded'}); await waitSeededHome(page)
+console.log('start learn')
+const btn=page.getByRole('button',{name:/开始学习|继续学习/}).first(); console.log(await btn.innerText()); await btn.click(); await page.waitForURL(/\/study/); await page.locator('.board-stage').first().waitFor({state:'visible',timeout:15000}); console.log('study ok')
+await page.mouse.click(195,380); await page.locator('.meanings').first().waitFor({state:'visible',timeout:15000}); console.log('anno ok')
+await page.locator('.study-topbar [aria-label="更多"]').first().click(); await page.getByText('AI 补内容（当前词/当前 c）',{exact:true}).first().click()
+const gen=page.locator('.mm-dialog[aria-label="AI 扩充内容"]'); await gen.waitFor({state:'visible'}); await sleep(1000)
+console.log('text', (await gen.innerText()).replace(/\s+/g,' ').match(/目标：\d+[^·]*/)?.[0])
+const sel=gen.locator('select').first(); await sel.selectOption('append'); console.log('append selected'); await sleep(800)
+console.log('text2', (await gen.innerText()).replace(/\s+/g,' ').match(/目标：\d+[^·]*/)?.[0])
+console.log('bag', bag.consoleErrors.slice(0,3), bag.pageErrors.slice(0,2))
+await context.close(); await browser.close()

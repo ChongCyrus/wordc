@@ -28,6 +28,8 @@ export interface ExampleView {
 export interface MnemonicView {
   type: string
   text: string
+  /** task-128：归属含义 id；缺省=词级旧助记 */
+  meaningId?: string
 }
 
 export interface PhraseView {

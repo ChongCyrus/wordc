@@ -1,0 +1,347 @@
+{
+  "startedAt": "2026-11-12T12:05:27.153Z",
+  "base": "http://127.0.0.1:4174/",
+  "build": "index-Cs-s2PfR.js",
+  "versionText": null,
+  "findings": [
+    {
+      "id": "F01",
+      "severity": "P1",
+      "title": "「指定含义」未勾选时目标数未归零/开始生成仍可点（旧目标残留）",
+      "spec": "SPEC §2：指定含义未勾选时目标数为 0 并提示「请先勾选要生成的含义」；§7 开始生成在目标 0 时禁用",
+      "expected": "切到指定含义后目标=0、开始生成禁用、提示请先勾选",
+      "actual": "采样 0ms:1 120ms:1 240ms:1 360ms:1 480ms:1 600ms:1 720ms:1 840ms:1 960ms:1 1080ms:1 1200ms:1 1320ms:1 1440ms:1 1560ms:1 1680ms:1 1800ms:1 1920ms:1 2040ms:1 2160ms:1 2280ms:1 2400ms:1 2520ms:1 2640ms:1 2760ms:1 2880ms:1；最终 target=1 disabled=false",
+      "steps": "学习页→更多→AI 补内容→当前词→例句/追加更多（目标 1）→点「指定含义」不勾选",
+      "evidence": [
+        "/root/workspace/背单词APP开发/docs/assets/qa/ai-0.3.26/S2-03-meanings-stale.png"
+      ],
+      "console": [],
+      "stable": true,
+      "note": ""
+    },
+    {
+      "id": "F02",
+      "severity": "P2",
+      "title": "费用预估始终 ¥0.00，不随目标数变化",
+      "spec": "SPEC §2/§3：scope/类型/模式变化后目标数与费用预估必须重算/刷新",
+      "expected": "目标 4 与目标 0 的预计费用不同（>0 时随目标数估算）",
+      "actual": "目标 4：预计 ¥0.00 / 单次上限 ¥3.00；目标 0：预计 ¥0.00 / 单次上限 ¥3.00",
+      "steps": "AI 面板切换类型/模式，对比「预计 ¥…」行",
+      "evidence": [
+        "/root/workspace/背单词APP开发/docs/assets/qa/ai-0.3.26/S2-09-estimate.png"
+      ],
+      "console": [],
+      "stable": true,
+      "note": ""
+    }
+  ],
+  "scenarios": {
+    "S2 范围/类型/模式": {
+      "ok": true,
+      "ms": 56661,
+      "samples": {},
+      "injected": {
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "headword": "address",
+        "meaningCount": 12,
+        "meanings": [
+          {
+            "cn": "地址",
+            "pos": "n."
+          },
+          {
+            "cn": "演讲",
+            "pos": "n."
+          },
+          {
+            "cn": "致辞",
+            "pos": "n."
+          },
+          {
+            "cn": "说话的技巧",
+            "pos": "n."
+          },
+          {
+            "cn": "称呼",
+            "pos": "n."
+          },
+          {
+            "cn": "演说",
+            "pos": "vt."
+          },
+          {
+            "cn": "从事",
+            "pos": "vt."
+          },
+          {
+            "cn": "忙于",
+            "pos": "vt."
+          },
+          {
+            "cn": "写姓名地址",
+            "pos": "vt."
+          },
+          {
+            "cn": "向…致辞",
+            "pos": "vt."
+          },
+          {
+            "cn": "与…说话",
+            "pos": "vt."
+          },
+          {
+            "cn": "提出",
+            "pos": "vt."
+          }
+        ]
+      },
+      "headword": "address",
+      "panelInitial": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：0 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.00 / 单次上限 ¥3.00 没有可生成的词（已有/被排除） 开始生成 关闭",
+      "scopes": [
+        "今日要学",
+        "当前词库",
+        "当前词",
+        "指定含义",
+        "选择词库",
+        "自定义选词"
+      ],
+      "kinds": [
+        "例句",
+        "词组",
+        "助记",
+        "本义/引申链"
+      ],
+      "defaultPressed": [
+        "100",
+        "✓ 例句",
+        "✓ 已拒绝"
+      ],
+      "examplesModes": [
+        "仅缺失",
+        "追加更多",
+        "覆盖"
+      ],
+      "examplesModeDefault": "missing",
+      "targetAppend": 1,
+      "semanticsModes": [
+        "仅缺失",
+        "替换该词本义"
+      ],
+      "targetAllKinds": 4,
+      "startEnabledAll": true,
+      "estimateAt4": "预计 ¥0.00 / 单次上限 ¥3.00",
+      "meaningsSamples": [
+        {
+          "ms": 0,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 120,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 240,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 360,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 480,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 600,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 720,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 840,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 960,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 1080,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 1200,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 1320,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 1440,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 1560,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 1680,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 1800,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 1920,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 2040,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 2160,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 2280,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 2400,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 2520,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 2640,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 2760,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        },
+        {
+          "ms": 2880,
+          "target": 1,
+          "disabled": false,
+          "warn": true
+        }
+      ],
+      "meaningsFinal": {
+        "ms": 2880,
+        "target": 1,
+        "disabled": false,
+        "warn": true
+      },
+      "meaningsMax": 1,
+      "targetC1": 1,
+      "targetC1C2": 2,
+      "staleWarningAfterSelect": false,
+      "targetNone": 0,
+      "customEmptyText": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 2025考研英语词汇受限商业词表（6702 词） 2027考研英语大纲词汇（约5500）（5528 词） QA空词库（0 词） QA小词库（2 词） 已选 0 / 共 0（单次 ≤500） 全选筛选结果 反选 清空已选 请先选择词库或输入搜索/字母前缀 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：0 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 请先勾选要生成的含义（c） 没有可生成的词（已有/被排除） 开始生成 关闭",
+      "customPrompt": true,
+      "customCount0": true,
+      "customStartDisabled": true,
+      "deckButtons": [
+        "2025考研英语词汇受限商业词表（6702 词）",
+        "2027考研英语大纲词汇（约5500）（5528 词）",
+        "QA空词库（0 词）",
+        "QA小词库（2 词）"
+      ],
+      "emptyDeckFound": true,
+      "emptyDeckText": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 2025考研英语词汇受限商业词表（6702 词） 2027考研英语大纲词汇（约5500）（5528 词） QA空词库（0 词） 已选 QA小词库（2 词） 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：0 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.00 / 单次上限 ¥3.00 没有可生成的词（已有/被排除） 开始生成 关闭",
+      "emptyDeckTarget": 0,
+      "emptyDeckDisabled": true,
+      "emptyDeckPrompt": true,
+      "smallDeckFound": true,
+      "deckSamples": [
+        0,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "deckTarget": 2,
+      "deckTargetExpected": 2,
+      "deckTargetMissingAfterMode": 1,
+      "deckTargetAppendAfterMode": 2,
+      "deckRefreshAfterMode": true,
+      "targetMissing": 0,
+      "zeroText": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：0 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.00 / 单次上限 ¥3.00 没有可生成的词（已有/被排除） 开始生成 关闭",
+      "zeroPrompt": true,
+      "zeroStartDisabled": true,
+      "draftsAfterOpen": [],
+      "estimateAt0": "预计 ¥0.00 / 单次上限 ¥3.00"
+    }
+  },
+  "consoleErrors": [],
+  "pageErrors": [],
+  "screenshots": [],
+  "notes": []
+}
