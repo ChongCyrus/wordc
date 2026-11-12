@@ -268,4 +268,16 @@ describe('task-84：生成目标范围扩展 / 分页 / 语义多含义过滤', 
     expect(page.targets.filter((target) => target.headwordLower === 'apricot').map((target) => target.meaningIndex)).toEqual([1])
   })
 
+
+  it('task-130：mnemonics missing 模式按 c 判断已有，旧词级助记不阻塞 per-c', async () => {
+    const deck = await setupDeck()
+    const db = getDb()
+    const apple = (await db.words.where('deckId').equals(deck.id).toArray()).find((word) => word.headwordLower === 'apple')!
+    await db.words.update(apple.id, {
+      mnemonics: [{ type: '联想', text: '旧词级助记', meaningId: `${apple.id}#M1` }],
+    })
+    const page = await selectTargetPage({ kind: 'word', wordId: apple.id }, 'mnemonics')
+    expect(page.targets.map((target) => target.meaningIndex)).toEqual([2])
+  })
+
 })

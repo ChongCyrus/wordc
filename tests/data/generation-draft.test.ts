@@ -9,6 +9,7 @@ import {
   clearGenerationDraft,
   createGenerationDraft,
   getGenerationDraft,
+  listGenerationDraftItems,
   listGenerationDrafts,
   updateGenerationDraftCursor,
 } from '../../src/data'
@@ -90,4 +91,20 @@ describe('task-106 · generation draft', () => {
     expect((await listGenerationDrafts()).some((entry) => entry.id === draft.id)).toBe(false)
     await expect(updateGenerationDraftCursor('missing-draft', { cursor: 1 })).rejects.toThrow(/不存在/)
   })
+
+  it('task-130：listGenerationDraftItems 返回已生成条目并按 payload 推断 kind', async () => {
+    const draft = await createGenerationDraft({ scope: null, kind: ['examples', 'mnemonics'] })
+    await appendGenerationDraftItems(draft.id, [
+      { headwordLower: 'alpha', meaningIndex: 1, payload: item('alpha', 1) },
+      {
+        headwordLower: 'alpha', meaningIndex: 2,
+        payload: { headword: 'alpha', meaningIndex: 2, mnemonics: [{ type: '联想', text: 'alpha 阿尔法联想' }] },
+      },
+    ])
+    const items = await listGenerationDraftItems(draft.id)
+    expect(items.map((entry) => entry.kind)).toEqual(['examples', 'mnemonics'])
+    expect(items.map((entry) => entry.meaningIndex)).toEqual([1, 2])
+    await expect(listGenerationDraftItems('missing')).rejects.toThrow(/不存在/)
+  })
+
 })

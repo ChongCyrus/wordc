@@ -184,6 +184,41 @@ export async function updateGenerationDraftCursor(
   await db.packs.update(draftId, { draft: next, updatedAt: now })
 }
 
+export interface GenerationDraftItem {
+  id: string
+  headwordLower: string
+  meaningIndex?: number
+  kind: GenerationKind
+  payload: PackItemV1
+}
+
+function draftItemKind(payload: PackItemV1): GenerationKind {
+  if ((payload.coreSenses ?? []).length > 0 || (payload.meaningMap ?? []).length > 0) return 'semantics'
+  if ((payload.mnemonics ?? []).length > 0) return 'mnemonics'
+  if ((payload.phrases ?? []).length > 0) return 'phrases'
+  return 'examples'
+}
+
+/**
+ * task-130：读取草稿中已生成但尚未应用的 items（resume 时并入审核/应用）。
+ * 按 seq 升序；kind 由 payload 内容推断（生成时每 kind 单独成条）。
+ */
+export async function listGenerationDraftItems(draftId: string): Promise<GenerationDraftItem[]> {
+  const db = getDb()
+  const pack = await db.packs.get(draftId)
+  if (!pack) throw new Error(`生成草稿不存在：${draftId}`)
+  if (!pack.draft) throw new Error(`内容包不是生成草稿：${draftId}`)
+  const rows = await db.packItems.where('packId').equals(draftId).toArray()
+  rows.sort((a, b) => a.seq - b.seq)
+  return rows.map((row) => ({
+    id: row.id,
+    headwordLower: row.headwordLower,
+    ...(row.meaningIndex != null ? { meaningIndex: row.meaningIndex } : {}),
+    kind: draftItemKind(row.payload),
+    payload: row.payload,
+  }))
+}
+
 export async function getGenerationDraft(draftId: string): Promise<GenerationDraft | null> {
   const pack = await getDb().packs.get(draftId)
   return pack ? toDto(pack) : null

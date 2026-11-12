@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T12:26:56.546Z
+- 生成时间：2026-11-12T12:40:33.797Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**337**；修改 **74**；新增 **5**；私有仓未进入公开树 **1810**
+- 公开文件：**356**；修改 **75**；新增 **5**；私有仓未进入公开树 **1792**
 
 ## 结论
 
@@ -31,6 +31,7 @@
 | `docs/UI-STUDY.md` | 配置/文档 | 文本变化 |
 | `docs/assets/demo/README.md` | 配置/文档 | 文本变化 |
 | `docs/prompts/semantics-v4.md` | 配置/文档 | 文本变化 |
+| `docs/qa/ai-0.3.26-raw.json` | 配置 | JSON 字段变化 |
 | `package.json` | 配置 | JSON 字段变化 |
 | `public/packs/dagang/semantics-v37-v4.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
 | `public/packs/dagang/wc-content-full.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
@@ -134,7 +135,6 @@
 - `docs/RUN.md`
 - `docs/SPEC-CONTENT-PACKS.md`
 - `docs/assets`
-- `docs/qa`
 - `docs/research`
 - `logs/ai-proxy-qa.log`
 - `logs/steps-bailian-a.log`
@@ -150,6 +150,7 @@
 - `scripts/deliver.sh`
 - `scripts/logs`
 - `src/data`
+- `tests/data`
 - `tests/e2e`
 - `tools/apk`
 - `tools/e2e`

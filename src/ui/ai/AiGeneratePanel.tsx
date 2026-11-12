@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { GenerationKind } from '../../data/ai'
 import {
   aiErrorMessage,
@@ -23,9 +23,10 @@ import {
 import {
   appendGenerationDraftItems,
   getGenerationDraft,
+  listGenerationDraftItems,
   estimateBatchCost,
   applyApproved,
-  approveItems,
+  applyGeneratedPack,
   applyReplacementPack,
   clearGenerationDraft,
   createGenerationDraft,
@@ -38,7 +39,6 @@ import {
   getWordsPage,
   importContentPack,
   pendingGenerationTargetsPage,
-  listPackItems,
   loadAiSettings,
   rejectGeneratedItem,
   stableStringify,
@@ -374,7 +374,7 @@ export function AiGenerateView({
             type="button"
             className="mm-btn mm-btn--primary"
             onClick={onStart}
-            disabled={targetCount === 0 || kinds.length === 0}
+            disabled={running || kinds.length === 0}
           >
             开始生成
           </button>
@@ -561,6 +561,9 @@ export function AiGeneratePanel({
   const [selectedWordIds, setSelectedWordIds] = useState<string[]>([])
   const [truncated, setTruncated] = useState(false)
   const [promptVersion, setPromptVersion] = useState('v1')
+  const startLockRef = useRef(false)
+  const applyLockRef = useRef(false)
+  const [applying, setApplying] = useState(false)
   const [batchLimit, setBatchLimit] = useState<AiBatchLimit>(100)
   const [draftId, setDraftId] = useState<string | null>(null)
   const [draftDone, setDraftDone] = useState(0)
@@ -721,6 +724,8 @@ export function AiGeneratePanel({
   }, [scope, targetDeckId, customSearch, selectedWordIds, kinds, modes, batchLimit, selectedMeaningIndexes])
 
   const handleStart = () => {
+    if (startLockRef.current) return
+    startLockRef.current = true
     void (async () => {
       if (draftId && draftTotal > 0 && draftCursor >= draftTotal) {
         setSummary('草稿已生成完成：请先审核/应用或放弃草稿，再开始新的生成')
@@ -831,9 +836,16 @@ export function AiGeneratePanel({
             canceled = true
             break
           }
-          cursor += groupPairs.length
+          // 只有成功落地条目才推进 cursor；失败目标留在原位可重试
+          cursor += appendItems.length
           if (activeDraftId) {
-            await updateGenerationDraftCursor(activeDraftId, { cursor, targetTotal: total })
+            await updateGenerationDraftCursor(activeDraftId, {
+              cursor,
+              targetTotal: total,
+              errors: errorCodes
+                .filter((code): code is string => typeof code === 'string')
+                .map((code, index) => ({ index, code, message: aiErrorMessage(code) })),
+            })
             setDraftCursor(cursor)
           }
         }
@@ -904,6 +916,7 @@ export function AiGeneratePanel({
           toast.error(message)
         }
       } finally {
+        startLockRef.current = false
         setRunning(false)
         setController(null)
         setProgress(null)
@@ -912,6 +925,9 @@ export function AiGeneratePanel({
   }
 
   const handleApply = () => {
+    if (applyLockRef.current) return
+    applyLockRef.current = true
+    setApplying(true)
     void (async () => {
       const activeDraftId = draftId
       try {
@@ -979,10 +995,7 @@ export function AiGeneratePanel({
           if (replacement.applied <= 0) throw new Error('替换未应用任何内容，旧数据已保留')
           applied = replacement
         } else {
-          const records = await listPackItems(imported.packId)
-          const pendingIds = records.filter((record) => record.status === 'pending').map((record) => record.id)
-          await approveItems(imported.packId, pendingIds)
-          applied = await applyApproved(imported.packId)
+          applied = await applyGeneratedPack(imported.packId)
         }
         if (replaceEntries.length > 0 && applied.applied <= 0) {
           throw new Error('替换未生效：已保留原内容与草稿，请重试')
@@ -1000,6 +1013,9 @@ export function AiGeneratePanel({
         setPending([])
       } catch (err) {
         toast.error(err instanceof Error ? err.message : '保存生成内容失败')
+      } finally {
+        applyLockRef.current = false
+        setApplying(false)
       }
     })()
   }
@@ -1052,11 +1068,46 @@ export function AiGeneratePanel({
           }
           onResumeDraft={() => {
             if (!draftPrompt) return
-            setDraftId(draftPrompt.id)
-            setDraftCursor(draftPrompt.done)
-            setDraftDone(draftPrompt.done)
-            setDraftTotal(draftPrompt.total)
-            setDraftPrompt(null)
+            void (async () => {
+              const draftIdToResume = draftPrompt.id
+              const history = await listGenerationDraftItems(draftIdToResume)
+              const seen = new Set<string>()
+              const historyEntries: typeof pending = []
+              const historyItems: AiReviewItem[] = []
+              for (const record of history) {
+                const kind = record.kind as GenerationKind
+                const key = `${kind}:${record.headwordLower}#${record.meaningIndex ?? ''}`
+                if (seen.has(key)) continue
+                seen.add(key)
+                historyEntries.push({
+                  kind,
+                  mode: 'missing' as AiGenerationMode,
+                  target: {
+                    wordId: record.headwordLower,
+                    headwordLower: record.headwordLower,
+                    ...(record.meaningIndex != null ? { meaningIndex: record.meaningIndex } : {}),
+                  },
+                  item: record.payload,
+                })
+                historyItems.push({
+                  key,
+                  headword: record.payload.headword,
+                  kindLabel: aiKindLabel(kind),
+                  lines: itemLines(kind, record.payload),
+                })
+              }
+              setDraftId(draftIdToResume)
+              setDraftCursor(draftPrompt.done)
+              setDraftDone(history.length)
+              setDraftTotal(draftPrompt.total)
+              setPending(historyEntries)
+              setItems(historyItems)
+              setSelected(new Set(historyItems.map((item) => item.key)))
+              if (historyEntries.length > 0) {
+                setKinds([...new Set(historyEntries.map((entry) => entry.kind))])
+              }
+              setDraftPrompt(null)
+            })()
           }}
           onDiscardDraft={() => setDiscardConfirm(true)}
           kinds={kinds}
@@ -1125,7 +1176,7 @@ export function AiGeneratePanel({
         open={items.length > 0 && !running}
         items={items}
         selected={selected}
-        canApply
+        canApply={!applying}
         onToggle={(key) =>
           setSelected((prev) => {
             const next = new Set(prev)

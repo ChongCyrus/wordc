@@ -1365,6 +1365,8 @@ function existingCount(word: Word, kind: ContentKind, meaningIndex?: number, mea
     if (meaningId != null) return word.phrases.filter((phrase) => phrase.meaningId === meaningId).length
     return word.phrases.length
   }
+  // task-130：助记按 c 计数；旧词级助记（无 meaningId）不阻塞各 c 的 per-c 生成
+  if (meaningId != null) return word.mnemonics.filter((mnemonic) => mnemonic.meaningId === meaningId).length
   return word.mnemonics.length
 }
 
@@ -1790,4 +1792,31 @@ export async function resetSemanticsData(): Promise<{ removedPacks: number; remo
     }
   }
   return { removedPacks: semanticsIds.length, removedItems }
+}
+
+/** task-130：普通生成包应用（补审→apply）的失败回滚封装；replace 仍走 applyReplacementPack。 */
+export async function applyGeneratedPack(packId: string): Promise<ApplyResult> {
+  const db = getDb()
+  const packItems = await db.packItems.where('packId').equals(packId).toArray()
+  const wordIds = [...new Set(packItems.map((item) => item.wordId).filter((id): id is string => Boolean(id)))]
+  const wordsSnapshot = wordIds.length > 0 ? await db.words.bulkGet(wordIds) : []
+  const itemsSnapshot: PackItemRecord[] = []
+  for (const wordId of wordIds) {
+    const rows = await db.packItems.where('wordId').equals(wordId).toArray()
+    itemsSnapshot.push(...rows)
+  }
+  try {
+    const pendingIds = packItems
+      .filter((item) => item.status === 'pending' || item.status === 'rejected')
+      .map((item) => item.id)
+    if (pendingIds.length > 0) await approveItems(packId, pendingIds)
+    return await applyApproved(packId)
+  } catch (error) {
+    await db.transaction('rw', [db.words, db.packItems], async () => {
+      const words = wordsSnapshot.filter((word): word is Word => Boolean(word))
+      if (words.length > 0) await db.words.bulkPut(words)
+      if (itemsSnapshot.length > 0) await db.packItems.bulkPut(itemsSnapshot)
+    })
+    throw error
+  }
 }

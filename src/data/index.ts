@@ -76,6 +76,7 @@ export {
   resetSemanticsData,
   reapplyAppliedPacks,
   reapplyPack,
+  applyGeneratedPack,
   applyReplacementPack,
   clearContentForReplace,
   rejectGeneratedItem,
@@ -408,11 +409,13 @@ export {
   clearGenerationDraft,
   createGenerationDraft,
   getGenerationDraft,
+  listGenerationDraftItems,
   listGenerationDrafts,
   updateGenerationDraftCursor,
 } from './generation-draft'
 export type {
   GenerationDraft,
+  GenerationDraftItem,
   GenerationDraftItemInput,
   GenerationDraftMeta,
 } from './generation-draft'

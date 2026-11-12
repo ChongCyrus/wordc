@@ -182,6 +182,13 @@
 - 内容包 name/subtitle 同样换行显示；窄屏 360px 与深色模式沿用 tokens。
 - 验收：设置页「减少动效」等长副标题完整可见；内容包名称/说明不出现省略号；按钮不溢出。
 
+## 2.6.10 AI 生成按钮/落库修复（task-130）
+
+- 开始按钮只按 `kinds.length`/运行态禁用，不再用异步 `targetCount`（0 目标由 handleStart 提示），避免第一次点击被忽略。
+- `handleStart`/`handleApply` 增加同步锁（useRef）+ `applying` 禁用保存，双击只触发一次。
+- cursor 只在成功落地条目后前进；失败码写入 draft errors 可重试，不再把失败目标当作已处理。
+- resume 时 `listGenerationDraftItems(draftId)` 合并历史 items 到 pending/allResults（kind+headwordLower+meaningIndex 去重），并恢复 kinds；审核/应用包含历史 + 新生成。
+
 ## 2.6.9 助记 w→c 展示（task-128）
 
 - 审核框助记条目显示「cX 中文 → [类型] 助记」（`item.meaningIndex` + target 含义中文）。
