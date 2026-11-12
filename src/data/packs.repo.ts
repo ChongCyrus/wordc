@@ -811,9 +811,9 @@ export interface ReapplyOptions {
  * - 分批事务（默认 200/批）+ 进度回调；不会触碰已 applied/pending 条目；
  * - 全部解析完后统一 apply（幂等）。
  */
-export async function reapplyPack(
+async function reapplyOnePack(
   packId: string,
-  opts: ReapplyOptions = {},
+  opts: ReapplyOptions,
 ): Promise<ApplyResult & { retried: number }> {
   const db = getDb()
   const pack = await db.packs.get(packId)
@@ -856,6 +856,32 @@ export async function reapplyPack(
   const applied = await applyApproved(packId, { retrySkipped: true })
   opts.onProgress?.({ phase: 'apply', done: total, total, retried })
   return { ...applied, retried }
+}
+
+/**
+ * task-90/92/104：重新应用旧 pack（修复 skipped）。
+ * - 只处理 skipped(unknown-word/unknown-meaning)，分批事务 + 进度；
+ * - **task-104**：同 checksum 的重复包一并处理（避免点了其中一行、列表其它行 counts 仍旧）；
+ * - 返回的是「点击的 pack」结果；`siblings` 表示另外处理的重复包数量。
+ */
+export async function reapplyPack(
+  packId: string,
+  opts: ReapplyOptions = {},
+): Promise<ApplyResult & { retried: number; siblings: number }> {
+  const db = getDb()
+  const pack = await db.packs.get(packId)
+  if (!pack) throw new Error(`内容包不存在：${packId}`)
+  const group = (await db.packs.toArray()).filter((candidate) => candidate.checksum === pack.checksum)
+  const siblings = group.filter((candidate) => candidate.id !== packId)
+  // 先处理重复包（用同一 deckId 覆盖），再处理点击的包并返回其结果
+  for (const sibling of siblings) {
+    await reapplyOnePack(sibling.id, {
+      ...opts,
+      ...(opts.deckId ? {} : sibling.deckId ? { deckId: sibling.deckId } : {}),
+    })
+  }
+  const result = await reapplyOnePack(packId, opts)
+  return { ...result, siblings: siblings.length }
 }
 
 /** task-92：清理重复内容包（按 checksum 分组；保留「已应用最多 → 最早创建」的一份） */

@@ -175,6 +175,13 @@
 - **关于页第三方说明（task-57 尾）**：`BRAND.backgroundNote/deckNotice/affiliationNotice/tokenNotice` 为可选字段——私版提供完整「MaiMemo/受限商业词表」说明（输出逐字不变）；公开版 brand.ts 省略这些字段 → 回退通用文案（「数据来源与许可见 FEATURES-COMPLIANCE / THIRD-PARTY-NOTICES」「API Token…」），公开树 About 页不出现「MaiMemo/受限商业词表」。
 - **已知边界**：`src/data` 的 `GENERATOR`/`selectedDeckId` 默认值由 data 任务接管；`tools/apk/AndroidManifest.xml` label 私版保留（公开树不含 APK）；关于页「MaiMemo/受限商业词表」第三方说明文案未纳入品牌字段（公开版 sanitize 需另行处理）。
 
+## 2.5.1 长文本显示（task-105）
+
+- 设置项副标题/列表 subtitle：允许换行最多 3 行（`-webkit-line-clamp:3`），不再 `text-overflow: ellipsis` 单行截断；标题最多 2 行。
+- 按钮：`white-space: normal`，文字可换行（12px 字号、行高 18px），保持 ≥44px 可点区域。
+- 内容包 name/subtitle 同样换行显示；窄屏 360px 与深色模式沿用 tokens。
+- 验收：设置页「减少动效」等长副标题完整可见；内容包名称/说明不出现省略号；按钮不溢出。
+
 ## 2.6.1 内容包管理（task-86）
 
 - 设置页「内容包」区新增「内容包管理」：列出已导入 packs（名称/kind/条目数/已应用/来源），支持单个「导出」为 `.pack.json`（`exportPack` + `saveBlobFile`，APK 走桥接保存）、「导出全部」（逐个导出并汇总成功/失败）、「删除」（危险确认；已应用内容默认保留）。

@@ -215,6 +215,99 @@ describe('task-90：pack.meta.deckId 优先解析（多词库同 headword）', (
     expect(after.examples.some((example) => example.en === 'embrace rollback-test example.')).toBe(false)
   })
 
+  it('task-104：大量 skipped 经 reapplyPack 后 pack.counts.applied==total、items 全 applied', async () => {
+    // 目标 deck（3 义）与被选中 deck（1 义）同 headword：旧 pack 按选中 deck 解析 → 全部 unknown-meaning
+    const right = await createDeck({
+      name: 'task104-目标',
+      words: Array.from({ length: 30 }, (_, index) => ({
+        headword: `w${index}`,
+        meanings: [
+          { pos: 'n.', cn: `义一${index}` },
+          { pos: 'n.', cn: `义二${index}` },
+          { pos: 'v.', cn: `义三${index}` },
+        ],
+      })),
+    })
+    const wrong = await createDeck({
+      name: 'task104-误命中',
+      words: Array.from({ length: 30 }, (_, index) => ({
+        headword: `w${index}`,
+        meanings: [{ pos: 'n.', cn: `单义${index}` }],
+      })),
+    })
+    await updateSettings({ 'data.selectedDeckId': wrong.id })
+    const items = Array.from({ length: 30 }, (_, index) => ({
+      headword: `w${index}`,
+      headwordLower: `w${index}`,
+      meaningIndex: 2,
+      coreSenses: [{ index: 1, label: '乙义', confidence: 'high' as const }],
+      meaningMap: [{ meaningIndex: 2, coreSenseIndex: 1 }],
+    }))
+    const file = await makePack(items, 'semantics')
+    const imported = await importPack(JSON.stringify(file))
+    expect(imported.ok).toBe(true)
+    const packId = imported.packId!
+    const before = (await getDb().packs.get(packId))!
+    expect(before.counts.skipped).toBe(30)
+    expect(before.counts.applied).toBe(0)
+
+    const result = await reapplyPack(packId, { deckId: right.id })
+    expect(result.retried).toBe(30)
+    expect(result.applied).toBe(30)
+    expect(result.skipped).toBe(0)
+
+    const after = (await getDb().packs.get(packId))!
+    expect(after.counts.applied).toBe(30)
+    expect(after.counts.skipped).toBe(0)
+    expect(after.counts.items).toBe(30)
+    expect(after.status).toBe('applied')
+    const rows = await getDb().packItems.where('packId').equals(packId).toArray()
+    expect(rows.filter((row) => row.status === 'applied').length).toBe(30)
+  })
+
+  it('task-104：同 checksum 重复包 reapply 时全部刷新（不只点的那行）', async () => {
+    const right = await createDeck({
+      name: 'task104-重复-目标',
+      words: Array.from({ length: 5 }, (_, index) => ({
+        headword: `d${index}`,
+        meanings: [{ pos: 'n.', cn: `义一${index}` }, { pos: 'n.', cn: `义二${index}` }],
+      })),
+    })
+    const wrong = await createDeck({
+      name: 'task104-重复-误命中',
+      words: Array.from({ length: 5 }, (_, index) => ({
+        headword: `d${index}`,
+        meanings: [{ pos: 'n.', cn: `单义${index}` }],
+      })),
+    })
+    await updateSettings({ 'data.selectedDeckId': wrong.id })
+    const file = await makePack(
+      Array.from({ length: 5 }, (_, index) => ({
+        headword: `d${index}`,
+        headwordLower: `d${index}`,
+        meaningIndex: 2,
+        coreSenses: [{ index: 1, label: '乙义', confidence: 'high' as const }],
+        meaningMap: [{ meaningIndex: 2, coreSenseIndex: 1 }],
+      })),
+      'semantics',
+    )
+    const imported = await importPack(JSON.stringify(file))
+    const db = getDb()
+    const original = (await db.packs.get(imported.packId!))!
+    const originalItems = await db.packItems.where('packId').equals(original.id).toArray()
+    const dupId = `${original.id}_dup104`
+    await db.packs.put({ ...original, id: dupId, createdAt: original.createdAt + 1000 })
+    await db.packItems.bulkPut(originalItems.map((item, index) => ({ ...item, id: `${dupId}:${index + 1}`, packId: dupId })))
+
+    await reapplyPack(original.id, { deckId: right.id })
+    const packs = await db.packs.toArray()
+    expect(packs).toHaveLength(2)
+    for (const pack of packs) {
+      expect(pack.counts.applied, pack.id).toBe(5)
+      expect(pack.counts.skipped, pack.id).toBe(0)
+    }
+  })
+
   it('deletePack 默认路径不 toArray 全量（1 万条 skipped 包）→ O(1) 内存快速删除', async () => {
     const db = getDb()
     const now = Date.now()

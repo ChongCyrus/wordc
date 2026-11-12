@@ -336,18 +336,24 @@ html[data-reduce-motion='true'] *::after {
     line-height: var(--mm-leading-title);
     font-weight: var(--mm-weight-medium);
     color: var(--mm-text);
+    /* task-105：长名称允许换行（最多 2 行），避免省略号截断 */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
 
   .mm-row-sub {
     font-size: var(--mm-text-caption);
     line-height: var(--mm-leading-caption);
     color: var(--mm-text-2);
+    /* task-105：说明文字允许换行（最多 3 行），不再省略号截断 */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
 
   .mm-row-value {
@@ -413,7 +419,12 @@ html[data-reduce-motion='true'] *::after {
     justify-content: center;
     gap: 6px;
     min-height: var(--mm-touch);
-    padding: 0 18px;
+    padding: 6px 14px;
+    /* task-105：按钮文字允许换行/缩小，不省略截断 */
+    white-space: normal;
+    text-align: center;
+    line-height: 18px;
+    font-size: var(--mm-text-caption);
     border: 1px solid var(--mm-border);
     border-radius: var(--mm-radius-md);
     background-color: var(--mm-surface);

@@ -54,6 +54,15 @@ describe('跨机型布局 CSS（task-46）', () => {
     expect(ruleBlock('.mm-section-band:first-child')).toContain('margin-top: 8px;')
   })
 
+  it('长文本不省略截断（task-105）：说明/标题换行 + 按钮允许换行', () => {
+    expect(ruleBlock('.mm-row-sub')).toContain('-webkit-line-clamp: 3;')
+    expect(ruleBlock('.mm-row-sub')).not.toContain('white-space: nowrap;')
+    expect(ruleBlock('.mm-row-title')).toContain('-webkit-line-clamp: 2;')
+    expect(ruleBlock('.mm-row-title')).not.toContain('white-space: nowrap;')
+    expect(ruleBlock('.mm-btn')).toContain('white-space: normal;')
+    expect(ruleBlock('.mm-caption')).not.toContain('text-overflow: ellipsis;')
+  })
+
   it('弹层 max-height 有 vh 兜底（旧内核不支持 dvh 时不至于占满屏）', () => {
     expect(ruleBlock('.mm-dialog')).toMatch(/max-height: 80vh;\s*max-height: 80dvh;/)
     expect(ruleBlock('.mm-sheet')).toMatch(/max-height: 86vh;\s*max-height: 86dvh;/)
