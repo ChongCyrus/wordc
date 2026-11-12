@@ -74,6 +74,7 @@ export {
   replacePackContent,
   reapplyAppliedPacks,
   reapplyPack,
+  clearContentForReplace,
   rejectGeneratedItem,
 } from './packs.repo'
 export type {

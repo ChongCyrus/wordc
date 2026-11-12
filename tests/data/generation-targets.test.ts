@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
   TARGET_PAGE_MAX,
+  clearContentForReplace,
   createDeck,
   getDb,
   pendingGenerationTargetsPage,
@@ -153,4 +154,57 @@ describe('task-84：生成目标范围扩展 / 分页 / 语义多含义过滤', 
     const legacy = await selectTargets({ kind: 'deck', deckId: deck.id, offset: 590, limit: 5 }, 'examples')
     expect(legacy).toHaveLength(5)
   })
+
+  it('task-108：meanings scope 按指定 c 多选生成，目标带 meaningIndex', async () => {
+    const deck = await setupDeck()
+    const db = getDb()
+    const apple = (await db.words.where('deckId').equals(deck.id).toArray()).find((word) => word.headwordLower === 'apple')!
+    const page = await selectTargetPage({ kind: 'meanings', wordId: apple.id, meaningIndexes: [1, 2] }, 'examples')
+    expect(page.targets).toHaveLength(2)
+    expect(page.targets.map((target) => target.meaningIndex).sort()).toEqual([1, 2])
+    const onlyTwo = await selectTargetPage({ kind: 'meanings', wordId: apple.id, meaningIndexes: [2] }, 'examples')
+    expect(onlyTwo.targets).toHaveLength(1)
+    expect(onlyTwo.targets[0]!.meaningIndex).toBe(2)
+  })
+
+  it('task-107：append/replace 模式忽略已有内容，missing 仍排除', async () => {
+    const deck = await setupDeck()
+    const db = getDb()
+    const apple = (await db.words.where('deckId').equals(deck.id).toArray()).find((word) => word.headwordLower === 'apple')!
+    await db.words.update(apple.id, { examples: [{ en: 'An apple.', cn: '一个苹果。' }] })
+    const missing = await selectTargetPage({ kind: 'word', wordId: apple.id }, 'examples')
+    expect(missing.targets).toHaveLength(0)
+    const append = await selectTargetPage({ kind: 'word', wordId: apple.id }, 'examples', { mode: 'append' })
+    expect(append.targets).toHaveLength(1)
+    const replace = await selectTargetPage({ kind: 'word', wordId: apple.id }, 'examples', { mode: 'replace' })
+    expect(replace.targets).toHaveLength(1)
+  })
+
+  it('task-107：clearContentForReplace 清空内容并删除旧 semantics packItems', async () => {
+    const deck = await setupDeck()
+    const db = getDb()
+    const apple = (await db.words.where('deckId').equals(deck.id).toArray()).find((word) => word.headwordLower === 'apple')!
+    await db.words.update(apple.id, {
+      examples: [{ en: 'Old.', cn: '旧。' }],
+      phrases: [{ en: 'old phrase', cn: '旧词组' }],
+      mnemonics: [{ type: '联想', text: '旧助记' }],
+    })
+    const pack = await makePack([
+      { headword: 'apple', coreSenses: [{ index: 1, label: '苹果', confidence: 'high' }], meaningMap: [{ meaningIndex: 1, coreSenseIndex: 1 }] },
+    ])
+    await db.packItems.put({
+      id: 'p1:1', packId: 'p1', seq: 1, headword: 'apple', headwordLower: 'apple',
+      wordId: apple.id, deckId: deck.id, payload: pack.items[0]!, status: 'applied',
+      contentHashes: [], createdAt: Date.now(),
+    })
+    const result = await clearContentForReplace([apple.id], ['examples', 'phrases', 'mnemonics', 'semantics'])
+    expect(result.words).toBe(1)
+    expect(result.semanticsItems).toBe(1)
+    const updated = await db.words.get(apple.id)
+    expect(updated?.examples).toEqual([])
+    expect(updated?.phrases).toEqual([])
+    expect(updated?.mnemonics).toEqual([])
+    expect(await db.packItems.where('wordId').equals(apple.id).count()).toBe(0)
+  })
+
 })

@@ -14,6 +14,12 @@ import {
   formatAiBudget,
   formatAiProgress,
   formatAiSummary,
+  AI_EMPTY_TARGET_MESSAGE,
+  AI_GENERATION_TIMEOUT_MS,
+  AI_MODE_OPTIONS,
+  AI_SEMANTICS_MODE_OPTIONS,
+  aiModeLabel,
+  withAiTimeout,
 } from '../../src/app/hooks/aiUi'
 import { AiGenerateView, itemLines } from '../../src/ui/ai/AiGeneratePanel'
 import { AiReviewDialog } from '../../src/ui/ai/AiGeneratePanel'
@@ -82,6 +88,7 @@ describe('AI 扩充 UI（task-71）', () => {
       'today',
       'deck',
       'word',
+      'meanings',
       'deck-select',
       'custom',
     ])
@@ -138,6 +145,62 @@ describe('AI 扩充 UI（task-71）', () => {
     expect(html).toContain('role="switch"')
   })
 
+  it('task-109：无目标文案/60s UI 超时/取消不转圈', async () => {
+    expect(AI_EMPTY_TARGET_MESSAGE).toBe('没有可生成的词（已有/被排除）')
+    expect(AI_GENERATION_TIMEOUT_MS).toBe(60_000)
+    let timedOut = false
+    await expect(
+      withAiTimeout(new Promise(() => undefined), { timeoutMs: 5, onTimeout: () => { timedOut = true } }),
+    ).rejects.toMatchObject({ code: 'AI_TIMEOUT' })
+    expect(timedOut).toBe(true)
+    await expect(withAiTimeout(Promise.resolve('ok'), { timeoutMs: 500 })).resolves.toBe('ok')
+  })
+
+  it('task-107/108：生成模式标签与指定含义选项', () => {
+    expect(AI_MODE_OPTIONS.map((option) => option.value)).toEqual(['missing', 'append', 'replace'])
+    expect(AI_SEMANTICS_MODE_OPTIONS.map((option) => option.value)).toEqual(['missing', 'replace'])
+    expect(aiModeLabel('append')).toBe('追加更多')
+    expect(aiScopeLabel('meanings')).toBe('指定含义')
+  })
+
+  it('task-107/108 面板：指定含义多选 + 生成模式控件', () => {
+    const base = {
+      scope: 'meanings' as const,
+      kinds: ['examples' as const, 'semantics' as const],
+      excludes: ['rejected' as const],
+      targetCount: 2,
+      estimateText: '',
+      budgetText: '',
+      progress: null,
+      summary: null,
+      error: null,
+      running: false,
+      onScope: noop,
+      onToggleKind: noop,
+      onToggleExclude: noop,
+      onStart: noop,
+      onCancel: noop,
+      onClose: noop,
+    }
+    const html = renderToStaticMarkup(
+      createElement(AiGenerateView, {
+        ...base,
+        modes: { examples: 'replace', semantics: 'replace' },
+        wordMeanings: [
+          { index: 1, cn: '苹果', pos: 'n.' },
+          { index: 2, cn: '苹果树' },
+        ],
+        selectedMeaningIndexes: [1],
+      }),
+    )
+    expect(html).toContain('指定含义')
+    expect(html).toContain('选择含义（可多选）')
+    expect(html).toContain('c1')
+    expect(html).toContain('生成模式（按类型）')
+    expect(html).toContain('覆盖')
+    expect(html).toContain('替换该词本义')
+  })
+
   it('生成面板：范围/类型/排除/预算/开始按钮；运行中显示取消与进度', () => {
     const base = {
       scope: 'today' as const,
@@ -172,7 +235,7 @@ describe('AI 扩充 UI（task-71）', () => {
     const semanticsIdle = renderToStaticMarkup(
       createElement(AiGenerateView, { ...base, running: false, kinds: ['semantics'], targetCount: 0 }),
     )
-    expect(semanticsIdle).toContain('单含义词已跳过')
+    expect(semanticsIdle).toContain('本义链仅对多含义词生成')
     expect(semanticsIdle).toContain('没有可生成的词')
 
     const running = renderToStaticMarkup(

@@ -12,13 +12,19 @@ import {
   formatAiBudget,
   formatAiProgress,
   formatAiSummary,
+  withAiTimeout,
+  AI_EMPTY_TARGET_MESSAGE,
   type AiExcludeKey,
   type AiScope,
+  type AiGenerationMode,
+  AI_MODE_OPTIONS,
+  AI_SEMANTICS_MODE_OPTIONS,
 } from '../../app/hooks/aiUi'
 import {
   appendGenerationDraftItems,
   applyApproved,
   approveItems,
+  clearContentForReplace,
   clearGenerationDraft,
   createGenerationDraft,
   listGenerationDrafts,
@@ -26,6 +32,7 @@ import {
   computeChecksum,
   generateItems,
   getSettings,
+  getWord,
   getWordsPage,
   importContentPack,
   pendingGenerationTargetsPage,
@@ -82,6 +89,12 @@ export interface AiGenerateViewProps {
   onClearSelected?: () => void
   batchLimit?: AiBatchLimit
   onBatchLimit?: (limit: AiBatchLimit) => void
+  modes?: Partial<Record<GenerationKind, AiGenerationMode>>
+  onMode?: (kind: GenerationKind, mode: AiGenerationMode) => void
+  wordMeanings?: Array<{ index: number; cn: string; pos?: string }>
+  selectedMeaningIndexes?: number[]
+  onToggleMeaning?: (index: number) => void
+  replaceNotice?: string | null
   draftMessage?: string | null
   onResumeDraft?: () => void
   onDiscardDraft?: () => void
@@ -120,6 +133,12 @@ export function AiGenerateView({
   onClearSelected,
   batchLimit = 100,
   onBatchLimit,
+  modes = {},
+  onMode,
+  wordMeanings = [],
+  selectedMeaningIndexes = [],
+  onToggleMeaning,
+  replaceNotice,
   draftMessage,
   onResumeDraft,
   onDiscardDraft,
@@ -172,7 +191,36 @@ export function AiGenerateView({
         ))}
       </div>
 
-      {scope === 'deck-select' ? (
+      {scope === 'meanings' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="mm-caption">选择含义（可多选）</div>
+          {wordMeanings.length === 0 ? (
+            <div className="mm-caption">当前词没有可生成的含义</div>
+          ) : (
+            <div className="mm-list">
+              {wordMeanings.map((meaning) => (
+                <label key={meaning.index} className="mm-row">
+                  <input
+                    type="checkbox"
+                    aria-label={`选择含义 c${meaning.index}`}
+                    checked={selectedMeaningIndexes.includes(meaning.index)}
+                    onChange={() => onToggleMeaning?.(meaning.index)}
+                    disabled={running}
+                  />
+                  <span className="mm-row-main">
+                    c{meaning.index}{meaning.pos ? ` ${meaning.pos}` : ''} {meaning.cn}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          {selectedMeaningIndexes.length === 0 ? (
+            <div className="mm-caption">请至少选择一个含义</div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {scope === 'deck-select' || scope === 'custom' ? (
         <div className="mm-list">
           {decks.map((deck) => (
             <button
@@ -216,6 +264,9 @@ export function AiGenerateView({
               清空已选
             </button>
           </div>
+          {customWords.length === 0 && !customSearch.trim() ? (
+            <div className="mm-caption">请先选择词库或输入搜索/字母前缀</div>
+          ) : null}
           <div style={{ maxHeight: 180, overflowY: 'auto' }} className="mm-list">
             {customWords.map((word) => (
               <label key={word.id} className="mm-row">
@@ -253,6 +304,24 @@ export function AiGenerateView({
         })}
       </div>
 
+      <div className="mm-caption">生成模式（按类型）</div>
+      {kinds.map((kind) => (
+        <div key={kind} className="mm-row">
+          <span className="mm-row-main">{aiKindLabel(kind)}</span>
+          <select
+            className="mm-input"
+            aria-label={`${aiKindLabel(kind)}生成模式`}
+            value={modes[kind] ?? 'missing'}
+            onChange={(event) => onMode?.(kind, event.target.value as AiGenerationMode)}
+            disabled={running}
+          >
+            {(kind === 'semantics' ? AI_SEMANTICS_MODE_OPTIONS : AI_MODE_OPTIONS).map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
+      ))}
+
       <div className="mm-caption">排除</div>
       <div className="mm-btn-row">
         {AI_EXCLUDE_OPTIONS.map((option) => {
@@ -281,16 +350,17 @@ export function AiGenerateView({
 
       {/* 空目标提示（空词库 / 已全部有内容或被排除） */}
       {targetCount === 0 && !running ? (
-        <div className="mm-caption">没有可生成的词（已排除已有内容/已拒绝）</div>
+        <div className="mm-caption">{AI_EMPTY_TARGET_MESSAGE}</div>
       ) : null}
       {/* semantics 只对多含义词生成；单含义词数据层直接跳过 */}
       {kinds.includes('semantics') && !running ? (
-        <div className="mm-caption">单含义词已跳过（不生成本义链）</div>
+        <div className="mm-caption">本义链仅对多含义词生成（单含义词跳过）</div>
       ) : null}
 
       {progress ? <div className="mm-caption">{formatAiProgress(progress.done, progress.total, progress.costYuan)}</div> : null}
       {summary ? <div className="mm-caption">{summary}</div> : null}
       {error ? <div className="mm-caption mm-danger-text">{error}</div> : null}
+      {replaceNotice ? <div className="mm-caption mm-danger-text">{replaceNotice}</div> : null}
 
       <div className="mm-btn-row">
         {running ? (
@@ -333,6 +403,8 @@ export interface AiReviewDialogProps {
   onApply: () => void
   onReject: (key: string) => void
   onClose: () => void
+  /** task-107：覆盖模式提示（保存前明确告知将替换） */
+  replaceNotice?: string | null
   /** 落库应用成功后回调（如重载当前词刷新注释面/w-c） */
   onApplied?: () => void
 }
@@ -348,6 +420,7 @@ export function AiReviewDialog({
   onApply,
   onReject,
   onClose,
+  replaceNotice,
 }: AiReviewDialogProps) {
   if (!open) return null
   const allSelected = items.length > 0 && items.every((item) => selected.has(item.key))
@@ -376,6 +449,7 @@ export function AiReviewDialog({
         </>
       }
     >
+      {replaceNotice ? <div className="mm-caption mm-danger-text">{replaceNotice}</div> : null}
       {!canApply ? (
         <div className="mm-caption">落库接口尚未接通：当前仅预览，保存按钮在 packs.repo 就绪后启用。</div>
       ) : (
@@ -489,16 +563,26 @@ export function AiGeneratePanel({
   const [summary, setSummary] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<AiReviewItem[]>([])
-  const [pending, setPending] = useState<Array<{ kind: GenerationKind; target: { headwordLower: string; meaningIndex?: number }; item: PackItemV1 }>>([])
+  const [pending, setPending] = useState<Array<{ kind: GenerationKind; mode: AiGenerationMode; target: { wordId: string; headwordLower: string; meaningIndex?: number }; item: PackItemV1 }>>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [controller, setController] = useState<AbortController | null>(null)
+  const [modes, setModes] = useState<Record<GenerationKind, AiGenerationMode>>({
+    examples: 'missing', phrases: 'missing', mnemonics: 'missing', semantics: 'missing',
+  })
+  const [selectedMeaningIndexes, setSelectedMeaningIndexes] = useState<number[]>([])
+  const [wordMeanings, setWordMeanings] = useState<Array<{ index: number; cn: string; pos?: string }>>([])
   let canceled = false
 
   useEffect(() => {
     if (!open) return
     void (async () => {
       const drafts = await listGenerationDrafts()
-      const first = drafts[0]
+      const usable = drafts.filter((draft) => draft.done > 0 || draft.meta.targetTotal > 0)
+      // 空草稿（0/0）自动清理，避免幽灵横幅
+      for (const empty of drafts.filter((draft) => !usable.includes(draft))) {
+        await clearGenerationDraft(empty.id)
+      }
+      const first = usable[0]
       if (first) {
         const meta = first.meta
         setDraftPrompt({
@@ -512,6 +596,23 @@ export function AiGeneratePanel({
   }, [open])
 
   useEffect(() => {
+    if (!open || !currentWordId) {
+      setWordMeanings([])
+      return
+    }
+    void (async () => {
+      const word = await getWord(currentWordId)
+      setWordMeanings(
+        (word?.meanings ?? []).map((meaning, index) => ({
+          index: index + 1,
+          cn: meaning.cn,
+          ...(meaning.pos ? { pos: meaning.pos } : {}),
+        })),
+      )
+    })()
+  }, [open, currentWordId])
+
+  useEffect(() => {
     if (scope !== 'custom' || !targetDeckId) return
     void (async () => {
       const page = await getWordsPage(targetDeckId, { search: customSearch.trim(), limit: 100 })
@@ -521,6 +622,9 @@ export function AiGeneratePanel({
   }, [scope, targetDeckId, customSearch])
 
   const targetScope = async () => {
+    if (scope === 'meanings') {
+      return { kind: 'meanings' as const, wordId: currentWordId!, meaningIndexes: selectedMeaningIndexes }
+    }
     if (scope === 'word') {
       return currentMeaningIndex == null
         ? { kind: 'word' as const, wordId: currentWordId! }
@@ -544,15 +648,17 @@ export function AiGeneratePanel({
     const sc = await targetScope()
     const entries: Array<{
       kind: GenerationKind
+      mode: AiGenerationMode
       targets: Awaited<ReturnType<typeof pendingGenerationTargetsPage>>['targets']
     }> = []
     for (const kind of selected) {
-      const page = await pendingGenerationTargetsPage(sc as never, kind as ContentKind, {}, {
+      const mode: AiGenerationMode = modes[kind] ?? 'missing'
+      const page = await pendingGenerationTargetsPage(sc as never, kind as ContentKind, { mode }, {
         offset: 0,
         limit: 500,
       })
       setTruncated(page.truncated)
-      entries.push({ kind, targets: page.targets })
+      entries.push({ kind, targets: page.targets, mode })
     }
     return entries
   }
@@ -575,7 +681,7 @@ export function AiGeneratePanel({
   useEffect(() => {
     void refreshEstimate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, targetDeckId, customSearch, selectedWordIds, kinds])
+  }, [scope, targetDeckId, customSearch, selectedWordIds, kinds, modes])
 
   const handleStart = () => {
     void (async () => {
@@ -585,18 +691,27 @@ export function AiGeneratePanel({
       const nextController = new AbortController()
       setController(nextController)
       try {
+        if (scope === 'word' && !currentWordId) {
+          setError('当前没有选中单词，无法生成')
+          return
+        }
+        if (scope === 'meanings' && (!currentWordId || selectedMeaningIndexes.length === 0)) {
+          setError('请至少选择一个含义后再生成')
+          return
+        }
         const settings = await loadAiSettings()
         if (!settings.enabled) throw Object.assign(new Error('disabled'), { code: 'AI_DISABLED' })
         if (!settings.config.apiKey) throw Object.assign(new Error('no key'), { code: 'AI_NO_KEY' })
         const groups = await buildTargetsByKind(kinds)
         const pairs = groups.flatMap((group) =>
-          group.targets.map((target) => ({ kind: group.kind, target })),
+          group.targets.map((target) => ({ kind: group.kind, target, mode: group.mode })),
         )
         if (pairs.length === 0) {
           setSummary('没有需要生成的目标（已排除已有内容/已拒绝）')
           return
         }
         const total = pairs.length
+        setProgress({ done: 0, total, costYuan: 0 })
         // 草稿：没有则创建；续跑从 cursor 开始
         let activeDraftId = draftId
         let startCursor = draftCursor
@@ -626,7 +741,7 @@ export function AiGeneratePanel({
           const groupPairs = slice.filter((pair) => pair.kind === group.kind)
           if (groupPairs.length === 0) continue
           const kind = group.kind
-          const res = await generateItems({
+          const res = await withAiTimeout(generateItems({
             kind,
             targets: groupPairs.map((pair) => pair.target) as never,
             config: settings.config,
@@ -636,7 +751,7 @@ export function AiGeneratePanel({
               cost = p.costYuan
               setProgress({ done, total, costYuan: cost })
             },
-          })
+          }), { onTimeout: () => nextController.abort() })
           cost = res.costYuan
           if (res.promptVersion) setPromptVersion(res.promptVersion)
           for (const result of res.results) {
@@ -645,7 +760,7 @@ export function AiGeneratePanel({
               continue
             }
             allItems.push(result.item)
-            allEntries.push({ kind, target: result.target, item: result.item })
+            allEntries.push({ kind, mode: group.mode, target: result.target as never, item: result.item })
             allResults.push({
               key: keyOf({ kind, target: result.target }),
               headword: result.target.headword,
@@ -711,7 +826,9 @@ export function AiGeneratePanel({
         if (code === 'AI_CANCELED') {
           setSummary('已取消。')
         } else {
-          setError(aiErrorMessage(code, '生成失败，请稍后重试'))
+          const message = aiErrorMessage(code, '生成失败，请稍后重试')
+          setError(message)
+          toast.error(message)
         }
       } finally {
         setRunning(false)
@@ -764,6 +881,12 @@ export function AiGeneratePanel({
         if (!imported.ok || !imported.packId) {
           throw new Error(imported.issues?.[0]?.message ?? '内容包导入失败')
         }
+        const replaceEntries = selectedEntries.filter((entry) => entry.mode === 'replace')
+        if (replaceEntries.length > 0) {
+          const wordIds = [...new Set(replaceEntries.map((entry) => entry.target.wordId))]
+          const kinds = [...new Set(replaceEntries.map((entry) => entry.kind))]
+          await clearContentForReplace(wordIds, kinds as never)
+        }
         const records = await listPackItems(imported.packId)
         const pendingIds = records.filter((record) => record.status === 'pending').map((record) => record.id)
         await approveItems(imported.packId, pendingIds)
@@ -808,12 +931,23 @@ export function AiGeneratePanel({
           onClearSelected={() => setSelectedWordIds([])}
           batchLimit={batchLimit}
           onBatchLimit={setBatchLimit}
+          modes={modes}
+          onMode={(kind, mode) => setModes((prev) => ({ ...prev, [kind]: mode }))}
+          wordMeanings={wordMeanings}
+          selectedMeaningIndexes={selectedMeaningIndexes}
+          onToggleMeaning={(index) =>
+            setSelectedMeaningIndexes((prev) =>
+              prev.includes(index) ? prev.filter((item) => item !== index) : [...prev, index],
+            )
+          }
           draftMessage={
-            draftPrompt && !draftId
-              ? draftResumeMessage(draftPrompt.done, draftPrompt.total)
-              : draftTotal > 0
-                ? formatDraftProgress(draftDone, draftTotal)
-                : null
+            !open
+              ? null
+              : draftPrompt && !draftId
+                ? draftResumeMessage(draftPrompt.done, draftPrompt.total)
+                : draftTotal > 0
+                  ? formatDraftProgress(draftDone, draftTotal)
+                  : null
           }
           onResumeDraft={() => {
             if (!draftPrompt) return
@@ -903,6 +1037,7 @@ export function AiGeneratePanel({
           setSelected(value ? new Set(items.map((item) => item.key)) : new Set())
         }
         onApply={handleApply}
+        replaceNotice={pending.some((entry) => entry.mode === 'replace') ? '覆盖模式：保存后将替换已选词对应类型的内容（旧内容被清空后写入新内容）' : null}
         onReject={(key) => {
           const entry = pending.find((candidate) => keyOf(candidate) === key)
           if (entry) void rejectGeneratedItem(entry.item)

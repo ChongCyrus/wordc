@@ -1385,7 +1385,7 @@ async function collectScopeWords(
       .toArray()
     return { words }
   }
-  if (scope.kind === 'word') {
+  if (scope.kind === 'word' || scope.kind === 'meanings') {
     const word = await db.words.get(scope.wordId)
     return { words: word ? [word] : [] }
   }
@@ -1433,53 +1433,61 @@ export async function selectTargetPage(
   const deckId = settings['data.selectedDeckId']
   const { words: candidates, meaningFilter } = await collectScopeWords(scope, deckId)
 
-  const excludeExisting = filters.excludeExisting ?? true
-  const excludePending = filters.excludePending ?? true
-  const excludeRejected = filters.excludeRejected ?? true
-  const missingOnly = filters.missingOnly ?? true
+  const mode = filters.mode ?? 'missing'
+  const forceGenerate = mode !== 'missing'
+  const excludeExisting = forceGenerate ? false : (filters.excludeExisting ?? true)
+  const excludePending = forceGenerate ? false : (filters.excludePending ?? true)
+  const excludeRejected = mode === 'replace' ? false : (filters.excludeRejected ?? true)
+  const missingOnly = forceGenerate ? false : (filters.missingOnly ?? true)
 
   const targets: Target[] = []
+  const scopeMeaningIndexes = scope.kind === 'meanings' ? [...new Set(scope.meaningIndexes)] : null
   for (const word of candidates) {
     // task-84：本义链只对多含义词生成（单含义词可自映射，不生成）
     if (kind === 'semantics' && word.meanings.length < 2) continue
-    const index = meaningFilter?.wordId === word.id ? meaningFilter.meaningIndex : undefined
-    const meaningId = index != null ? meaningIdOf(word.id, index) : undefined
-    let existing = existingCount(word, kind, index, meaningId)
-    if (kind === 'semantics') {
-      const items = await db.packItems.where('wordId').equals(word.id).toArray()
-      const hasSemantics = items.some(
-        (item) =>
-          item.status === 'applied' &&
-          ((item.payload.coreSenses ?? []).length > 0 || (item.payload.meaningMap ?? []).length > 0),
-      )
-      existing = hasSemantics ? 1 : 0
+    const fallbackIndex = meaningFilter?.wordId === word.id ? meaningFilter.meaningIndex : undefined
+    const indexes = kind === 'semantics'
+      ? [undefined]
+      : scopeMeaningIndexes ?? (fallbackIndex != null ? [fallbackIndex] : [undefined])
+    for (const index of indexes) {
+      if (index != null && (index < 1 || index > word.meanings.length)) continue
+      const meaningId = index != null ? meaningIdOf(word.id, index) : undefined
+      let existing = existingCount(word, kind, index, meaningId)
+      if (kind === 'semantics') {
+        const items = await db.packItems.where('wordId').equals(word.id).toArray()
+        const hasSemantics = items.some(
+          (item) =>
+            item.status === 'applied' &&
+            ((item.payload.coreSenses ?? []).length > 0 || (item.payload.meaningMap ?? []).length > 0),
+        )
+        existing = hasSemantics ? 1 : 0
+      }
+      if ((excludeExisting && existing > 0) || (missingOnly && existing > 0)) continue
+      if (excludePending && (await hasPendingItem(word.id, kind, index))) continue
+      if (excludeRejected && (await isRejected(word, kind, index))) continue
+      const target: Target = {
+        wordId: word.id,
+        headword: word.headword,
+        headwordLower: word.headwordLower,
+        deckId: word.deckId,
+        meanings: word.meanings.map((meaning) => ({
+          id: meaning.id,
+          ...(meaning.pos ? { pos: meaning.pos } : {}),
+          cn: meaning.cn,
+        })),
+        existing: {
+          examples: existingCount(word, 'examples', index, meaningId),
+          phrases: existingCount(word, 'phrases', index, meaningId),
+          mnemonics: existingCount(word, 'mnemonics', index, meaningId),
+        },
+      }
+      if (index != null && meaningId) {
+        target.meaningIndex = index
+        target.meaningId = meaningId
+      }
+      targets.push(target)
     }
-    if ((excludeExisting && existing > 0) || (missingOnly && existing > 0)) continue
-    if (excludePending && (await hasPendingItem(word.id, kind, index))) continue
-    if (excludeRejected && (await isRejected(word, kind, index))) continue
-    const target: Target = {
-      wordId: word.id,
-      headword: word.headword,
-      headwordLower: word.headwordLower,
-      deckId: word.deckId,
-      meanings: word.meanings.map((meaning) => ({
-        id: meaning.id,
-        ...(meaning.pos ? { pos: meaning.pos } : {}),
-        cn: meaning.cn,
-      })),
-      existing: {
-        examples: existingCount(word, 'examples', index, meaningId),
-        phrases: existingCount(word, 'phrases', index, meaningId),
-        mnemonics: existingCount(word, 'mnemonics', index, meaningId),
-      },
-    }
-    if (meaningFilter && index != null && meaningId) {
-      target.meaningIndex = index
-      target.meaningId = meaningId
-    }
-    targets.push(target)
   }
-
   const total = targets.length
   const offset = Math.max(0, Math.floor(page.offset ?? 0))
   const limit = Math.max(1, Math.min(TARGET_PAGE_MAX, Math.floor(page.limit ?? TARGET_PAGE_MAX)))
@@ -1584,3 +1592,52 @@ export async function reapplyAppliedPacks(): Promise<{ packs: number; items: num
 }
 
 export { LIMITS }
+
+/**
+ * task-107：生成模式「覆盖」应用前清理目标词已应用的同类内容。
+ * - examples/phrases/mnemonics：清空 Word 对应列（含义级 examples 一并清）；
+ * - semantics：删除目标词的语义 packItems（v4 迁移后旧链不再参与 effective）。
+ */
+export async function clearContentForReplace(
+  wordIds: string[],
+  kinds: Array<'examples' | 'phrases' | 'mnemonics' | 'semantics'>,
+): Promise<{ words: number; semanticsItems: number }> {
+  const db = getDb()
+  const ids = [...new Set(wordIds)].filter(Boolean)
+  if (ids.length === 0 || kinds.length === 0) return { words: 0, semanticsItems: 0 }
+  let semanticsItems = 0
+  let words = 0
+  await db.transaction('rw', [db.words, db.packItems], async () => {
+    if (kinds.some((kind) => kind !== 'semantics')) {
+      const rows = await db.words.bulkGet(ids)
+      const updated: Word[] = []
+      for (const word of rows) {
+        if (!word) continue
+        let changed = false
+        if (kinds.includes('examples')) {
+          if (word.examples.length > 0) { word.examples = []; changed = true }
+          for (const meaning of word.meanings) {
+            if (meaning.examples?.length) { meaning.examples = []; changed = true }
+          }
+        }
+        if (kinds.includes('phrases') && word.phrases.length > 0) { word.phrases = []; changed = true }
+        if (kinds.includes('mnemonics') && word.mnemonics.length > 0) { word.mnemonics = []; changed = true }
+        if (changed) { updated.push(word); words += 1 }
+      }
+      if (updated.length > 0) await db.words.bulkPut(updated)
+    }
+    if (kinds.includes('semantics')) {
+      for (const wordId of ids) {
+        const items = await db.packItems.where('wordId').equals(wordId).toArray()
+        const removable = items.filter(
+          (item) => (item.payload.coreSenses ?? []).length > 0 || (item.payload.meaningMap ?? []).length > 0,
+        )
+        if (removable.length > 0) {
+          await db.packItems.bulkDelete(removable.map((item) => item.id))
+          semanticsItems += removable.length
+        }
+      }
+    }
+  })
+  return { words, semanticsItems }
+}

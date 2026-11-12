@@ -384,6 +384,8 @@ export type TargetScope =
   | { kind: 'deck'; deckId?: string; offset?: number; limit?: number }
   | { kind: 'word'; wordId: string }
   | { kind: 'meaning'; wordId: string; meaningId: string }
+  /** 指定词的多个 c（task-108） */
+  | { kind: 'meanings'; wordId: string; meaningIndexes: number[] }
   /** 任意词库（task-84；deckId 必填，缺省不允许跨库猜） */
   | { kind: 'range'; deckId: string; prefix: string }
   | { kind: 'prefix'; deckId: string; prefix: string }
@@ -416,6 +418,8 @@ export interface FilterSet {
   excludeRejected?: boolean
   /** 只选「缺该类内容」的目标（默认 true；与 excludeExisting 同义，保留 UI 语义） */
   missingOnly?: boolean
+  /** 生成模式（task-107）：missing=只补缺；append=追加更多；replace=覆盖该类内容 */
+  mode?: 'missing' | 'append' | 'replace'
 }
 
 /** 构造一条 pack 解析/导入 issue（复用 ImportIssue 结构） */

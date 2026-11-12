@@ -92,12 +92,13 @@ export const AI_PROVIDER_OPTIONS: ReadonlyArray<{ value: AiProviderId; label: st
   { value: 'openai-compatible', label: 'OpenAI 兼容' },
 ]
 
-export type AiScope = 'today' | 'deck' | 'word' | 'deck-select' | 'custom'
+export type AiScope = 'today' | 'deck' | 'word' | 'meanings' | 'deck-select' | 'custom'
 
 export const AI_SCOPE_OPTIONS: ReadonlyArray<{ value: AiScope; label: string }> = [
   { value: 'today', label: '今日要学' },
   { value: 'deck', label: '当前词库' },
   { value: 'word', label: '当前词' },
+  { value: 'meanings', label: '指定含义' },
   { value: 'deck-select', label: '选择词库' },
   { value: 'custom', label: '自定义选词' },
 ]
@@ -120,6 +121,21 @@ export const AI_EXCLUDE_OPTIONS: ReadonlyArray<{ value: AiExcludeKey; label: str
   { value: 'existingMnemonics', label: '已有助记' },
   { value: 'rejected', label: '已拒绝' },
 ]
+
+/** 生成模式（task-107）：仅缺失 / 追加更多 / 覆盖；本义链只有 missing/replace */
+export type AiGenerationMode = 'missing' | 'append' | 'replace'
+export const AI_MODE_OPTIONS: ReadonlyArray<{ value: AiGenerationMode; label: string }> = [
+  { value: 'missing', label: '仅缺失' },
+  { value: 'append', label: '追加更多' },
+  { value: 'replace', label: '覆盖' },
+]
+export const AI_SEMANTICS_MODE_OPTIONS: ReadonlyArray<{ value: AiGenerationMode; label: string }> = [
+  { value: 'missing', label: '仅缺失' },
+  { value: 'replace', label: '替换该词本义' },
+]
+export function aiModeLabel(mode: AiGenerationMode): string {
+  return AI_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? mode
+}
 
 /** deck 选项文案：deck.name 已含「（N 词）」时不再重复追加（task-85 QA P3） */
 export function formatDeckOption(name: string, wordCount: number): string {
@@ -164,4 +180,29 @@ export function formatAiSummary(input: {
   const base = `完成 ${input.succeeded} / ${input.total} 条`
   const fail = input.failed > 0 ? `，失败 ${input.failed} 条` : ''
   return `${base}${fail} · 已用 ¥${input.costYuan.toFixed(2)}`
+}
+
+/** 无目标提示（task-109：已有内容/被排除/词未选中都立即提示，不进入请求） */
+export const AI_EMPTY_TARGET_MESSAGE = '没有可生成的词（已有/被排除）'
+
+/** 单次生成请求硬超时（task-109；与 provider timeout 独立，防 UI 无限转圈） */
+export const AI_GENERATION_TIMEOUT_MS = 60_000
+
+/**
+ * 给生成 Promise 加 UI 级超时；超时后调用 onTimeout（通常 abort 请求）并抛 AI_TIMEOUT。
+ * 纯函数可测：不依赖 DOM/真实网络。
+ */
+export async function withAiTimeout<T>(
+  promise: Promise<T>,
+  opts: { timeoutMs?: number; onTimeout?: () => void } = {},
+): Promise<T> {
+  const timeoutMs = Math.max(1, opts.timeoutMs ?? AI_GENERATION_TIMEOUT_MS)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      try { opts.onTimeout?.() } catch { /* ignore */ }
+      reject(Object.assign(new Error('AI_TIMEOUT'), { code: 'AI_TIMEOUT' }))
+    }, timeoutMs)
+  })
+  try { return await Promise.race([promise, timeout]) } finally { if (timer) clearTimeout(timer) }
 }
