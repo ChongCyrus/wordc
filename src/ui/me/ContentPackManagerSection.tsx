@@ -176,6 +176,7 @@ export function ContentPackManagerSection() {
   const [dedupeConfirm, setDedupeConfirm] = useState(false)
   const [removeAppliedOnDelete, setRemoveAppliedOnDelete] = useState(false)
   const [resetSemanticsConfirm, setResetSemanticsConfirm] = useState(false)
+  const [resetMessage, setResetMessage] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ContentPackRow | null>(null)
   const rows = useLiveQuery<ContentPackRow[]>(async () => {
     const packs = await listPacks()
@@ -283,6 +284,7 @@ export function ContentPackManagerSection() {
   return (
     <>
       {recheckMessage ? <div className="mm-caption">{recheckMessage}</div> : null}
+      {resetMessage ? <div className="mm-caption">{resetMessage}</div> : null}
       <ContentPackList
         rows={rows ?? []}
         busy={busy}
@@ -339,21 +341,31 @@ export function ContentPackManagerSection() {
         onConfirm={() => {
           void (async () => {
             setBusy(true)
+            setResetMessage(null)
             setRecheckMessage('正在重置本义数据：清理旧语义包…')
+            let summary = ''
             try {
               const result = await resetSemanticsData()
+              summary = `已清理 ${result.removedPacks} 个旧语义包 / ${result.removedItems} 条旧语义记录`
               setRecheckMessage('正在重新应用内置 v4 本义包…')
-              const seeded = await ensureDefaultContentPacks({ force: true })
-              setRecheckMessage(null)
-              toast.success(
-                `已重置本义数据：清理 ${result.removedPacks} 个旧语义包 / ${result.removedItems} 条旧语义记录；内置应用 ${seeded.applied} 条`,
-              )
-              setResetSemanticsConfirm(false)
+              const seeded = await ensureDefaultContentPacks({
+                force: true,
+                onProgress: (progress) =>
+                  setRecheckMessage(
+                    `正在重新应用内置 v4（${progress.path.split('/').pop() ?? ''} ${progress.phase} ${progress.done}/${progress.total}）…`,
+                  ),
+              })
+              summary += `；内置应用 ${seeded.applied} 条`
+              setResetMessage(summary)
+              toast.success(`已重置本义数据：${summary}`)
             } catch (error) {
-              toast.error(error instanceof Error ? error.message : '重置本义数据失败')
+              const message = error instanceof Error ? error.message : String(error)
+              setResetMessage(`${summary ? `${summary}；` : ''}重置失败：${message}`)
+              toast.error(`重置本义数据失败：${message}`)
             } finally {
               setRecheckMessage(null)
               setBusy(false)
+              setResetSemanticsConfirm(false)
             }
           })()
         }}

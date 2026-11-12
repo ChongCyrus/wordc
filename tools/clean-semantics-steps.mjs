@@ -13,7 +13,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 const args=process.argv.slice(2); const get=(k)=>{const i=args.indexOf(k);return i>=0?args[i+1]:null}
 const input=get('--in'); const output=get('--out'); const write=args.includes('--write')
 if(!input||!output){console.error('用法: --in <pack.json> --out <fixed.json> [--write]');process.exit(1)}
-const STEP_BLACKLIST=['是否','看','检查','判断','确认','核对','来源','源自','来自','出自','词源','词根','希腊','拉丁','英语','法语','德语','→','->','推导','通读','义项','定名','归并','其中','综上','可见','分类','统计','归纳','标注','映射','判定','推断','总结','首先','其次','然后']
+const STEP_BLACKLIST=['是否','看','检查','判断','确认','核对','来源','源自','来自','出自','词源','词根','希腊','拉丁','英语','法语','德语','→','->','推导','通读','义项','定名','归并','其中','综上','可见','分类','统计','归纳','标注','映射','判定','推断','总结','首先','其次','然后','释义','条释义','归为','归入','判为','分为','区分','其余','归类','拆分','划为','归到']
 const leadRe=new RegExp('^(?:'+STEP_BLACKLIST.map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')+')[：:，,\\s「]*')
 const blacklistHit=(s)=>STEP_BLACKLIST.some(w=>s.includes(w))
 function cleanStep(raw){
@@ -29,7 +29,7 @@ function cleanStep(raw){
   return s
 }
 const pack=JSON.parse(readFileSync(input,'utf8'))
-let wordsChanged=0, stepsRemoved=0, stepsCleaned=0, stepsDropped=0
+let wordsChanged=0, stepsRemoved=0, stepsCleaned=0, stepsDropped=0, stepsSynthesized=0
 for(const item of pack.items??[]){
   for(const mapping of item.meaningMap??[]){
     if(!Array.isArray(mapping.steps)||mapping.steps.length===0) continue
@@ -38,6 +38,18 @@ for(const item of pack.items??[]){
     for(const step of before){const cleaned=cleanStep(step); if(cleaned&&!blacklistHit(cleaned)){if(cleaned!==step)stepsCleaned++;after.push(cleaned)} else stepsDropped++}
     if(after.length===0 && before.length>0){ stepsRemoved++; delete mapping.steps }
     else if(after.length!==before.length || after.some((s,i)=>s!==before[i])){ mapping.steps=after.length>=2?after:undefined; if(!mapping.steps){stepsRemoved++;delete mapping.steps} }
+    // 全被清洗掉时用 coreSense label+note 合成可读两步链（仍走同一黑名单）
+    if(!mapping.steps){
+      const sense=(item.coreSenses??[]).find((s)=>s.index===mapping.coreSenseIndex)
+      if(sense){
+        const synth=[]
+        for(const raw of [sense.label, sense.note]){
+          const cleaned=cleanStep(raw)
+          if(cleaned && !blacklistHit(cleaned) && !synth.includes(cleaned)) synth.push(cleaned)
+        }
+        if(synth.length>=2 && synth.length<=4){ mapping.steps=synth.slice(0,4); stepsSynthesized++ }
+      }
+    }
   }
   const changed=(item.meaningMap??[]).some(m=>Array.isArray(m.steps)&&m.steps.length>0) && false
 }
@@ -50,5 +62,5 @@ for(let i=0;i<(pack.items??[]).length;i++){
   const a=(original.items??[])[i]; const b=(pack.items??[])[i]
   if(JSON.stringify(a?.meaningMap)!==JSON.stringify(b?.meaningMap)) changedWords.push(a?.headwordLower)
 }
-if(write){pack.checksum=packChecksum(pack); if(pack.meta?.stats){pack.meta.stats.stepsCleaned=stepsCleaned;pack.meta.stats.stepsDropped=stepsDropped;pack.meta.stats.stepsRemoved=stepsRemoved}; writeFileSync(output,JSON.stringify(pack)); console.log(`[clean-steps] ${input} -> ${output}: words=${changedWords.length} stepsCleaned=${stepsCleaned} stepsDropped=${stepsDropped} stepsRemoved=${stepsRemoved} checksum=${pack.checksum.slice(0,12)}…`)}
-else {writeFileSync(output,JSON.stringify(pack)); console.log(`[clean-steps][dry-run] ${input}: words=${changedWords.length} stepsCleaned=${stepsCleaned} stepsDropped=${stepsDropped} stepsRemoved=${stepsRemoved} (未写原文件)`)}
+if(write){pack.checksum=packChecksum(pack); if(pack.meta?.stats){pack.meta.stats.stepsCleaned=stepsCleaned;pack.meta.stats.stepsDropped=stepsDropped;pack.meta.stats.stepsRemoved=stepsRemoved}; writeFileSync(output,JSON.stringify(pack)); console.log(`[clean-steps] ${input} -> ${output}: words=${changedWords.length} stepsCleaned=${stepsCleaned} stepsDropped=${stepsDropped} stepsRemoved=${stepsRemoved} stepsSynthesized=${stepsSynthesized} checksum=${pack.checksum.slice(0,12)}…`)}
+else {writeFileSync(output,JSON.stringify(pack)); console.log(`[clean-steps][dry-run] ${input}: words=${changedWords.length} stepsCleaned=${stepsCleaned} stepsDropped=${stepsDropped} stepsRemoved=${stepsRemoved} stepsSynthesized=${stepsSynthesized} (未写原文件)`)}

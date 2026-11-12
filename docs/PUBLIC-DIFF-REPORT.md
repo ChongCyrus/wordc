@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T07:46:41.856Z
+- 生成时间：2026-11-12T08:05:27.034Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**324**；修改 **73**；新增 **5**；私有仓未进入公开树 **1701**
+- 公开文件：**325**；修改 **73**；新增 **5**；私有仓未进入公开树 **1702**
 
 ## 结论
 
@@ -130,6 +130,7 @@
 - `docs/QA-AUDIT-v2.md`
 - `docs/QA-v2.md`
 - `docs/QA.md`
+- `docs/RELEASE-CHECKLIST.md`
 - `docs/RUN.md`
 - `docs/SPEC-CONTENT-PACKS.md`
 - `docs/assets`
@@ -139,7 +140,6 @@
 - `scripts/deliver.sh`
 - `scripts/logs`
 - `src/data`
-- `tests/data`
 - `tests/e2e`
 - `tools/apk`
 - `tools/e2e`

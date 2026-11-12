@@ -28,15 +28,15 @@ import type { ReapplyProgress } from './packs.repo'
 
 export const DEFAULT_PACKS_META_KEY = 'packs.defaultSeeded'
 /** 内置包集合版本：pack 内容/清单变化时 +1，触发重新导入检查（task-88：+私版清单后升到 2） */
-export const DEFAULT_PACKS_VERSION = 4
+export const DEFAULT_PACKS_VERSION = 5
 /** task-114：历史内置 semantics pack checksum（0.3.20/0.3.21 设备上已 seed 的旧版；seed 后清理，不误删手工包） */
 const LEGACY_BUILTIN_SEMANTICS_CHECKSUMS: readonly string[] = [
   // hongbaoshu full v4（domain 修正前/步骤清洗前；当前 6edb5dec 不在列表）
-  '137004c4', 'c450b52f', '41f20f56',
+  '137004c4', 'c450b52f', '41f20f56', '6edb5dec',
   // bikao / supplement 旧版（当前 246731a6 / 1551c4f1 不在列表）
-  '4d248421', '88cd0130',
+  '4d248421', '88cd0130', '246731a6',
   // dagang 旧版（当前 d4e3485a 不在列表）
-  '8068fc50', '7f39e181', 'e8e50147', '99ef7a1d', '6eb80012',
+  '8068fc50', '7f39e181', 'e8e50147', '99ef7a1d', '6eb80012', 'd4e3485a',
 ]
 
 

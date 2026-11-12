@@ -22,6 +22,7 @@
  */
 
 import { chromium } from '../../tools/e2e/node_modules/playwright-core/index.mjs'
+import { scenarioS23Upgrade } from './s23-upgrade.mjs'
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -3285,6 +3286,7 @@ async function main() {
       ['S20 AI 本义链 + 选库/自定义选词（草案）', scenarioS20_aiSemanticsScopes],
       ['S21 内容包管理（导出/删除/空态）', scenarioS21_contentPackManager],
       ['S22 0.3.8 seed 受限商业词表本义链/内容抽查', scenarioS22_seedCore],
+      ['S23 升级路径（旧 pack → v4 清理）', scenarioS23Upgrade],
     ]
     for (const [name, fn] of scenarios) {
       if (only.length > 0 && !only.some((key) => name === key || name.startsWith(key + ' '))) continue
