@@ -29,6 +29,23 @@ export type {
 export { DECK_SOURCES } from './builtin/deck-sources'
 export type { DeckSource } from './builtin/deck-sources'
 
+// ============ 内置内容包自动导入（task-87） ============
+export {
+  DEFAULT_CONTENT_PACKS,
+  DEFAULT_PACKS_META_KEY,
+  DEFAULT_PACKS_VERSION,
+  PRIVATE_CONTENT_PACKS,
+  ensureDefaultContentPacks,
+  getDefaultContentPacks,
+  isPrivatePacksEnabled,
+} from './default-packs'
+export type {
+  DefaultContentPackEntry,
+  DefaultPackOutcome,
+  EnsureDefaultPacksOptions,
+  EnsureDefaultPacksResult,
+} from './default-packs'
+
 // ============ 内容包（momo-pack，v3 / task-69） ============
 export {
   parsePackFile,

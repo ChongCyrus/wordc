@@ -26,6 +26,7 @@ import {
 import { NewWordOrderSetting } from './NewWordOrderSetting'
 import { AiSettingsSection } from './AiSettingsSection'
 import { ContentPackImportSection } from './ContentPackImportSection'
+import { ContentPackManagerSection } from './ContentPackManagerSection'
 import {
   DAILY_REVIEW_CAP_PRESETS,
   dailyReviewCapLabel,
@@ -410,6 +411,7 @@ export default function SettingsPage() {
 
       <SectionBand title="内容包" />
       <ContentPackImportSection />
+      <ContentPackManagerSection />
 
       <SectionBand title="AI 扩充（可选）" />
       <AiSettingsSection />

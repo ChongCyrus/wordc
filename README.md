@@ -162,6 +162,10 @@ A：代码 MIT 允许复用，但**数据多为非商业许可**（CC BY-NC 系�
 **Q：和墨墨官方有关系吗？**
 A：没有。非官方项目，不使用官方商标/素材；如有异议请通过 issue 联系。
 
+**Q：第一次打开为什么内容会自己出现？**
+A：公开版内置了**大纲词库**的例句/词组/助记/本义链内容包，首次启动自动导入本机（幂等，只导一次；
+离线或加载失败会在下次启动重试）。内容仅存本机，不上传；你也可以自行导入/生成新的内容包。
+
 ## 贡献
 
 欢迎 issue / PR（功能、算法校准、文档、测试）。请勿提交官方素材、商业词表、或任何 Token/密钥。
@@ -172,6 +176,7 @@ A：没有。非官方项目，不使用官方商标/素材；如有异议请通
 WordC is a local-first, offline-capable English→Chinese vocabulary PWA. It keeps all study data in the
 browser (IndexedDB), supports per-meaning familiarity tracking, a w→c multi-round memory flow, daily
 review/new budgets with an optional review cap, resume/undo/re-rate, import/export of full study state,
-and PWA installation. It is an **unofficial, non-commercial** project not affiliated with MaiMemo; UI
+and PWA installation. The public build bundles **dagang-only** content packs (examples/phrases/mnemonics/
+core-sense semantics) which are imported once on first launch (local-only, retried offline). It is an **unofficial, non-commercial** project not affiliated with MaiMemo; UI
 interaction rules follow publicly observable behavior, while scheduling values are approximations based on
 public papers/data. Code is MIT; bundled data is non-commercial with attribution (see THIRD-PARTY-NOTICES).

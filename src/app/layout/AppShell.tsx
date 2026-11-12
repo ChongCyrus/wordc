@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { cleanupOldPlans, ensureBuiltinDecks } from '../../data'
+import { cleanupOldPlans, ensureBuiltinDecks, ensureDefaultContentPacks } from '../../data'
 import { TAB_ITEMS, tabForPath } from '../routes'
 import type { NavIcon } from '../routes'
 import {
@@ -38,9 +38,11 @@ export function AppShell() {
 
   // 首次启动种入内置词库（幂等、并发安全；失败时由各页面自身空态兜底）
   // 并清理 7 天前的旧今日计划（SPEC-v2 §6.4，幂等、失败不阻塞）
+  // 最后自动导入内置内容包（task-87：公开版大纲 pack；幂等、离线失败下次重试，fire-and-forget 不阻塞首屏）
   useEffect(() => {
     void ensureBuiltinDecks()
       .then(() => cleanupOldPlans({ keepDays: 7 }))
+      .then(() => ensureDefaultContentPacks())
       .catch(() => undefined)
   }, [])
   const activeTab = tabForPath(pathname)

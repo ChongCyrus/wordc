@@ -156,11 +156,18 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --no-frozen-lockfile
-      - name: Build
+      - name: Prepare content packs + Build
         run: |
           set -o pipefail
           mkdir -p ci-logs
-          pnpm build 2>&1 | tee ci-logs/build.log
+          if [ -d data/packs/hongbaoshu ] && [ -f scripts/build-private.sh ]; then
+            # 私仓：带受限商业词表+大纲 packs（VITE_PRIVATE_PACKS=1）
+            bash scripts/build-private.sh 2>&1 | tee ci-logs/build.log
+          else
+            # 公开树：public/packs 已由 sanitize 提供，只 build
+            pnpm build 2>&1 | tee ci-logs/build.log
+          fi
+          ls -la dist/packs/dagang dist/packs/hongbaoshu 2>/dev/null || true
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:

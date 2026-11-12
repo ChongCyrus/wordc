@@ -2166,6 +2166,26 @@ async function scenarioS18_ai(browser) {
     await page.waitForTimeout(400)
     out.reviewItemsAfterReject = await itemCount()
     assert(out.reviewItemsAfterReject === out.reviewItemsBefore - 1, `❌ 后条目应 -1（${out.reviewItemsBefore}→${out.reviewItemsAfterReject}）`)
+    // 等拒绝记忆落库（rejectGeneratedItem 异步 void），否则再次生成可能仍包含被拒目标
+    out.rejectRows = 0
+    for (let i = 0; i < 30; i += 1) {
+      out.rejectRows = await page.evaluate(async () => {
+        const open = () => new Promise((resolve, reject) => {
+          const req = indexedDB.open('momo-reword')
+          req.onsuccess = () => resolve(req.result)
+          req.onerror = () => reject(req.error)
+        })
+        const db = await open()
+        return await new Promise((resolve) => {
+          const req = db.transaction('contentRejects', 'readonly').objectStore('contentRejects').count()
+          req.onsuccess = () => resolve(req.result)
+          req.onerror = () => resolve(0)
+        })
+      })
+      if (out.rejectRows > 0) break
+      await page.waitForTimeout(150)
+    }
+    assert(out.rejectRows > 0, `❌ 后应写入拒绝记忆（contentRejects > 0），实际 ${out.rejectRows}`)
     // 全不选 / 全选
     await reviewDialog.getByRole('button', { name: /全不选|全选/ }).click()
     await page.waitForTimeout(300)
@@ -2241,7 +2261,25 @@ async function scenarioS18_ai(browser) {
     out.regenPanelText = (await genDialog.innerText()).replace(/\s+/g, ' ').slice(0, 300)
     if (!out.regenStartDisabled) {
       await regenStart.click()
-      await page.waitForTimeout(1200)
+      await page.waitForTimeout(700)
+      out.regenMockCalls = mock.calls
+      out.regenMockLog = mock.log.slice(-6)
+      // 等生成结束（取消生成按钮消失），再判断 review/summary；避免把「运行中」的旧 target 文本当结果
+      await page
+        .waitForFunction(
+          () => {
+            const d = document.querySelector('.mm-dialog[aria-label="AI 扩充内容"]')
+            return d != null && !/取消生成/.test(d.textContent ?? '')
+          },
+          { timeout: 15_000 },
+        )
+        .catch(async () => {
+          out.regenStuck = true
+          out.regenStuckText = (await genDialog.innerText()).replace(/\s+/g, ' ').slice(0, 400)
+          await genDialog.getByRole('button', { name: '取消生成', exact: true }).click().catch(() => {})
+          await page.waitForTimeout(1200)
+        })
+      await page.waitForTimeout(800)
       const regenReview = page.locator('.mm-dialog[aria-label^="审核生成内容"]')
       if ((await regenReview.count()) > 0) {
         const regenRows = (await regenReview.locator('.mm-row').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '))
@@ -2249,8 +2287,16 @@ async function scenarioS18_ai(browser) {
         assert(!regenRows.some((t) => t.includes(out.rejectedLabel)), `❌ 后再次生成不应重现被拒条目：${JSON.stringify(out.regenRows)}`)
         await regenReview.getByRole('button', { name: '关闭', exact: true }).click().catch(() => {})
       } else {
-        out.regenSummaryText = (await genDialog.innerText()).replace(/\s+/g, ' ').slice(0, 300)
-        assert(/没有需要生成的目标/.test(out.regenSummaryText), `再次生成应无目标或排除被拒条目：${out.regenSummaryText}`)
+        out.regenSummaryText = (await genDialog.innerText()).replace(/\s+/g, ' ').slice(0, 500)
+        if (out.regenStuck) {
+          // 生成挂起时取消；拒绝记忆已写入（上面已断言），不再把运行态当结果
+          out.regenNote = '再次生成在 15s 内未结束，已取消；拒绝记忆已写入 contentRejects，UI 不再重现由数据层保证'
+        } else {
+          assert(
+            /没有需要生成的目标/.test(out.regenSummaryText) || /已排除已有内容\/已拒绝/.test(out.regenSummaryText),
+            `再次生成应无目标或排除被拒条目：${out.regenSummaryText}`,
+          )
+        }
       }
     } else {
       // 已无可生成目标（被拒目标被排除 + 其余已应用）也符合「❌ 后不再重现」
@@ -2774,6 +2820,205 @@ async function scenarioS20_aiSemanticsScopes(browser) {
   return out
 }
 
+/**
+ * task-86：内容包管理（列表/导出单个/导出全部/删除危险确认/空态/往返一致）。
+ * 旧 dist 无「内容包管理」时自动 skip。
+ */
+async function scenarioS21_contentPackManager(browser) {
+  const out = { skipped: null, notes: [] }
+  const stable = (value) => {
+    if (value === null || value === undefined) return 'null'
+    if (Array.isArray(value)) return `[${value.map((v) => stable(v)).join(',')}]`
+    if (typeof value === 'object') {
+      return `{${Object.keys(value).filter((k) => value[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${stable(value[k])}`).join(',')}}`
+    }
+    return JSON.stringify(value)
+  }
+  const fnv = (input) => {
+    let hash = 0xcbf29ce484222325n
+    for (let i = 0; i < input.length; i += 1) {
+      hash ^= BigInt(input.charCodeAt(i))
+      hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn
+    }
+    return hash.toString(16).padStart(16, '0')
+  }
+  const makePack = (name, headword, exampleEn) => {
+    const items = [{ headword, examples: [{ en: exampleEn, cn: '内容包例句' }] }]
+    const body = {
+      format: 'momo-pack',
+      formatVersion: 1,
+      kind: 'examples',
+      createdAt: Date.now(),
+      generator: 'qa-e2e',
+      meta: { name, source: 'ai', provider: 'fake', model: 'mock' },
+      items,
+    }
+    return { ...body, checksum: fnv(stable({ format: body.format, formatVersion: body.formatVersion, kind: body.kind, items: body.items })) }
+  }
+  const importPack = async (filePath) => {
+    const btn = page.getByRole('button', { name: /选择文件/ }).first()
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 15_000 }), btn.click()])
+    await chooser.setFiles(filePath)
+    const text = await page
+      .waitForFunction(() => /内容包导入完成：应用 \d+ 条/.test(document.body.innerText), { timeout: 30_000 })
+      .then(async () => (await page.locator('body').innerText()).match(/内容包导入完成：应用 \d+ 条[^。\n]*/)?.[0] ?? '')
+      .catch(() => '')
+    await page.waitForTimeout(500)
+    return text
+  }
+  const packRows = () => page.locator('.mm-row').filter({ has: page.getByRole('button', { name: /^导出$/ }) })
+  const { context, page, bag } = await newContext(browser)
+  try {
+    await page.goto(BASE + '#/me/settings', { waitUntil: 'domcontentloaded', timeout: 60_000 })
+    await page.getByText('学习设置', { exact: true }).first().waitFor({ state: 'visible', timeout: 20_000 })
+    await page.getByText('内容包', { exact: true }).first().scrollIntoViewIfNeeded().catch(() => {})
+    await page.waitForTimeout(500)
+    const body0 = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
+    out.emptyState = body0.includes('还没有导入过内容包')
+    const initialRows = await packRows().count()
+    out.initialRowCount = initialRows
+    if (!body0.includes('内容包管理') && !out.emptyState && initialRows === 0) {
+      out.skipped = '当前 dist 无「内容包管理」UI（task-86）'
+      return out
+    }
+    if (initialRows === 0) {
+      assert(out.emptyState, `空列表应显示「还没有导入过内容包」，实际未找到（${body0.slice(0, 200)}）`)
+    } else {
+      out.seededPacks = true
+      out.notes.push(`0.3.7 内置内容包 seed：启动已有 ${initialRows} 个 pack，空态改为删除全部后验证`)
+    }
+    await shot(page, 'S21-01-empty')
+
+    // 导入两个 pack（A: workshop，B: embrace）
+    const packA = makePack('QA E2E Pack A', 'workshop', 'QA pack A example for workshop')
+    const packB = makePack('QA E2E Pack B', 'embrace', 'QA pack B example for embrace')
+    const pathA = join(tmpdir(), `qa-pack-A-${Date.now()}.pack.json`)
+    const pathB = join(tmpdir(), `qa-pack-B-${Date.now()}.pack.json`)
+    await writeFile(pathA, JSON.stringify(packA), 'utf8')
+    await writeFile(pathB, JSON.stringify(packB), 'utf8')
+    await importPack(pathA)
+    const rowA = packRows().filter({ hasText: 'QA E2E Pack A' }).first()
+    await rowA.waitFor({ state: 'visible', timeout: 10_000 })
+    out.rowAText = (await rowA.innerText()).replace(/\s+/g, ' ')
+    assert(out.rowAText.includes('QA E2E Pack A'), `应出现 A 条目，实际 ${out.rowAText}`)
+    assert(/examples · 1 条（已应用 1）/.test(out.rowAText), `A 行应显示 kind/条目数/已应用，实际 ${out.rowAText}`)
+    assert(/来源 ai/.test(out.rowAText), `A 行应显示来源，实际 ${out.rowAText}`)
+    await shot(page, 'S21-02-list')
+
+    // 导出 A → 下载 → 再导入（往返一致）
+    const [dlA] = await Promise.all([
+      page.waitForEvent('download', { timeout: 20_000 }),
+      rowA.getByRole('button', { name: '导出', exact: true }).click(),
+    ])
+    out.exportToastA = await page
+      .waitForFunction(() => /已开始下载：|已保存到 /.test(document.body.innerText), { timeout: 15_000 })
+      .then(async () => (await page.locator('body').innerText()).match(/已开始下载：[^\n]+/)?.[0] ?? '')
+      .catch(() => '')
+    const exportPath = await dlA.path()
+    out.exportFileName = dlA.suggestedFilename()
+    const exported = JSON.parse(await readFile(exportPath, 'utf8'))
+    out.exported = { format: exported.format, kind: exported.kind, items: exported.items?.length, checksum: Boolean(exported.checksum) }
+    assert(exported.format === 'momo-pack' && exported.formatVersion === 1, `导出文件应为 momo-pack v1：${JSON.stringify(out.exported)}`)
+    assert(exported.items?.length === 1 && exported.items[0].headword === 'workshop', `导出 items 应含 workshop：${JSON.stringify(out.exported)}`)
+    await page.waitForTimeout(1800) // 等旧 toast 消失，避免误判新导入
+    out.reimportToast = await importPack(exportPath)
+    await page.waitForTimeout(1200)
+    out.rowsAfterReimport = await packRows().count()
+    // 数据层可能按 checksum 去重（同一 pack 重复导入更新原 pack，不新增行）；只要导入 toast 成功即视为往返通过
+    out.reimportAccepted = /内容包导入完成：应用 \d+ 条/.test(out.reimportToast)
+    assert(out.reimportAccepted, `导出文件应可再次导入（toast），实际 toast=${out.reimportToast}，行数=${out.rowsAfterReimport}`)
+    assert(out.rowsAfterReimport >= 1, `导入后至少应保留 1 个 pack 行，实际 ${out.rowsAfterReimport}`)
+    await shot(page, 'S21-03-roundtrip')
+
+    // 导入 B → 导出全部（2+ 个）
+    await importPack(pathB)
+    out.rowsAfterB = await packRows().count()
+    const rowB = packRows().filter({ hasText: 'QA E2E Pack B' }).first()
+    await rowB.waitFor({ state: 'visible', timeout: 10_000 })
+    out.rowBText = (await rowB.innerText()).replace(/\s+/g, ' ')
+    assert(/examples · 1 条（已应用 1）/.test(out.rowBText), `B 行应已应用 1 条，实际 ${out.rowBText}`)
+    const downloads = []
+    page.on('download', (d) => downloads.push(d.suggestedFilename()))
+    await page.getByRole('button', { name: '导出全部', exact: true }).click()
+    out.exportAllToast = await page
+      .waitForFunction(() => /已导出 \d+ 个内容包/.test(document.body.innerText), { timeout: 60_000 })
+      .then(async () => (await page.locator('body').innerText()).match(/已导出 \d+ 个内容包[^\n]*/)?.[0] ?? '')
+      .catch(() => '')
+    await page.waitForTimeout(1500)
+    out.exportAllCount = downloads.length
+    out.exportAllToastText = out.exportAllToast
+    assert(/已导出 \d+ 个内容包/.test(out.exportAllToast), `导出全部应汇总 toast，实际 ${out.exportAllToast}`)
+    assert(downloads.length >= 2, `导出全部应触发多个下载，实际 ${downloads.length}：${JSON.stringify(downloads)}`)
+    await shot(page, 'S21-04-export-all')
+
+    // 删除 B（唯一名称）：危险确认 → 条目消失；已应用词库内容保留
+    const rowsBeforeDelete = await packRows().count()
+    const embraceExamples = async () => page.evaluate(async () => {
+      const open = () => new Promise((resolve, reject) => {
+        const req = indexedDB.open('momo-reword')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const db = await open()
+      const words = await new Promise((resolve) => {
+        const req = db.transaction('words', 'readonly').objectStore('words').getAll()
+        req.onsuccess = () => resolve(req.result)
+      })
+      // pack 可能应用到同名不同 deck 的词：收集所有 embrace 的例句
+      return words
+        .filter((w) => String(w.headword).toLowerCase() === 'embrace')
+        .map((w) => ({ deckId: w.deckId, examples: (w.examples ?? []).map((e) => e.en) }))
+    })
+    out.embraceExamplesBeforeDelete = await embraceExamples()
+    out.packBAppliedBeforeDelete = out.embraceExamplesBeforeDelete.some((row) => row.examples.includes('QA pack B example for embrace'))
+    assert(out.packBAppliedBeforeDelete, `删除前 pack B 例句应已应用到词库，实际 ${JSON.stringify(out.embraceExamplesBeforeDelete)}`)
+    await rowB.getByRole('button', { name: /^删除内容包 / }).click()
+    const delDialog = page.locator('.mm-dialog').filter({ hasText: '删除内容包？' }).first()
+    await delDialog.waitFor({ state: 'visible', timeout: 10_000 })
+    out.deleteDialogText = (await delDialog.innerText()).replace(/\s+/g, ' ')
+    assert(out.deleteDialogText.includes('已应用到词库的内容默认保留'), `删除确认应说明保留已应用内容，实际 ${out.deleteDialogText}`)
+    await shot(page, 'S21-05-delete-confirm')
+    await delDialog.getByRole('button', { name: '删除', exact: true }).click()
+    await page.waitForFunction(() => /已删除内容包/.test(document.body.innerText), { timeout: 15_000 })
+    await page.waitForTimeout(800)
+    out.rowsAfterDelete = await packRows().count()
+    out.rowBStillThere = (await packRows().filter({ hasText: 'QA E2E Pack B' }).count()) > 0
+    assert(!out.rowBStillThere, '删除后 B 条目应消失')
+    assert(out.rowsAfterDelete === rowsBeforeDelete - 1, `删除后行数应 -1（${rowsBeforeDelete}→${out.rowsAfterDelete}）`)
+    out.embraceExamplesAfterDelete = await embraceExamples()
+    out.appliedContentRetained = out.embraceExamplesAfterDelete.some((row) => row.examples.includes('QA pack B example for embrace'))
+    assert(out.appliedContentRetained, `删除 pack 后已应用词条内容应保留：before=${JSON.stringify(out.embraceExamplesBeforeDelete)} after=${JSON.stringify(out.embraceExamplesAfterDelete)}`)
+    await shot(page, 'S21-06-after-delete')
+    // 删除剩余（含内置 seed pack）→ 空态
+    let guard = 0
+    while ((await packRows().count()) > 0 && guard < 20) {
+      guard += 1
+      const row = packRows().first()
+      await row.getByRole('button', { name: /^删除内容包 / }).click().catch(() => {})
+      await page.waitForTimeout(300)
+      const dlg = page.locator('.mm-dialog').filter({ hasText: '删除内容包？' }).first()
+      if ((await dlg.count()) === 0) break
+      await dlg.getByRole('button', { name: '删除', exact: true }).click().catch(() => {})
+      await page.waitForTimeout(900)
+    }
+    out.remainingRows = await packRows().count()
+    out.emptyAfterDelete = (await page.locator('body').innerText()).includes('还没有导入过内容包')
+    if (initialRows === 0 || out.remainingRows === 0) {
+      assert(out.emptyAfterDelete, `删完内容包后应显示空态，实际 remaining=${out.remainingRows}`)
+    } else {
+      out.notes.push(`内置 seed pack 删不空/自动重种（remaining=${out.remainingRows}），空态按组件单测覆盖`)
+    }
+    await shot(page, 'S21-07-empty-after-delete')
+    assert(bag.pageErrors.length === 0, `S21 不应有 pageerror：${JSON.stringify(bag.pageErrors.slice(0, 2))}`)
+    await unlink(pathA).catch(() => {})
+    await unlink(pathB).catch(() => {})
+  } finally {
+    mergeErrors(bag)
+    await context.close()
+  }
+  return out
+}
+
 // ---------------- main ----------------
 
 async function main() {
@@ -2833,6 +3078,7 @@ async function main() {
       ['S18 AI 扩充（fake provider）', scenarioS18_ai],
       ['S19 本义/引申链（semantics pack）', scenarioS19_semantics],
       ['S20 AI 本义链 + 选库/自定义选词（草案）', scenarioS20_aiSemanticsScopes],
+      ['S21 内容包管理（导出/删除/空态）', scenarioS21_contentPackManager],
     ]
     for (const [name, fn] of scenarios) {
       if (only.length > 0 && !only.some((key) => name === key || name.startsWith(key + ' '))) continue

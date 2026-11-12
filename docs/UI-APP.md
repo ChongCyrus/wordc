@@ -175,6 +175,13 @@
 - **关于页第三方说明（task-57 尾）**：`BRAND.backgroundNote/deckNotice/affiliationNotice/tokenNotice` 为可选字段——私版提供完整「MaiMemo/受限商业词表」说明（输出逐字不变）；公开版 brand.ts 省略这些字段 → 回退通用文案（「数据来源与许可见 FEATURES-COMPLIANCE / THIRD-PARTY-NOTICES」「API Token…」），公开树 About 页不出现「MaiMemo/受限商业词表」。
 - **已知边界**：`src/data` 的 `GENERATOR`/`selectedDeckId` 默认值由 data 任务接管；`tools/apk/AndroidManifest.xml` label 私版保留（公开树不含 APK）；关于页「MaiMemo/受限商业词表」第三方说明文案未纳入品牌字段（公开版 sanitize 需另行处理）。
 
+## 2.6.1 内容包管理（task-86）
+
+- 设置页「内容包」区新增「内容包管理」：列出已导入 packs（名称/kind/条目数/已应用/来源），支持单个「导出」为 `.pack.json`（`exportPack` + `saveBlobFile`，APK 走桥接保存）、「导出全部」（逐个导出并汇总成功/失败）、「删除」（危险确认；已应用内容默认保留）。
+- 空态显示「还没有导入过内容包」；导出文件名 `名称-日期.pack.json`（非法字符替换）。
+- 验收：导入一个 pack → 列表出现条目 → 导出文件可再导入（往返一致）→ 删除后列表消失；空列表显示空态。
+- 测试：`tests/ui/content-pack-manager.test.ts`（3）。
+
 ## 2.6 AI 扩充（task-71，可选）
 
 - 设置页「AI 扩充（可选）」：启用开关、provider（DeepSeek 默认/OpenAI 兼容）、baseURL/model、API Key（掩码回显；persistent=本机 DB / session=仅内存刷新失效；保存/清除/测试连接）、单次费用上限、全量预生成预算、隐私说明（Key 只存本机、不导出/不上传/不写日志）。

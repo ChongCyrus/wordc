@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-11T19:32:27.392Z
+- 生成时间：2026-11-12T00:58:26.116Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**294**；修改 **67**；新增 **3**；私有仓未进入公开树 **1670**
+- 公开文件：**300**；修改 **68**；新增 **5**；私有仓未进入公开树 **1684**
 
 ## 结论
 
@@ -30,6 +30,8 @@
 | `docs/UI-STUDY.md` | 配置/文档 | 文本变化 |
 | `docs/assets/demo/README.md` | 配置/文档 | 文本变化 |
 | `package.json` | 配置 | JSON 字段变化 |
+| `public/packs/dagang/semantics-v37.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
+| `public/packs/dagang/wc-content-full.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
 | `scripts/serve.py` | 配置/文档 | 文本变化 |
 | `scripts/start.sh` | 配置/文档 | 文本变化 |
 | `scripts/stop.sh` | 配置/文档 | 文本变化 |
@@ -48,6 +50,7 @@
 | `src/data/builtin/kaoyan-2027-dagang.deck.json` | 数据（meta/版本类允许差异） | 词条/释义/难度/词组逐项一致；允许差异字段：generator |
 | `src/data/builtin/manifest.json` | 配置 | JSON 字段变化 |
 | `src/data/checksum.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `src/data/default-packs.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `src/data/import-export.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `src/data/index.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `src/data/settings.repo.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
@@ -99,6 +102,7 @@
 - `.secrets/user-export`
 - `.secrets/zhipu-key`
 - `START.md`
+- `data/packs`
 - `data/raw`
 - `docs/ACCEPTANCE-0.2.0.md`
 - `docs/API-IMPORT.md`
@@ -125,12 +129,13 @@
 - `docs/assets`
 - `docs/research`
 - `scripts/.server.pid`
+- `scripts/build-private.sh`
 - `scripts/deliver.sh`
 - `scripts/logs`
 - `src/data`
 - `tests/data`
 - `tests/e2e`
-- `tests/tools`
+- `tests/ui`
 - `tools/apk`
 - `tools/e2e`
 - `tools/github`
