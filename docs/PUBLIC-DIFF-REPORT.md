@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T00:58:26.116Z
+- 生成时间：2026-11-12T01:13:12.723Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**300**；修改 **68**；新增 **5**；私有仓未进入公开树 **1684**
+- 公开文件：**302**；修改 **69**；新增 **5**；私有仓未进入公开树 **1686**
 
 ## 结论
 
@@ -64,6 +64,7 @@
 | `tests/core/schedule.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/api/maimemo-real-data.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/builtin.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `tests/data/default-packs.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/import-export.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/new-word-order.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/phrase-meanings.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
@@ -133,9 +134,7 @@
 - `scripts/deliver.sh`
 - `scripts/logs`
 - `src/data`
-- `tests/data`
 - `tests/e2e`
-- `tests/ui`
 - `tools/apk`
 - `tools/e2e`
 - `tools/github`
