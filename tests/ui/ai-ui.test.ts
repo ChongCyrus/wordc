@@ -166,6 +166,7 @@ describe('AI 扩充 UI（task-71）', () => {
     expect(idle).toContain('已拒绝')
     expect(idle).toContain('目标：12 个词/含义')
     expect(idle).toContain('开始生成')
+    expect(idle).toContain('本次生成上限')
     expect(idle).not.toContain('没有可生成的词')
 
     const semanticsIdle = renderToStaticMarkup(

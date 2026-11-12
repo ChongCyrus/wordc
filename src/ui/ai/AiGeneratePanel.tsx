@@ -16,8 +16,13 @@ import {
   type AiScope,
 } from '../../app/hooks/aiUi'
 import {
+  appendGenerationDraftItems,
   applyApproved,
   approveItems,
+  clearGenerationDraft,
+  createGenerationDraft,
+  listGenerationDrafts,
+  updateGenerationDraftCursor,
   computeChecksum,
   generateItems,
   getSettings,
@@ -33,6 +38,15 @@ import {
   type PackItemV1,
 } from '../../data'
 import { useDecks } from '../../app/hooks/useDecks'
+import {
+  AI_BATCH_CONTINUE_STOP_LABEL,
+  AI_BATCH_LIMIT_OPTIONS,
+  batchSizeForLimit,
+  draftResumeMessage,
+  formatDraftProgress,
+  isDraftComplete,
+  type AiBatchLimit,
+} from '../../app/hooks/aiDraft'
 import { useToast } from '../../app/toast'
 import { Dialog } from '../components/Dialog'
 
@@ -66,6 +80,11 @@ export interface AiGenerateViewProps {
   onSelectAll?: () => void
   onInvert?: () => void
   onClearSelected?: () => void
+  batchLimit?: AiBatchLimit
+  onBatchLimit?: (limit: AiBatchLimit) => void
+  draftMessage?: string | null
+  onResumeDraft?: () => void
+  onDiscardDraft?: () => void
 }
 
 /** 批量生成面板（纯展示；task-71） */
@@ -99,9 +118,45 @@ export function AiGenerateView({
   onSelectAll,
   onInvert,
   onClearSelected,
+  batchLimit = 100,
+  onBatchLimit,
+  draftMessage,
+  onResumeDraft,
+  onDiscardDraft,
 }: AiGenerateViewProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {draftMessage ? (
+        <div className="mm-caption" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span>{draftMessage}</span>
+          {onResumeDraft ? (
+            <button type="button" className="mm-btn" onClick={onResumeDraft} disabled={running}>
+              继续
+            </button>
+          ) : null}
+          {onDiscardDraft ? (
+            <button type="button" className="mm-btn mm-btn--danger" onClick={onDiscardDraft} disabled={running}>
+              放弃草稿
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="mm-caption">本次生成上限</div>
+      <div className="mm-btn-row">
+        {AI_BATCH_LIMIT_OPTIONS.map((option) => (
+          <button
+            key={String(option.value)}
+            type="button"
+            className={`mm-btn${batchLimit === option.value ? ' mm-btn--primary' : ''}`}
+            aria-pressed={batchLimit === option.value}
+            onClick={() => onBatchLimit?.(option.value)}
+            disabled={running}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
       <div className="mm-caption">范围</div>
       <div className="mm-btn-row">
         {AI_SCOPE_OPTIONS.map((option) => (
@@ -417,6 +472,13 @@ export function AiGeneratePanel({
   const [selectedWordIds, setSelectedWordIds] = useState<string[]>([])
   const [truncated, setTruncated] = useState(false)
   const [promptVersion, setPromptVersion] = useState('v1')
+  const [batchLimit, setBatchLimit] = useState<AiBatchLimit>(100)
+  const [draftId, setDraftId] = useState<string | null>(null)
+  const [draftDone, setDraftDone] = useState(0)
+  const [draftTotal, setDraftTotal] = useState(0)
+  const [draftCursor, setDraftCursor] = useState(0)
+  const [draftPrompt, setDraftPrompt] = useState<{ id: string; done: number; total: number } | null>(null)
+  const [discardConfirm, setDiscardConfirm] = useState(false)
   const [kinds, setKinds] = useState<GenerationKind[]>(['examples'])
   const [excludes, setExcludes] = useState<AiExcludeKey[]>(['rejected'])
   const [targetCount, setTargetCount] = useState(0)
@@ -431,6 +493,23 @@ export function AiGeneratePanel({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [controller, setController] = useState<AbortController | null>(null)
   let canceled = false
+
+  useEffect(() => {
+    if (!open) return
+    void (async () => {
+      const drafts = await listGenerationDrafts()
+      const first = drafts[0]
+      if (first) {
+        const meta = first.meta
+        setDraftPrompt({
+          id: first.id,
+          done: first.done,
+          total: meta.targetTotal,
+        })
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   useEffect(() => {
     if (scope !== 'custom' || !targetDeckId) return
@@ -510,24 +589,46 @@ export function AiGeneratePanel({
         if (!settings.enabled) throw Object.assign(new Error('disabled'), { code: 'AI_DISABLED' })
         if (!settings.config.apiKey) throw Object.assign(new Error('no key'), { code: 'AI_NO_KEY' })
         const groups = await buildTargetsByKind(kinds)
-        const allTargets = groups.flatMap((group) => group.targets)
-        if (allTargets.length === 0) {
+        const pairs = groups.flatMap((group) =>
+          group.targets.map((target) => ({ kind: group.kind, target })),
+        )
+        if (pairs.length === 0) {
           setSummary('没有需要生成的目标（已排除已有内容/已拒绝）')
           return
         }
+        const total = pairs.length
+        // 草稿：没有则创建；续跑从 cursor 开始
+        let activeDraftId = draftId
+        let startCursor = draftCursor
+        if (!activeDraftId) {
+          const draft = await createGenerationDraft({
+            scope: await targetScope(),
+            kind: kinds,
+            name: `AI 生成 ${new Date().toLocaleString('zh-CN')}`,
+          })
+          activeDraftId = draft.id
+          startCursor = 0
+          setDraftId(draft.id)
+          setDraftDone(0)
+          setDraftCursor(0)
+        }
+        setDraftTotal(total)
+        const batchSize = batchSizeForLimit(batchLimit, total - startCursor)
+        const slice = pairs.slice(startCursor, startCursor + batchSize)
         const allItems: PackItemV1[] = []
         const allEntries: typeof pending = []
         const allResults: AiReviewItem[] = []
         const errorCodes: Array<string | undefined> = []
         let done = 0
         let cost = 0
-        const total = allTargets.length
+        let cursor = startCursor
         for (const group of groups) {
-          if (group.targets.length === 0) continue
+          const groupPairs = slice.filter((pair) => pair.kind === group.kind)
+          if (groupPairs.length === 0) continue
           const kind = group.kind
           const res = await generateItems({
             kind,
-            targets: group.targets as never,
+            targets: groupPairs.map((pair) => pair.target) as never,
             config: settings.config,
             signal: nextController.signal,
             onProgress: (p) => {
@@ -552,13 +653,39 @@ export function AiGeneratePanel({
               lines: itemLines(kind, result.item),
             })
           }
+          const appendItems = res.results
+            .filter((result) => result.item)
+            .map((result) => ({
+              headwordLower: result.target.headwordLower,
+              ...(result.target.meaningIndex != null ? { meaningIndex: result.target.meaningIndex } : {}),
+              payload: result.item!,
+            }))
+          if (appendItems.length > 0 && activeDraftId) {
+            const appended = await appendGenerationDraftItems(activeDraftId, appendItems)
+            setDraftDone(appended.done)
+          }
           if (res.canceled) {
             canceled = true
             break
           }
+          cursor += groupPairs.length
+          if (activeDraftId) {
+            await updateGenerationDraftCursor(activeDraftId, { cursor, targetTotal: total })
+            setDraftCursor(cursor)
+          }
         }
         setPending(allEntries)
         // QA S18 P2：402/429/408 等不能只显示「失败 N 条」，要展示分类文案
+        if (canceled) {
+          setSummary(`已取消，草稿已保存：${formatDraftProgress(done, total)}`)
+          return
+        }
+        if (!isDraftComplete(cursor, total)) {
+          setSummary(
+            `${formatDraftProgress(done, total)} · 本次已达上限 ${batchLimit === 'all' ? '全部' : batchLimit}，可点「${AI_BATCH_CONTINUE_STOP_LABEL}」/重新打开继续`,
+          )
+          return
+        }
         const failureSummary = summarizeAiFailures(errorCodes)
         const fatalMessage = pickAiFailureMessage(errorCodes)
         if (failureSummary) {
@@ -642,6 +769,7 @@ export function AiGeneratePanel({
         await approveItems(imported.packId, pendingIds)
         const applied = await applyApproved(imported.packId)
         toast.success(`已应用 ${applied.applied} 条生成内容（跳过 ${applied.skipped}）`)
+        if (draftId) await clearGenerationDraft(draftId)
         onApplied?.()
         onClose()
         setItems([])
@@ -678,6 +806,24 @@ export function AiGeneratePanel({
             )
           }
           onClearSelected={() => setSelectedWordIds([])}
+          batchLimit={batchLimit}
+          onBatchLimit={setBatchLimit}
+          draftMessage={
+            draftPrompt && !draftId
+              ? draftResumeMessage(draftPrompt.done, draftPrompt.total)
+              : draftTotal > 0
+                ? formatDraftProgress(draftDone, draftTotal)
+                : null
+          }
+          onResumeDraft={() => {
+            if (!draftPrompt) return
+            setDraftId(draftPrompt.id)
+            setDraftCursor(draftPrompt.done)
+            setDraftDone(draftPrompt.done)
+            setDraftTotal(draftPrompt.total)
+            setDraftPrompt(null)
+          }}
+          onDiscardDraft={() => setDiscardConfirm(true)}
           kinds={kinds}
           excludes={excludes}
           targetCount={targetCount}
@@ -706,6 +852,40 @@ export function AiGeneratePanel({
           onClose={onClose}
         />
       </Dialog>
+      <Dialog
+        open={discardConfirm}
+        title="放弃草稿？"
+        onClose={() => setDiscardConfirm(false)}
+        actions={
+          <>
+            <button type="button" className="mm-btn" onClick={() => setDiscardConfirm(false)}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="mm-btn mm-btn--danger"
+              onClick={() => {
+                void (async () => {
+                  if (draftPrompt?.id ?? draftId) {
+                    await clearGenerationDraft((draftPrompt?.id ?? draftId)!)
+                  }
+                  setDraftId(null)
+                  setDraftCursor(0)
+                  setDraftDone(0)
+                  setDraftTotal(0)
+                  setDraftPrompt(null)
+                  setDiscardConfirm(false)
+                })()
+              }}
+            >
+              放弃
+            </button>
+          </>
+        }
+      >
+        <div className="mm-caption">放弃后未生成的草稿会删除，已应用内容不受影响。</div>
+      </Dialog>
+
       <AiReviewDialog
         open={items.length > 0 && !running}
         items={items}

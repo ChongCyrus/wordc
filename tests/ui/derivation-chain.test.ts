@@ -49,6 +49,23 @@ describe('本义→引申链（task-77）', () => {
     expect(html).toContain('derivation-chain')
   })
 
+  it('v4 label 与 steps 分离（task-110）：括号显示 label，不显示 steps[0]', () => {
+    const html = renderToStaticMarkup(
+      createElement(DerivationChain, {
+        label: '技术',
+        steps: ['tekhnē 为技艺', '加 -ical 为技术的'],
+      }),
+    )
+    expect(html).toContain('本义① 「技术」')
+    expect(html).not.toContain('本义① 「tekhnē 为技艺」')
+    expect(html).toContain('→ tekhnē 为技艺')
+    // v3 回退：无 label 时 steps[0] 作为本义
+    const legacy = renderToStaticMarkup(
+      createElement(DerivationChain, { steps: ['一起吃面包的人', '公司'] }),
+    )
+    expect(legacy).toContain('本义① 「一起吃面包的人」')
+  })
+
   it('无映射不显示；非 AI 不显示 AI 标识', () => {
     expect(
       renderToStaticMarkup(createElement(DerivationChain, { steps: [] })),

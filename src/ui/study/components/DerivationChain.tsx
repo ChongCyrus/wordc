@@ -1,6 +1,8 @@
 /** 「本义 → 引申」链（task-77）：11–12px 次要色小字，长文本可换行不挤压操作区。 */
 export interface DerivationChainView {
-  /** 链步骤：第 1 个为本义，后续为引申义（不含箭头，渲染时拼接） */
+  /** v4：本义 label（来自 coreSenses；渲染为「本义①「label」」） */
+  label?: string
+  /** 链步骤（v4 只含步骤；v3 旧契约 steps[0]=本义，作为无 label 时的回退） */
   steps: readonly string[]
   /** true = 来自 AI pack（链尾标注「AI 推演，仅供参考」） */
   aiGenerated?: boolean
@@ -11,17 +13,20 @@ export interface DerivationChainProps extends DerivationChainView {
   compact?: boolean
 }
 
-export function DerivationChain({ steps, aiGenerated, compact = false }: DerivationChainProps) {
+export function DerivationChain({ label, steps, aiGenerated, compact = false }: DerivationChainProps) {
   const items = steps.map((step) => step.trim()).filter((step) => step.length > 0)
-  if (items.length === 0) return null
+  const title = (label ?? items[0] ?? '').trim()
+  if (!title && items.length === 0) return null
+  // v4：label 单独展示，steps 全部作为后续步骤；v3 旧行为：steps[0] 当作本义
+  const chain = label ? items : items.slice(1)
   return (
     <div
       className="derivation-chain"
       style={compact ? { fontSize: 11 } : undefined}
     >
       <span className="derivation-chain-body">
-        本义① 「{items[0]}」
-        {items.slice(1).map((step, index) => (
+        本义① 「{title}」
+        {chain.map((step, index) => (
           <span key={`${step}-${index}`}> → {step}</span>
         ))}
       </span>

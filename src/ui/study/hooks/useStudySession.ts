@@ -91,13 +91,19 @@ function derivationFor(
   const mapping = effective?.meaningMap?.find((item) => item.meaningIndex === meaningIndex)
   if (!mapping) return undefined
   const core = effective?.coreSenses?.[(mapping.coreSenseIndex ?? 0) - 1]
+  const label = core?.label?.trim() || undefined
+  // v4：steps 只含步骤（label 单独渲染）；v3 旧数据无 steps 时回退 [label, note]
   const steps = mapping.steps?.length
     ? mapping.steps
-    : [core?.label, mapping.note].filter(
-        (step): step is string => typeof step === 'string' && step.trim().length > 0,
-      )
-  if (steps.length === 0) return undefined
-  return { steps, aiGenerated: core?.source === 'ai' || mapping.source === 'ai' }
+    : mapping.note
+      ? [mapping.note]
+      : []
+  if (!label && steps.length === 0) return undefined
+  return {
+    ...(label ? { label } : {}),
+    steps,
+    aiGenerated: core?.source === 'ai' || mapping.source === 'ai',
+  }
 }
 
 export type StudyPhase = 'loading' | 'error' | 'studying' | 'done' | 'empty' | 'no-deck'
