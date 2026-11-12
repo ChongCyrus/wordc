@@ -1,89 +1,95 @@
 #!/usr/bin/env node
 /**
- * 合并 semantics 分片为单一 momo-pack（task-78 全量用）：
- * - 各片词不重叠（直接拼接）；若重复 headword，则合并 coreSenses（按 index 重映射）与 meaningMap；
- * - checksum = sha256(stableStringify({format,formatVersion,kind,items}))；
- * - meta.stats 汇总各片。
- * 用法：node tools/merge-semantics-packs.mjs --out /tmp/sem.pack.json /tmp/shards/*.pack.json
+ * task-99 · 用 v4 重生成结果**替换**旧 semantics pack 中对应词，输出新 pack。
+ *
+ * - 按 headwordLower 替换（不是只补缺）：base 中命中的词用 regen 的 item 覆盖；
+ * - regen 里有、base 没有的词追加到末尾；
+ * - 其它词保留旧 item；checksum 重算；meta.promptVersion 写 v4；旧文件保留备份。
+ *
+ * 用法：
+ *   node tools/merge-semantics-packs.mjs --base data/packs/hongbaoshu/semantics-full-6702.pack.json \
+ *     --regen /tmp/regen/full.v4.pack.json --out data/packs/hongbaoshu/semantics-full-6702-v4.pack.json
  */
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const args = process.argv.slice(2)
-const outIdx = args.indexOf('--out')
-const out = outIdx >= 0 ? args[outIdx + 1] : null
-const files = args.filter((_, i) => i !== outIdx && i !== outIdx + 1)
-if (!out || files.length === 0) {
-  console.error('用法: node tools/merge-semantics-packs.mjs --out <file> <pack1> <pack2> ...')
-  process.exit(1)
-}
-const stable = (v) => {
-  if (v === null || v === undefined) return 'null'
-  const t = typeof v
-  if (t === 'number') return Number.isFinite(v) ? JSON.stringify(v) : 'null'
-  if (t === 'boolean') return v ? 'true' : 'false'
-  if (t === 'string') return JSON.stringify(v)
-  if (Array.isArray(v)) return '[' + v.map((x) => (x === undefined ? 'null' : stable(x))).join(',') + ']'
-  if (t === 'object') {
-    const keys = Object.keys(v).filter((k) => v[k] !== undefined).sort()
-    return '{' + keys.map((k) => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}'
+export function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map((entry) => stableStringify(entry)).join(',')}]`
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).sort()
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`
   }
-  return 'null'
+  return JSON.stringify(value ?? null)
 }
 
-const merged = new Map()
-let inputMeanings = 0, coreSenses = 0, mappedMeanings = 0, cost = 0, tokensIn = 0, tokensOut = 0, failed = 0, invalid = 0, skipped = 0, labelGroups = 0, labelMultiGroups = 0, labelExactGroups = 0
-let promptVersion = null, model = null, provider = null
-for (const f of files) {
-  const pack = JSON.parse(readFileSync(f, 'utf8'))
-  if (pack.kind !== 'semantics' && pack.kind !== 'mixed') throw new Error(`${f} 不是 semantics pack: ${pack.kind}`)
-  promptVersion = promptVersion ?? pack.meta?.promptVersion ?? null
-  model = model ?? pack.meta?.model ?? null
-  provider = provider ?? pack.meta?.provider ?? null
-  const st = pack.meta?.stats ?? {}
-  inputMeanings += Number(st.inputMeanings ?? 0)
-  coreSenses += Number(st.coreSenses ?? 0)
-  mappedMeanings += Number(st.mappedMeanings ?? 0)
-  cost += Number(st.costYuan ?? 0)
-  tokensIn += Number(st.tokensIn ?? 0)
-  tokensOut += Number(st.tokensOut ?? 0)
-  failed += Number(st.failedBatches ?? 0)
-  invalid += Number(st.invalidItems ?? 0)
-  skipped += Number(st.skippedMeanings ?? 0)
-  labelGroups += Number(st.labelGroups ?? 0)
-  labelMultiGroups += Number(st.labelMultiGroups ?? 0)
-  labelExactGroups += Number(st.labelExactGroups ?? 0)
-  for (const it of pack.items ?? []) {
-    const key = (it.headwordLower ?? it.headword).toLowerCase()
-    if (!merged.has(key)) { merged.set(key, it); continue }
-    // 重复词（理论上分片不重叠）：保留已有，只补缺失的 meaningMap
-    const cur = merged.get(key)
-    const have = new Set((cur.meaningMap ?? []).map((m) => m.meaningIndex))
-    for (const m of it.meaningMap ?? []) if (!have.has(m.meaningIndex)) cur.meaningMap.push(m)
-    if (!cur.coreSenses?.length && it.coreSenses?.length) cur.coreSenses = it.coreSenses
+export function packChecksum(pack) {
+  const payload = { format: pack.format, formatVersion: pack.formatVersion, kind: pack.kind, items: pack.items }
+  return createHash('sha256').update(stableStringify(payload)).digest('hex')
+}
+
+/** 合并 base + regen（按 headwordLower 替换），纯函数 */
+export function mergeSemanticsPacks(base, regen, opts = {}) {
+  const regenItems = Array.isArray(regen?.items) ? regen.items : []
+  const baseItems = Array.isArray(base?.items) ? base.items : []
+  const regenByLower = new Map()
+  for (const item of regenItems) {
+    const lower = String(item?.headwordLower ?? item?.headword ?? '').toLowerCase()
+    if (lower) regenByLower.set(lower, item)
   }
+  const replaced = []
+  const seen = new Set()
+  const items = baseItems.map((item) => {
+    const lower = String(item?.headwordLower ?? item?.headword ?? '').toLowerCase()
+    seen.add(lower)
+    const next = regenByLower.get(lower)
+    if (!next) return item
+    replaced.push(lower)
+    return next
+  })
+  const appended = []
+  for (const [lower, item] of regenByLower) {
+    if (seen.has(lower)) continue
+    items.push(item)
+    appended.push(lower)
+  }
+  const now = Date.now()
+  const meta = {
+    ...(base?.meta ?? {}),
+    ...(regen?.meta?.promptVersion ? { promptVersion: regen.meta.promptVersion } : { promptVersion: opts.promptVersion ?? 'v4.0-semantics-grouped' }),
+    name: opts.name ?? `${base?.meta?.name ?? 'semantics'}（v4 重生成 ${replaced.length} 词）`,
+  }
+  const pack = {
+    ...base,
+    createdAt: base?.createdAt ?? now,
+    items,
+    meta,
+    checksum: '',
+  }
+  pack.checksum = packChecksum(pack)
+  return { pack, replaced: replaced.sort(), appended: appended.sort(), replacedCount: replaced.length, appendedCount: appended.length }
 }
-const items = [...merged.values()].sort((a, b) => (a.headwordLower < b.headwordLower ? -1 : a.headwordLower > b.headwordLower ? 1 : 0))
-const cores = items.reduce((n, it) => n + (it.coreSenses?.length ?? 0), 0)
-const maps = items.reduce((n, it) => n + (it.meaningMap?.length ?? 0), 0)
-const checksum = createHash('sha256').update(stable({ format: 'momo-pack', formatVersion: 1, kind: 'semantics', items })).digest('hex')
-const pack = {
-  format: 'momo-pack', formatVersion: 1, kind: 'semantics', createdAt: Date.now(),
-  generator: 'wordc-ai-cli-merge@0.3.4',
-  meta: {
-    name: `WordC 本义/引申链 pack（kaoyan-2027-dagang · ${items.length} 词）`,
-    source: 'ai', provider, model, promptVersion,
-    scope: { kind: 'deck', deckId: 'kaoyan-2027-dagang', semantics: true, shards: files.length },
-    createdBy: 'WordC', checksumAlgo: 'sha256',
-    stats: {
-      words: items.length, inputMeanings, coreSenses: cores, mappedMeanings: maps,
-      failedBatches: failed, invalidItems: invalid, skippedMeanings: skipped,
-      labelGroups, labelMultiGroups, labelExactGroups,
-      tokensIn, tokensOut, costYuan: Number(cost.toFixed(4)),
-    },
-  },
-  items, checksum,
+
+function main() {
+  const args = process.argv.slice(2)
+  const arg = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def }
+  const basePath = arg('--base', '')
+  const regenPath = arg('--regen', '')
+  const out = arg('--out', '')
+  if (!basePath || !regenPath || !out) {
+    console.error('用法: node tools/merge-semantics-packs.mjs --base <old.pack.json> --regen <regen.pack.json> --out <v4.pack.json> [--name "..."]')
+    process.exit(1)
+  }
+  const base = JSON.parse(readFileSync(resolve(basePath), 'utf8'))
+  const regen = JSON.parse(readFileSync(resolve(regenPath), 'utf8'))
+  const result = mergeSemanticsPacks(base, regen, { name: arg('--name', '') || undefined })
+  writeFileSync(resolve(out), JSON.stringify(result.pack, null, 2) + '\n')
+  console.log(`[merge] base=${basePath} regen=${regenPath}`)
+  console.log(`[merge] items=${result.pack.items.length} 替换=${result.replacedCount} 追加=${result.appendedCount} promptVersion=${result.pack.meta.promptVersion}`)
+  console.log(`[merge] checksum=${result.pack.checksum.slice(0, 16)}… → ${out}`)
 }
-writeFileSync(out, JSON.stringify(pack, null, 2) + '\n')
-console.log(`[merge-sem] ${files.length} 片 → ${out}`)
-console.log(`[merge-sem] items=${items.length} coreSenses=${cores} mapped=${maps} cost≈¥${cost.toFixed(3)} prompt=${promptVersion} checksum=${checksum.slice(0, 16)}…`)
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try { main() } catch (error) { console.error('[fatal]', error.message); process.exit(1) }
+}

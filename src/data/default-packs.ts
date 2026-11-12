@@ -20,26 +20,29 @@ import {
   importContentPack,
   listPackItems,
   listPacks,
+  pruneLegacySemanticsPacks,
   reapplyPack,
 } from './packs.repo'
 import type { ReapplyProgress } from './packs.repo'
 
 export const DEFAULT_PACKS_META_KEY = 'packs.defaultSeeded'
 /** 内置包集合版本：pack 内容/清单变化时 +1，触发重新导入检查（task-88：+私版清单后升到 2） */
-export const DEFAULT_PACKS_VERSION = 2
+export const DEFAULT_PACKS_VERSION = 3
 
 export interface DefaultContentPackEntry {
   id: string
   /** 相对站点根路径（Vite public 目录） */
   path: string
   kind: PackKind
+  /** 目标词库（semantics 迁移用；缺省按路径推断） */
+  deckId?: string
   /** 可选包：缺失（404/网络失败）只记为 missing，不阻塞启动/不阻止写版本标记 */
   optional?: boolean
 }
 
 /** 公开版内置内容包清单（只带大纲；受限商业词表包不随公开树分发） */
 export const DEFAULT_CONTENT_PACKS: readonly DefaultContentPackEntry[] = [
-  { id: 'dagang-semantics-v37', path: 'packs/dagang/semantics-v37.pack.json', kind: 'semantics' },
+  { id: 'dagang-semantics-v37', path: 'packs/dagang/semantics-v37-v4.pack.json', kind: 'semantics', deckId: 'kaoyan-2027-dagang' },
   { id: 'dagang-wc-content-full', path: 'packs/dagang/wc-content-full.pack.json', kind: 'mixed' },
 ]
 
@@ -51,8 +54,9 @@ export const DEFAULT_CONTENT_PACKS: readonly DefaultContentPackEntry[] = [
 export const PRIVATE_CONTENT_PACKS: readonly DefaultContentPackEntry[] = [
   {
     id: 'hongbaoshu-semantics-full',
-    path: 'packs/hongbaoshu/semantics-full-6702.pack.json',
+    path: 'packs/hongbaoshu/semantics-full-6702-v4.pack.json',
     kind: 'semantics',
+    deckId: 'kaoyan-2027-dagang',
     optional: true,
   },
   {
@@ -294,6 +298,15 @@ export async function ensureDefaultContentPacks(
       },
       updatedAt: Date.now(),
     })
+  }
+  if (allOk) {
+    // task-99/0.3.15：v4 本义数据就绪后，自动删除同 deck 的旧 v3 semantics pack（旧链坏文案）。
+    // 清理失败不阻塞 seed（UI 仍可手动「替换为 v4 数据」）。
+    try {
+      await pruneLegacySemanticsPacks()
+    } catch {
+      // ignore
+    }
   }
   return { ok: allOk, skippedVersion: false, imported: importedTotal, applied: appliedTotal, packs, issues }
 }

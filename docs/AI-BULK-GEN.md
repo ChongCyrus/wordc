@@ -138,3 +138,18 @@ deck=kaoyan-2027-dagang 词=200 kinds=examples,phrases,mnemonics
 tokens(in/out)=32411/33560；实际花费 ¥0.3333；耗时 ≈59.7s；checksum 自洽
 产物：/tmp/wordc-200.pack.json
 ```
+
+## 3.7 本义 v4 审计与重生成（task-97/99，2026-11-12）
+
+**审计**（`tools/audit-semantics-pack.mjs`，字段级：coreLabel/legacyCoreLabel/steps/origin/note）：
+- 旧 v3 pack：受限商业词表全量 6680/6702 词有违规（label 745、steps 1477、origin 9843→真实 origin 违规 650 词；label∪steps 去重 2009 词）。
+- origin 规则放宽：只要含中文解释（`古法语 bracchium 臂`）即通过；纯外文/纯语言名（`源自希腊 basis`）才违规。
+- 审计产物：`/tmp/audit/*.violations.jsonl` + `audit-report.json`（供 `--include-words` 分批重生成）。
+
+**重生成**（DeepSeek `deepseek-chat`，v4 grouped prompt，批 10、并发 2–3；失败批用新校验规则重跑）：
+- 受限商业词表全量：目标违规词 2450 → 全部生成（1629 主批 + 822/250/10 失败补齐），合并后 pack **6702 词 / 13490 coreSenses / 28777 mapped meanings**。
+- 必考词 v37：目标 503 → 全部生成（343 + 160），合并后 **1832 词 / 3806 coreSenses / 8784 mapped**。
+- 生成总花费 ≈ **¥15.1**（full ≈¥12.1、bikao ≈¥3.0），失败词 **0**。
+- 质量门禁：`audit-semantics-pack.mjs` 复检 v4 pack → **违规词 0 / 条目 0**（label/steps/origin/structure 全 0）；`promptVersion=v4.0-semantics-grouped`、`meta.deckId` 正确。
+- 工具链：`tools/merge-semantics-packs.mjs`（按 headwordLower 覆盖替换、重算 checksum）、`tools/normalize-external-pack.mjs --strict-semantics`（拒绝坏 label）、`tools/audit-semantics-pack.mjs`（复检）。
+- 产物：`data/packs/hongbaoshu/semantics-full-6702-v4.pack.json`（checksum `137004c4…`）、`semantics-bikao-v37-v4.pack.json`（`4d248421…`）；旧 pack 保留备份。

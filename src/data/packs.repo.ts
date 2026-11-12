@@ -885,6 +885,85 @@ export async function reapplyPack(
 }
 
 /** task-92：清理重复内容包（按 checksum 分组；保留「已应用最多 → 最早创建」的一份） */
+/** task-99/0.3.15：需要迁移到 v4 的旧 semantics pack（promptVersion 非 v4） */
+export async function listLegacySemanticsPacks(): Promise<PackRecord[]> {
+  const packs = await listPacks()
+  return packs.filter((pack) => pack.kind === 'semantics' && pack.promptVersion !== 'v4.0-semantics-grouped')
+}
+
+/**
+ * task-99/0.3.15：seed/升级时**自动清理被 v4 覆盖的旧 semantics pack**。
+ * 规则：存在 v4 semantics pack（promptVersion='v4.0-semantics-grouped'）的 deckId，
+ * 其旧 semantics pack（promptVersion≠v4）会被删除（旧链不再参与 effective 合并）。
+ * 只删 pack 记录/items，不写 Word；其它 deck 的旧包保留，供 UI「替换为 v4 数据」手动处理。
+ */
+export async function pruneLegacySemanticsPacks(opts: {
+  /** 限定只处理这些 deckId（默认：所有已有 v4 semantics pack 的 deck） */
+  deckIds?: string[]
+} = {}): Promise<{ removed: string[]; kept: string[] }> {
+  const packs = await listPacks()
+  const v4Decks = new Set(
+    packs
+      .filter((pack) => pack.kind === 'semantics' && pack.promptVersion === 'v4.0-semantics-grouped')
+      .map((pack) => pack.deckId)
+      .filter((deckId): deckId is string => Boolean(deckId)),
+  )
+  const targets = new Set(opts.deckIds ?? [...v4Decks])
+  const removable = packs.filter(
+    (pack) =>
+      pack.kind === 'semantics' &&
+      pack.promptVersion !== 'v4.0-semantics-grouped' &&
+      pack.deckId != null &&
+      (opts.deckIds ? targets.has(pack.deckId) : v4Decks.has(pack.deckId)),
+  )
+  const removed = removable.map((pack) => pack.id)
+  if (removed.length > 0) await deletePacks(removed)
+  return { removed, kept: packs.filter((pack) => !removed.includes(pack.id)).map((pack) => pack.id) }
+}
+
+export interface ReplacePackResult {
+  oldPackId: string
+  newPackId: string
+  /** 新包应用条数 */
+  applied: number
+  /** 新包跳过条数 */
+  skipped: number
+  /** 旧 pack 是否已删除 */
+  removedOld: boolean
+}
+
+/**
+ * task-99/0.3.15：用新 pack（v4）**替换**旧 pack（同词库旧 v3 本义链）。
+ * 顺序保证安全：先导入新包 → 补审 → apply → 成功后才删除旧包；任一步失败旧包保留。
+ * 旧 semantics pack 不写 Word（effective 合并展示），删除旧包即移除旧链数据。
+ */
+export async function replacePackContent(
+  oldPackId: string,
+  input: string | Blob,
+  opts: { resolveAllDecks?: boolean; onProgress?: ResolveOptions['onProgress'] } = {},
+): Promise<ReplacePackResult> {
+  const db = getDb()
+  const oldPack = await db.packs.get(oldPackId)
+  if (!oldPack) throw new Error(`旧内容包不存在：${oldPackId}`)
+  const imported = await importPack(input, {
+    resolveAllDecks: opts.resolveAllDecks ?? true,
+    ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+  })
+  if (!imported.ok || !imported.packId) {
+    throw new Error(imported.issues[0]?.message ?? '新内容包导入失败')
+  }
+  if (imported.packId === oldPackId) {
+    throw new Error('新内容包与旧包相同（checksum 一致），无需替换；可直接「重新应用」')
+  }
+  const newPackId = imported.packId
+  const items = await listPackItems(newPackId)
+  const pendingIds = items.filter((item) => item.status === 'pending').map((item) => item.id)
+  if (pendingIds.length > 0) await approveItems(newPackId, pendingIds)
+  const applied = await applyApproved(newPackId)
+  if (newPackId !== oldPackId) await deletePack(oldPackId)
+  return { oldPackId, newPackId, applied: applied.applied, skipped: applied.skipped, removedOld: true }
+}
+
 export interface DedupePacksResult {
   removed: number
   kept: number

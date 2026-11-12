@@ -298,6 +298,8 @@ export interface PackRecord {
   /** task-90：pack 目标词库 id（来自 meta.deckId；重应用时优先用） */
   deckId?: string
   status: PackStatus
+  /** task-106：AI 生成草稿元数据（仅草稿 pack 有；不参与已应用内容） */
+  draft?: unknown
   counts: PackCounts
   createdAt: number
   updatedAt: number

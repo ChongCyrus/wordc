@@ -139,6 +139,34 @@ describe('task-100：generateItems 切 v4 grouped 解析', () => {
     expect(res.promptVersion).toBe(PROMPT_VERSION_V4)
   })
 
+  it('label 短语规则：检查/看法/可能性/朝外看 合法；检查是否… 违规', () => {
+    const targets = [{ headword: 'w', meanings: [{ cn: '一' }, { cn: '二' }] }]
+    const make = (label: string) => ({
+      items: [
+        {
+          headword: 'w',
+          coreSenses: [
+            { index: 1, label, gloss: '解释', confidence: 'high' },
+            { index: 2, label: '另一义', gloss: '解释2', confidence: 'high' },
+          ],
+          meaningMap: [
+            { meaningIndex: 1, coreSenseIndex: 1 },
+            { meaningIndex: 2, coreSenseIndex: 2 },
+          ],
+        },
+      ],
+    })
+    for (const label of ['检查', '看法', '可能性', '朝外看']) {
+      const result = validateSemanticsV4Items({ json: make(label), targets })
+      expect(result.errors, label).toEqual([])
+      expect(result.byKey.size, label).toBe(1)
+    }
+    for (const label of ['检查是否指图', '看是否指图纸', '源自希腊']) {
+      const result = validateSemanticsV4Items({ json: make(label), targets })
+      expect(result.errors.some((error) => error.includes('E_LABEL_BANNED')), label).toBe(true)
+    }
+  })
+
   it('校验器入口：非 grouped v3 输出（per-c label）不再被 v4 接受', () => {
     const v3 = { items: [{ headword: 'plan', meanings: [{ meaningIndex: 1, coreSenseLabel: '计划' }] }] }
     const r = validateSemanticsV4Items({

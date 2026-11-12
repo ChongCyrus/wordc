@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T04:24:30.108Z
+- 生成时间：2026-11-12T05:34:04.475Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**312**；修改 **72**；新增 **5**；私有仓未进入公开树 **1689**
+- 公开文件：**313**；修改 **73**；新增 **4**；私有仓未进入公开树 **1702**
 
 ## 结论
 
@@ -19,6 +19,7 @@
 | `LICENSE` | 新增（公开版生成/改写） | 私仓无对应文件 |
 | `README.md` | 配置/文档 | 文本变化 |
 | `THIRD-PARTY-NOTICES.md` | 新增（公开版生成/改写） | 私仓无对应文件 |
+| `docs/AI-BULK-GEN.md` | 配置/文档 | 文本变化 |
 | `docs/ARCH-v2.md` | 配置/文档 | 文本变化 |
 | `docs/ARCH.md` | 配置/文档 | 文本变化 |
 | `docs/CI.md` | 配置/文档 | 文本变化 |
@@ -31,7 +32,6 @@
 | `docs/assets/demo/README.md` | 配置/文档 | 文本变化 |
 | `docs/prompts/semantics-v4.md` | 配置/文档 | 文本变化 |
 | `package.json` | 配置 | JSON 字段变化 |
-| `public/packs/dagang/semantics-v37.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
 | `public/packs/dagang/wc-content-full.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
 | `scripts/serve.py` | 配置/文档 | 文本变化 |
 | `scripts/start.sh` | 配置/文档 | 文本变化 |
@@ -138,9 +138,15 @@
 - `scripts/deliver.sh`
 - `scripts/logs`
 - `src/data`
+- `tests/data`
 - `tests/e2e`
+- `tests/ui`
 - `tools/apk`
+- `tools/apply-semantics-patch.mjs`
+- `tools/audit-semantics-pack.mjs`
 - `tools/e2e`
+- `tools/fix-semantics-labels.mjs`
+- `tools/fix-semantics-origins.mjs`
 - `tools/github`
 - `tools/sanitize-public.mjs`
 - `vendor/research-algo`

@@ -69,6 +69,9 @@ export {
   pendingGenerationTargetsPage,
   clearRejects,
   dedupePacks,
+  listLegacySemanticsPacks,
+  pruneLegacySemanticsPacks,
+  replacePackContent,
   reapplyAppliedPacks,
   reapplyPack,
   rejectGeneratedItem,
@@ -84,6 +87,7 @@ export type {
   PackStats,
   ReapplyOptions,
   ReapplyProgress,
+  ReplacePackResult,
 } from './packs.repo'
 export type {
   AppliedContent,
@@ -394,3 +398,17 @@ export type {
   SingleContentKind,
   TokenUsage,
 } from './ai'
+
+export {
+  appendGenerationDraftItems,
+  clearGenerationDraft,
+  createGenerationDraft,
+  getGenerationDraft,
+  listGenerationDrafts,
+  updateGenerationDraftCursor,
+} from './generation-draft'
+export type {
+  GenerationDraft,
+  GenerationDraftItemInput,
+  GenerationDraftMeta,
+} from './generation-draft'

@@ -9,6 +9,7 @@ import {
   DEFAULT_PACKS_VERSION,
   PRIVATE_CONTENT_PACKS,
   ensureDefaultContentPacks,
+  importPack,
   getDefaultContentPacks,
   getEffectiveContent,
   getPackStats,
@@ -18,7 +19,7 @@ import { computeChecksum } from '../../src/data/checksum'
 import { packChecksumPayload } from '../../src/data/packs/schema'
 import type { PackFileV1, PackItemV1 } from '../../src/data'
 
-async function makePack(items: PackItemV1[], kind: PackFileV1['kind']): Promise<PackFileV1> {
+async function makePack(items: PackItemV1[], kind: PackFileV1['kind'], meta: Record<string, unknown> = {}): Promise<PackFileV1> {
   const base = {
     format: 'momo-pack' as const,
     formatVersion: 1 as const,
@@ -26,7 +27,7 @@ async function makePack(items: PackItemV1[], kind: PackFileV1['kind']): Promise<
     createdAt: Date.UTC(2026, 11, 9),
     generator: 'test@default-packs',
     items,
-    meta: { source: 'ai' as const, name: `默认包 ${kind}` },
+    meta: { source: 'ai' as const, name: `默认包 ${kind}`, ...meta },
   }
   const checksum = (await computeChecksum(packChecksumPayload(base))).hex
   return { ...base, checksum }
@@ -73,7 +74,7 @@ async function makePrivateBodies(): Promise<Record<string, string>> {
   return bodies
 }
 
-async function makeBodies(): Promise<Record<string, string>> {
+async function makeBodies(deckId?: string): Promise<Record<string, string>> {
   const semantics = await makePack(
     [
       {
@@ -86,6 +87,7 @@ async function makeBodies(): Promise<Record<string, string>> {
       },
     ],
     'semantics',
+    { ...(deckId ? { deckId } : {}), promptVersion: 'v4.0-semantics-grouped' },
   )
   const mixed = await makePack(
     [
@@ -96,6 +98,7 @@ async function makeBodies(): Promise<Record<string, string>> {
       },
     ],
     'mixed',
+    deckId ? { deckId } : {},
   )
   const bodies: Record<string, string> = {}
   for (const entry of DEFAULT_CONTENT_PACKS) {
@@ -308,6 +311,33 @@ describe('task-87：内置内容包首次启动自动导入', () => {
     const checksumsAfter = (await db.packs.toArray()).map((pack) => pack.checksum)
     expect(new Set(checksumsAfter).size).toBe(packsAfter)
     expect(second.packs.every((pack) => pack.status === 'skipped' || pack.status === 'imported')).toBe(true)
+  })
+
+  it('task-99/0.3.15：升级 seed 自动清理同 deck 的旧 v3 semantics pack', async () => {
+    const deck = await setupDeck()
+    const legacyFile = await makePack(
+      [
+        {
+          headword: 'bank',
+          coreSenses: [{ index: 1, label: '看是否指银行', note: '旧链', confidence: 'low' }],
+          meaningMap: [{ meaningIndex: 1, coreSenseIndex: 1 }],
+        },
+      ],
+      'semantics',
+      { deckId: deck.id, promptVersion: 'v3.7-semantics' },
+    )
+    const legacy = await importPack(JSON.stringify(legacyFile))
+    expect(legacy.packId).toBeDefined()
+
+    const bodies = await makeBodies(deck.id)
+    const calls: string[] = []
+    const result = await ensureDefaultContentPacks({ fetchImpl: mockFetch(bodies, calls) })
+    expect(result.ok).toBe(true)
+    expect(await getDb().packs.get(legacy.packId!)).toBeUndefined() // 旧 pack 被清理
+    const v4Packs = (await getDb().packs.toArray()).filter(
+      (pack) => pack.kind === 'semantics' && pack.promptVersion === 'v4.0-semantics-grouped',
+    )
+    expect(v4Packs.some((pack) => pack.deckId === deck.id)).toBe(true)
   })
 
   it('checksum 被篡改：该包 failed，不写标记', async () => {

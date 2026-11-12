@@ -354,16 +354,20 @@ export function selfMeaningSemanticsItem(target: SemanticsValidateTarget): PackI
 
 // ============ v4：grouped semantics 校验器（task-96 规格，task-97 实现） ============
 
-/** v4 label 硬性格式：2–6 个纯汉字 */
-export const V4_LABEL_RE = /^[\u4e00-\u9fff]{2,6}$/
-/** v4 label 黑名单（出现即不合格） */
+/** v4 label 格式：1–6 个汉字（单词如「水/门」合法），可带 1 个字母（「字母A」）或省略号（「当…时候」） */
+export const V4_LABEL_RE = /^[\u4e00-\u9fff]{1,6}(?:[A-Za-z]|…[\u4e00-\u9fff]{1,4})?$/
+/**
+ * v4 label 违规短语（**短语/子串模式**，不再按单字「看/可能/检查/是否」误杀合法含义）。
+ * 纯 2–6 字含义词（检查、看法、可能性、朝外看）一律通过；只有动作描述/词源/语言名/箭头才违规。
+ */
 export const V4_LABEL_BLACKLIST: readonly string[] = [
-  '是否', '看', '检查', '判断', '确认', '核对', '推导',
+  '看是否', '查看是否', '是否指', '检查是否', '核对',
   '源自', '源古', '来自', '出自', '词源', '词根',
   '希腊', '拉丁', '英语', '法语', '德语', '古英语',
-  '→', '->', '第一步', '第二步',
-  '可能', '大概', '也许', '疑似',
+  '→', '->',
 ]
+/** 等价正则（供 audit/外部工具同步） */
+export const V4_LABEL_BAD_PATTERN = /看是否|查看是否|是否指|检查是否|核对|源自|源古|来自|出自|词源|词根|希腊|拉丁|英语|法语|德语|古英语|→|->/
 /** v4 steps 黑名单 */
 export const V4_STEP_BLACKLIST: readonly string[] = [
   '是否', '看', '检查', '判断', '确认', '核对', '来源',
@@ -475,13 +479,18 @@ function validateV4ItemAgainstTarget(
     const label = sense.label
     if (!V4_LABEL_RE.test(label)) errors.push(`E_LABEL_FORMAT:${label || '(空)'}`)
     else if (V4_PUNCT.test(label)) errors.push(`E_LABEL_PUNCT:${label}`)
-    else if (V4_LABEL_BLACKLIST.some((word) => label.includes(word))) errors.push(`E_LABEL_BANNED:${label}`)
+    else if (V4_LABEL_BLACKLIST.some((word) => label.includes(word)) || V4_LABEL_BAD_PATTERN.test(label)) {
+      errors.push(`E_LABEL_BANNED:${label}`)
+    }
     else if (V4_DOUBLE_DE.test(label)) errors.push(`E_LABEL_DE:${label}`)
     if (!sense.gloss) warnings.push(`E_GLOSS_MISSING:${label || '(空)'}`)
     else if (sense.gloss.length > 40) errors.push(`E_GLOSS_LEN:${label}`)
     if (sense.origin) {
-      if (sense.origin.length > 20) errors.push(`E_ORIGIN_LEN:${label}`)
-      else if (V4_ORIGIN_BAD_PREFIX.test(sense.origin) || !V4_ORIGIN_OK.test(sense.origin)) {
+      if (sense.origin.length > 20) {
+        // task-99 生成容错：origin 超长不阻断整条，直接省略该字段（质量门禁要求 ≤20 或空）
+        warnings.push(`E_ORIGIN_LEN_DROPPED:${label}`)
+        sense.origin = ''
+      } else if (V4_ORIGIN_BAD_PREFIX.test(sense.origin) || !V4_ORIGIN_OK.test(sense.origin)) {
         errors.push(`E_ORIGIN_NO_EXPLAIN:${label}`)
       }
     }
@@ -553,7 +562,8 @@ function validateV4ItemAgainstTarget(
       continue
     }
     if (seenMeanings.has(entry.meaningIndex)) {
-      errors.push(`E_MAP_DUP:${entry.meaningIndex}`)
+      // 重复 meaningIndex 可安全修复（保留首个映射；覆盖仍完整）→ warning 不阻断
+      warnings.push(`E_MAP_DUP_FIXED:${entry.meaningIndex}`)
       continue
     }
     const groupIndex = oldIndexToGroup.get(entry.coreSenseIndex)

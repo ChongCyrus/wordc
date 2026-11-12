@@ -10,7 +10,7 @@
  * - 字段别名：word/headword、meaning/meaningIndex、examples/examples 等
  * 去重/上限：examples 8、phrases 8、mnemonics 4（含义级 examples 4 由 App 合并时再限）
  *
- * 用法：node tools/normalize-external-pack.mjs --kind semantics --out /tmp/x.pack.json \
+ * 用法：node tools/normalize-external-pack.mjs --kind semantics [--strict-semantics] --out /tmp/x.pack.json \
  *   --deck kaoyan-hongbaoshu-2025 /tmp/part-001.jsonl /tmp/part-002.jsonl
  *   （--deck 写入 meta.deckId：多词库同 headword 时 App 优先在该词库解析，task-90）
  */
@@ -103,6 +103,72 @@ function normalizeContentEntry(raw, fallbackKind) {
   return { item }
 }
 
+const STRICT_LABEL_RE = /^[\u4e00-\u9fff]{1,6}(?:[A-Za-z]|…[\u4e00-\u9fff]{1,4})?$/
+const STRICT_LABEL_BLACKLIST = [
+  '看是否', '查看是否', '是否指', '检查是否', '核对', '源自', '源古', '来自', '出自',
+  '词源', '词根', '希腊', '拉丁', '英语', '法语', '德语', '古英语', '→', '->',
+]
+const STRICT_STEP_BLACKLIST = [
+  '是否', '看', '检查', '判断', '确认', '核对', '来源', '源自', '来自', '出自',
+  '词源', '词根', '希腊', '拉丁', '英语', '法语', '德语', '→', '->', '推导',
+]
+const STRICT_DOUBLE_DE = /的[^的]{0,6}的/
+const STRICT_ORIGIN_OK = /(=|＝|即|意为|意思是|指)/
+const STRICT_ORIGIN_BAD_PREFIX = /^(源自|来自|出自)/
+
+/** task-97：--strict-semantics 软校验；返回 warnings，原地修 item/coreSenses/meaningMap */
+function sanitizeSemanticsStrict(item, warnings) {
+  const label = (sense) => String(sense?.label ?? '').trim()
+  const validLabel = (text) =>
+    STRICT_LABEL_RE.test(text) &&
+    !STRICT_LABEL_BLACKLIST.some((word) => text.includes(word)) &&
+    !STRICT_DOUBLE_DE.test(text)
+  const kept = []
+  const oldToNew = new Map()
+  for (const sense of item.coreSenses ?? []) {
+    const text = label(sense)
+    if (!validLabel(text)) {
+      warnings.push(`strict-semantics:${item.headwordLower}:drop-label:${text || '(空)'}`)
+      continue
+    }
+    kept.push({ ...sense, label: text })
+    oldToNew.set(Number(sense.index), kept.length)
+  }
+  if (kept.length === 0) return false
+  const remapped = []
+  for (const entry of item.meaningMap ?? []) {
+    const next = oldToNew.get(Number(entry.coreSenseIndex))
+    if (!next) continue
+    const copy = { ...entry, coreSenseIndex: next }
+    if (Array.isArray(entry.steps)) {
+      const steps = entry.steps.map((step) => String(step).trim()).filter(Boolean)
+      const ok =
+        steps.length >= 2 &&
+        steps.length <= 4 &&
+        steps.every((step) => step.length >= 2 && step.length <= 20 && !STRICT_STEP_BLACKLIST.some((word) => step.includes(word)))
+      if (ok) copy.steps = steps
+      else {
+        delete copy.steps
+        warnings.push(`strict-semantics:${item.headwordLower}:drop-steps:${entry.meaningIndex}`)
+      }
+    }
+    remapped.push(copy)
+  }
+  if (remapped.length === 0) return false
+  item.coreSenses = kept.map((sense, index) => ({ ...sense, index: index + 1 }))
+  item.meaningMap = remapped
+  // origin 没有解释 → 清空（不阻断）
+  for (const sense of item.coreSenses) {
+    const origin = String(sense.origin ?? '').trim()
+    if (!origin) continue
+    if (origin.length > 20 || STRICT_ORIGIN_BAD_PREFIX.test(origin) || !STRICT_ORIGIN_OK.test(origin)) {
+      warnings.push(`strict-semantics:${item.headwordLower}:drop-origin:${origin}`)
+      delete sense.origin
+    }
+  }
+  return true
+}
+
 export function normalizeEntries(inputs, opts = {}) {
   const errors = []
   const skipped = []
@@ -159,6 +225,15 @@ export function normalizeEntries(inputs, opts = {}) {
     if (agg.error) { errors.push({ where: `${group.headwordLower} (grouped)`, message: agg.error }); continue }
     for (const it of agg.byKey.values()) semantics.set(it.headwordLower, it)
   }
+  const warnings = []
+  if (opts.strictSemantics) {
+    for (const [key, item] of [...semantics.entries()]) {
+      if (!sanitizeSemanticsStrict(item, warnings)) {
+        semantics.delete(key)
+        skipped.push({ headwordLower: key, reason: 'strict-semantics', detail: '无合法 coreSenses/meaningMap' })
+      }
+    }
+  }
   // 去重/上限（按 en/text 规范化）
   for (const it of [...semantics.values(), ...content.values()]) {
     for (const k of ['examples', 'phrases']) {
@@ -175,12 +250,12 @@ export function normalizeEntries(inputs, opts = {}) {
   const kinds = new Set(items.flatMap((it) => ['examples', 'phrases', 'mnemonics'].filter((k) => it[k]?.length)))
   if (semantics.size > 0) kinds.add('semantics')
   const kind = semantics.size === items.length ? 'semantics' : kinds.size === 1 ? [...kinds][0] : 'mixed'
-  return { items, kind, errors, skipped }
+  return { items, kind, errors, skipped, warnings }
 }
 
 export function buildPackFromEntries(inputs, opts = {}) {
-  const { items, kind, errors, skipped } = normalizeEntries(inputs, opts)
-  if (items.length === 0) return { ok: false, errors, skipped, pack: null }
+  const { items, kind, errors, skipped, warnings = [] } = normalizeEntries(inputs, opts)
+  if (items.length === 0) return { ok: false, errors, skipped, warnings, pack: null }
   const checksum = sha256(stableStringify({ format: 'momo-pack', formatVersion: 1, kind, items }))
   const pack = {
     format: 'momo-pack', formatVersion: 1, kind, createdAt: Date.now(),
@@ -194,7 +269,7 @@ export function buildPackFromEntries(inputs, opts = {}) {
     },
     items, checksum,
   }
-  return { ok: true, pack, errors, skipped }
+  return { ok: true, pack, errors, skipped, warnings }
 }
 
 async function main() {
@@ -202,7 +277,11 @@ async function main() {
   const arg = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def }
   const out = resolve(arg('--out', '/tmp/external.pack.json'))
   const inArg = String(arg('--in', '')).split(',').map((s) => s.trim()).filter(Boolean)
-  const opts = { kind: arg('--kind', ''), name: arg('--name', ''), provider: arg('--provider', 'external'), model: arg('--model', ''), promptVersion: arg('--prompt-version', ''), deckId: arg('--deck', '') }
+  const opts = {
+    kind: arg('--kind', ''), name: arg('--name', ''), provider: arg('--provider', 'external'),
+    model: arg('--model', ''), promptVersion: arg('--prompt-version', ''), deckId: arg('--deck', ''),
+    strictSemantics: args.includes('--strict-semantics'),
+  }
   // 位置参数；正确跳过带值 option 的值，避免把 --out 的值当输入文件
   const VALUE_FLAGS = new Set(['--out', '--in', '--kind', '--name', '--provider', '--model', '--prompt-version', '--deck'])
   const positional = []
@@ -218,10 +297,11 @@ async function main() {
   const res = buildPackFromEntries(inputs, opts)
   if (!res.ok) { console.error(`[normalize] 失败：${res.errors.length} 条错误，无有效 items`); res.errors.slice(0, 20).forEach((e) => console.error('  ✗', e.where, e.message)); process.exit(1) }
   writeFileSync(out, JSON.stringify(res.pack, null, 2) + '\n')
-  console.log(`[normalize] ${files.length} 文件 → ${res.pack.items.length} items（kind=${res.pack.kind}），errors=${res.errors.length} skipped=${res.skipped.length}`)
+  console.log(`[normalize] ${files.length} 文件 → ${res.pack.items.length} items（kind=${res.pack.kind}），errors=${res.errors.length} skipped=${res.skipped.length} warnings=${res.warnings?.length ?? 0}`)
   console.log(`[normalize] 写出 ${out}`)
   console.log(`[normalize] checksum=${res.pack.checksum.slice(0, 16)}…`)
   if (res.errors.length) res.errors.slice(0, 10).forEach((e) => console.log('  ⚠', e.where, e.message))
+  if (res.warnings?.length) res.warnings.slice(0, 10).forEach((w) => console.log('  ⚠', w))
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch((e) => { console.error('[fatal]', e.message); process.exit(1) })
