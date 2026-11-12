@@ -112,6 +112,8 @@ export const packMetaSchema = z
     scope: z.unknown().optional(),
     createdBy: z.string().optional(),
     licenseNote: z.string().optional(),
+    /** task-90：pack 目标词库 id（多词库同 headword 时优先在该 deck 解析） */
+    deckId: z.string().optional(),
     checksumAlgo: z.enum(['sha256', 'fnv1a64']).optional(),
   })
   .optional()
@@ -293,6 +295,8 @@ export interface PackRecord {
   model?: string
   promptVersion?: string
   scope?: unknown
+  /** task-90：pack 目标词库 id（来自 meta.deckId；重应用时优先用） */
+  deckId?: string
   status: PackStatus
   counts: PackCounts
   createdAt: number
@@ -342,6 +346,8 @@ export interface SkipRecord {
   reason: SkipReason
   detail?: string
   itemId?: string
+  /** 内部：被跳过条目的原始 payload（import 时持久化为 skipped，供 reapplyPack 重试） */
+  item?: PackItemV1
 }
 
 export interface ResolvedItem {

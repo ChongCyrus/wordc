@@ -11,7 +11,8 @@
  * 去重/上限：examples 8、phrases 8、mnemonics 4（含义级 examples 4 由 App 合并时再限）
  *
  * 用法：node tools/normalize-external-pack.mjs --kind semantics --out /tmp/x.pack.json \
- *   /tmp/part-001.jsonl /tmp/part-002.jsonl
+ *   --deck kaoyan-hongbaoshu-2025 /tmp/part-001.jsonl /tmp/part-002.jsonl
+ *   （--deck 写入 meta.deckId：多词库同 headword 时 App 优先在该词库解析，task-90）
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -187,6 +188,7 @@ export function buildPackFromEntries(inputs, opts = {}) {
     meta: {
       name: opts.name ?? '外部生成内容包', source: 'import', provider: opts.provider ?? 'external',
       ...(opts.model ? { model: opts.model } : {}), ...(opts.promptVersion ? { promptVersion: opts.promptVersion } : {}),
+      ...(opts.deckId ? { deckId: opts.deckId } : {}),
       createdBy: 'WordC', checksumAlgo: 'sha256',
       stats: { words: new Set(items.map((i) => i.headwordLower)).size, items: items.length, errors: errors.length, skipped: skipped.length },
     },
@@ -200,9 +202,9 @@ async function main() {
   const arg = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def }
   const out = resolve(arg('--out', '/tmp/external.pack.json'))
   const inArg = String(arg('--in', '')).split(',').map((s) => s.trim()).filter(Boolean)
-  const opts = { kind: arg('--kind', ''), name: arg('--name', ''), provider: arg('--provider', 'external'), model: arg('--model', ''), promptVersion: arg('--prompt-version', '') }
+  const opts = { kind: arg('--kind', ''), name: arg('--name', ''), provider: arg('--provider', 'external'), model: arg('--model', ''), promptVersion: arg('--prompt-version', ''), deckId: arg('--deck', '') }
   // 位置参数；正确跳过带值 option 的值，避免把 --out 的值当输入文件
-  const VALUE_FLAGS = new Set(['--out', '--in', '--kind', '--name', '--provider', '--model', '--prompt-version'])
+  const VALUE_FLAGS = new Set(['--out', '--in', '--kind', '--name', '--provider', '--model', '--prompt-version', '--deck'])
   const positional = []
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i]

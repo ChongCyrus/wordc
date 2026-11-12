@@ -121,12 +121,14 @@ describe('导入 → 审核 → 应用 (AC2/AC3/AC4/AC5/AC10)', () => {
     const after = (await db.words.get(`${deck.id}:abdomen`))!
     expect(after.examples.map((example) => example.en)).toEqual(['Existing example.', 'He felt pain in his lower abdomen.'])
 
-    // 重复导入同一 pack：contentHash 已存在 → skipped:duplicate，不建空包
+    // task-92：重复导入同一 pack → 按 checksum 复用已有 pack（不再新建/不产生重复）
+    const packsBefore = await db.packs.count()
     const again = await importPack(JSON.stringify(file))
     expect(again.ok).toBe(true)
-    expect(again.preview.counts.matched).toBe(0)
-    expect(again.preview.skipped.some((skip) => skip.reason === 'duplicate')).toBe(true)
-    expect(again.packId).toBeUndefined()
+    expect(again.reused).toBe(true)
+    expect(again.packId).toBe(packId)
+    expect(again.issues.some((issue) => issue.code === 'E_DUP')).toBe(true)
+    expect(await db.packs.count()).toBe(packsBefore)
 
     // 重复 apply 不会重复写
     const reapply = await applyApproved(packId)
@@ -144,7 +146,10 @@ describe('导入 → 审核 → 应用 (AC2/AC3/AC4/AC5/AC10)', () => {
     expect(imported.ok).toBe(true)
     expect(imported.preview.counts.matched).toBe(0)
     expect(imported.preview.skipped.map((skip) => skip.reason).sort()).toEqual(['unknown-meaning', 'unknown-word'])
-    expect(imported.packId).toBeUndefined()
+    // task-90：unknown-* 条目现在会落库为 skipped（供 reapplyPack 重试），但仍不写词条
+    expect(imported.packId).toBeDefined()
+    const importedItems = await listPackItems(imported.packId!)
+    expect(importedItems.map((item) => item.status)).toEqual(['skipped', 'skipped'])
     const word = await getDb().words.get(`${deck.id}:abdomen`)
     expect(word!.examples).toHaveLength(0)
   })
@@ -185,7 +190,10 @@ describe('导入 → 审核 → 应用 (AC2/AC3/AC4/AC5/AC10)', () => {
     await rejectItems(imported.packId!, [pending[0]!.id])
     expect((await getPackStats()).rejects).toBeGreaterThan(0)
 
+    // 删除该 pack 后重新导入（无同 checksum 可复用）→ 拒绝记忆生效
+    await deletePack(imported.packId!)
     const again = await importPack(JSON.stringify(file))
+    expect(again.reused).toBeFalsy()
     expect(again.preview.matched).toHaveLength(0)
     expect(again.preview.skipped.some((skip) => skip.reason === 'rejected')).toBe(true)
 

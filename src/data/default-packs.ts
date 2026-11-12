@@ -19,7 +19,10 @@ import {
   approveItems,
   importContentPack,
   listPackItems,
+  listPacks,
+  reapplyPack,
 } from './packs.repo'
+import type { ReapplyProgress } from './packs.repo'
 
 export const DEFAULT_PACKS_META_KEY = 'packs.defaultSeeded'
 /** 内置包集合版本：pack 内容/清单变化时 +1，触发重新导入检查（task-88：+私版清单后升到 2） */
@@ -104,6 +107,15 @@ export interface EnsureDefaultPacksOptions {
   baseUrl?: string
   /** 是否含私版受限商业词表包（默认读 `VITE_PRIVATE_PACKS`；测试可显式传） */
   includePrivate?: boolean
+  /** 进度回调（导入/补审/重应用；供 UI 进度条） */
+  onProgress?: (progress: {
+    path: string
+    phase: 'import' | 'approve' | 'apply' | ReapplyProgress['phase']
+    done: number
+    total: number
+    retried?: number
+    applied?: number
+  }) => void
 }
 
 function resolveBaseUrl(baseUrl?: string): string {
@@ -185,15 +197,57 @@ export async function ensureDefaultContentPacks(
         issues.push(...imported.issues)
         continue
       }
+      opts.onProgress?.({ path: entry.path, phase: 'import', done: 1, total: 1 })
+      if (imported.packId && imported.reused) {
+        // task-92：同 checksum 已存在 → 不重复导入，只补审 pending + 重应用 skipped
+        const items = await listPackItems(imported.packId)
+        const pendingIds = items.filter((item) => item.status === 'pending').map((item) => item.id)
+        if (pendingIds.length > 0) await approveItems(imported.packId, pendingIds)
+        opts.onProgress?.({ path: entry.path, phase: 'approve', done: 1, total: 1 })
+        const reapplied = await reapplyPack(imported.packId, {
+          ...(imported.deckId ? { deckId: imported.deckId } : {}),
+          onProgress: (progress) =>
+            opts.onProgress?.({
+              path: entry.path,
+              phase: progress.phase,
+              done: progress.done,
+              total: progress.total,
+              retried: progress.retried,
+            }),
+        })
+        appliedTotal += reapplied.applied
+        packs.push({
+          id: entry.id,
+          path: entry.path,
+          status: reapplied.applied > 0 ? 'imported' : 'skipped',
+          imported: 0,
+          applied: reapplied.applied,
+        })
+        continue
+      }
       if (!imported.packId) {
-        // 内容已存在（幂等重试/重复启动）→ 视为成功跳过
-        packs.push({ id: entry.id, path: entry.path, status: 'skipped' })
+        // 内容已存在（幂等重试/重复启动）。
+        // task-90：若旧 pack 因 deck 解析错误留下 skipped 条目，force/修复后自动 reapply。
+        let retriedApplied = 0
+        if (imported.checksum) {
+          const existing = (await listPacks()).find((pack) => pack.checksum === imported.checksum)
+          if (existing) {
+            const reapplied = await reapplyPack(existing.id, {
+              ...(existing.deckId ? { deckId: existing.deckId } : {}),
+            })
+            retriedApplied = reapplied.applied
+            if (retriedApplied > 0) appliedTotal += retriedApplied
+          }
+        }
+        packs.push({ id: entry.id, path: entry.path, status: 'skipped', applied: retriedApplied })
         continue
       }
       const items = await listPackItems(imported.packId)
       const pendingIds = items.filter((item) => item.status === 'pending').map((item) => item.id)
       if (pendingIds.length > 0) await approveItems(imported.packId, pendingIds)
+      opts.onProgress?.({ path: entry.path, phase: 'approve', done: 1, total: 1 })
       const applied = await applyApproved(imported.packId)
+      opts.onProgress?.({ path: entry.path, phase: 'apply', done: 1, total: 1, applied: applied.applied })
       importedTotal += imported.preview.counts.matched
       appliedTotal += applied.applied
       packs.push({ id: entry.id, path: entry.path, status: 'imported', imported: imported.preview.counts.matched, applied: applied.applied })

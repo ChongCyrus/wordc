@@ -93,7 +93,9 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --no-frozen-lockfile
-      - name: Unit tests (data)
+      - name: Unit tests (data + 真 packs 集成)
+        env:
+          REAL_PACKS_TEST: '1'
         run: |
           set -o pipefail
           mkdir -p ci-logs

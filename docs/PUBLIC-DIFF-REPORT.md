@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T01:13:12.723Z
+- 生成时间：2026-11-12T02:45:24.309Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**302**；修改 **69**；新增 **5**；私有仓未进入公开树 **1686**
+- 公开文件：**304**；修改 **71**；新增 **5**；私有仓未进入公开树 **1689**
 
 ## 结论
 
@@ -64,11 +64,13 @@
 | `tests/core/schedule.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/api/maimemo-real-data.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/builtin.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `tests/data/content-pack-deck.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/default-packs.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/import-export.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/new-word-order.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/phrase-meanings.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/data/plans.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `tests/data/real-packs.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/algo-independent.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/data-robustness.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/demo-public.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
@@ -91,6 +93,7 @@
 
 ## 未进入公开树的私有文件（按目录汇总）
 
+- `.github/workflows`
 - `.secrets/apk-keystore-pass`
 - `.secrets/apk-release.jks`
 - `.secrets/bailian-key`
@@ -125,6 +128,7 @@
 - `docs/QA-AUDIT-v2.md`
 - `docs/QA-v2.md`
 - `docs/QA.md`
+- `docs/RESOURCE-POLICY.md`
 - `docs/RUN.md`
 - `docs/SPEC-CONTENT-PACKS.md`
 - `docs/assets`

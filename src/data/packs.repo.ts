@@ -211,7 +211,10 @@ export async function parsePackFile(input: string | Blob): Promise<ParseResult<P
 // ============ 目标解析（headwordLower + meaningIndex → word/meaning） ============
 
 interface ResolveOptions {
+  /** UI 指定的当前词库（fallback） */
   deckId?: string
+  /** task-90：pack.meta.deckId —— 有则**优先只在该 deck 解析**，找不到且 resolveAllDecks 才回退 */
+  packDeckId?: string
   resolveAllDecks?: boolean
 }
 
@@ -225,12 +228,31 @@ async function resolveItem(
   const settings = await getSettings()
   const deckId = opts.deckId ?? settings['data.selectedDeckId']
   const candidates = await db.words.where('headwordLower').equals(lower).toArray()
-  const inDeck = opts.resolveAllDecks ? candidates : candidates.filter((word) => word.deckId === deckId)
-  const word = inDeck[0] ?? (opts.resolveAllDecks ? candidates[0] : undefined)
+  const meaningFits = (candidate: Word): boolean =>
+    item.meaningIndex == null || Boolean(candidate.meanings[item.meaningIndex - 1])
+  let word: Word | undefined
+  if (opts.packDeckId) {
+    // task-90：pack 明确声明目标词库 → 优先只在该 deck 找（同 deck 内优先能匹配 meaningIndex 的）
+    const inPackDeck = candidates.filter((candidate) => candidate.deckId === opts.packDeckId)
+    word = inPackDeck.find(meaningFits) ?? inPackDeck[0]
+    if (!word && opts.resolveAllDecks) {
+      // 找不到才回退：优先能匹配 meaningIndex 的任意词（避免回退到大纲少义项词再 skipped）
+      word = candidates.find(meaningFits) ?? candidates[0]
+    }
+  } else {
+    const inDeck = opts.resolveAllDecks ? candidates : candidates.filter((candidate) => candidate.deckId === deckId)
+    word = inDeck.find(meaningFits) ?? inDeck[0] ?? (opts.resolveAllDecks ? (candidates.find(meaningFits) ?? candidates[0]) : undefined)
+  }
   if (!word) {
     return {
       ok: false,
-      skip: { headwordLower: lower, meaningIndex: item.meaningIndex, reason: 'unknown-word', detail: item.headword },
+      skip: {
+        headwordLower: lower,
+        meaningIndex: item.meaningIndex,
+        reason: 'unknown-word',
+        detail: item.headword,
+        item,
+      },
     }
   }
   if (item.meaningIndex != null) {
@@ -242,6 +264,7 @@ async function resolveItem(
           meaningIndex: item.meaningIndex,
           reason: 'unknown-meaning',
           detail: `${word.headword} 只有 ${word.meanings.length} 个含义`,
+          item,
         },
       }
     }
@@ -265,8 +288,9 @@ export async function previewPack(
 ): Promise<PackPreview> {
   const matched: ResolvedItem[] = []
   const skipped: SkipRecord[] = []
+  const resolveOpts: ResolveOptions = { ...opts, ...(file.meta?.deckId ? { packDeckId: file.meta.deckId } : {}) }
   for (const [index, item] of file.items.entries()) {
-    const result = await resolveItem(item, index, opts)
+    const result = await resolveItem(item, index, resolveOpts)
     if (result.ok) matched.push(result.resolved)
     else skipped.push(result.skip)
   }
@@ -282,6 +306,11 @@ export async function previewPack(
 export interface ImportPackResult {
   ok: boolean
   packId?: string
+  /** task-90：文件校验和/目标 deck（用于「已存在时找到旧 pack 做 reapply」） */
+  checksum?: string
+  deckId?: string
+  /** task-92：命中已有同 checksum 的 pack（未重复导入），可直接补审/重应用 */
+  reused?: boolean
   preview: PackPreview
   issues: ImportIssue[]
 }
@@ -297,6 +326,36 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
   }
   const file = parsed.value
   const db = getDb()
+  // task-92：同 checksum 的 pack 已存在 → 不再重复导入（避免 force seed/重复点击产生重复 pack）。
+  // 若文件新增了 meta.deckId（修复包），顺手更新到已有 pack 记录上，随后由 reapplyPack 修复 skipped。
+  const existingPack = (await db.packs.toArray()).find((pack) => pack.checksum === file.checksum)
+  if (existingPack) {
+    const nextDeckId = file.meta?.deckId ?? existingPack.deckId
+    if (nextDeckId && nextDeckId !== existingPack.deckId) {
+      await db.packs.update(existingPack.id, { deckId: nextDeckId, updatedAt: Date.now() })
+    }
+    return {
+      ok: true,
+      packId: existingPack.id,
+      checksum: file.checksum,
+      ...(nextDeckId ? { deckId: nextDeckId } : {}),
+      reused: true,
+      preview: {
+        matched: [],
+        skipped: [],
+        counts: { total: file.items.length, matched: 0, skipped: file.items.length },
+      },
+      issues: [
+        ...parsed.issues,
+        {
+          level: 'warning',
+          code: 'E_DUP',
+          message: '该内容包已存在（未重复导入）；如需修复旧条目请使用「重新应用」',
+          path: 'checksum',
+        },
+      ],
+    }
+  }
   const preview = await previewPack(file, opts)
   const existingItems = await db.packItems
     .where('status')
@@ -350,19 +409,40 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
     })
     matched.push(resolved)
   }
+  // task-90：unknown-* 的条目也要落库为 skipped（供 reapplyPack 修复后重试；UI 也能看到跳过原因）
+  for (const skip of skipped) {
+    if (!skip.item) continue
+    if (skip.reason !== 'unknown-word' && skip.reason !== 'unknown-meaning') continue
+    seq += 1
+    itemRecords.push({
+      id: `${packId}:${seq}`,
+      packId,
+      seq,
+      headword: skip.item.headword,
+      headwordLower: skip.item.headwordLower || normalizeHeadword(skip.item.headword),
+      ...(skip.item.meaningIndex != null ? { meaningIndex: skip.item.meaningIndex } : {}),
+      payload: skip.item,
+      status: 'skipped',
+      skipReason: skip.reason,
+      contentHashes: itemContentHashes(skip.item),
+      createdAt: now,
+    })
+  }
 
   if (itemRecords.length === 0) {
     // 全部被跳过（未知词/重复/已拒绝）→ 不建空包，只返回预览报告
     return {
       ok: true,
+      checksum: file.checksum,
+      ...(file.meta?.deckId ? { deckId: file.meta.deckId } : {}),
+      reused: false,
       preview: { matched, skipped, counts: { total: file.items.length, matched: 0, skipped: skipped.length } },
       issues: parsed.issues,
     }
   }
   const counts = emptyCounts()
   counts.items = itemRecords.length
-  counts.pending = itemRecords.length
-  counts.skipped = skipped.length
+  for (const record of itemRecords) counts[record.status] += 1
   const pack: PackRecord = {
     id: packId,
     name: file.meta?.name ?? `内容包 ${new Date(now).toLocaleString('zh-CN')}`,
@@ -374,6 +454,7 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
     ...(file.meta?.model ? { model: file.meta.model } : {}),
     ...(file.meta?.promptVersion ? { promptVersion: file.meta.promptVersion } : {}),
     ...(file.meta?.scope !== undefined ? { scope: file.meta.scope } : {}),
+    ...(file.meta?.deckId ? { deckId: file.meta.deckId } : {}),
     status: itemRecords.length > 0 ? 'reviewing' : 'empty',
     counts,
     createdAt: now,
@@ -386,6 +467,9 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
   return {
     ok: true,
     packId,
+    checksum: file.checksum,
+    ...(file.meta?.deckId ? { deckId: file.meta.deckId } : {}),
+    reused: false,
     preview: { matched, skipped, counts: { total: file.items.length, matched: matched.length, skipped: skipped.length } },
     issues: parsed.issues,
   }
@@ -474,14 +558,24 @@ export interface ApplyResult {
 }
 
 /** 应用某 pack 的全部 approved 条目（单事务；幂等：已存在内容不重复追加） */
-export async function applyApproved(packId: string): Promise<ApplyResult> {
+export async function applyApproved(
+  packId: string,
+  opts: { retrySkipped?: boolean } = {},
+): Promise<ApplyResult> {
   const db = getDb()
   const now = Date.now()
   return db.transaction(
     'rw',
     [db.words, db.packItems, db.packs, db.contentRejects],
     async () => {
-      const items = await db.packItems.where('[packId+status]').equals([packId, 'approved']).toArray()
+      const items = opts.retrySkipped
+        ? (await db.packItems.where('packId').equals(packId).toArray()).filter(
+            (item) =>
+              item.status === 'approved' ||
+              (item.status === 'skipped' &&
+                (item.skipReason === 'unknown-word' || item.skipReason === 'unknown-meaning')),
+          )
+        : await db.packItems.where('[packId+status]').equals([packId, 'approved']).toArray()
       let applied = 0
       let skipped = 0
       const skippedDetails: SkipRecord[] = []
@@ -562,6 +656,121 @@ export async function applyApproved(packId: string): Promise<ApplyResult> {
       return { applied, skipped, packStatus: pack?.status ?? 'empty', skippedDetails }
     },
   )
+}
+
+/**
+ * task-90：修复 deck 解析后**重新应用旧 pack**（把 `skipped:unknown-word/unknown-meaning` 重置为 approved 并重试）。
+ * - 可按 opts.deckId 覆盖 pack.deckId（旧 pack 没有 meta.deckId 时，UI 可让用户指定词库）；
+ * - 重新解析 headwordLower → 正确 deck 的 wordId/meaningId，再走 apply 事务；幂等。
+ */
+export interface ReapplyProgress {
+  phase: 'resolve' | 'apply'
+  done: number
+  total: number
+  retried: number
+}
+
+export interface ReapplyOptions {
+  deckId?: string
+  /** 每批处理条数（默认 200；大批量时避免单事务过久） */
+  batchSize?: number
+  /** 进度回调（每批/应用完成后；供 UI 进度条） */
+  onProgress?: (progress: ReapplyProgress) => void
+}
+
+/**
+ * task-90/92：修复 deck 解析后**重新应用旧 pack**。
+ * - **只处理 `status==='skipped'` 且 skipReason 为 unknown-word/unknown-meaning** 的条目；
+ * - 分批事务（默认 200/批）+ 进度回调；不会触碰已 applied/pending 条目；
+ * - 全部解析完后统一 apply（幂等）。
+ */
+export async function reapplyPack(
+  packId: string,
+  opts: ReapplyOptions = {},
+): Promise<ApplyResult & { retried: number }> {
+  const db = getDb()
+  const pack = await db.packs.get(packId)
+  if (!pack) throw new Error(`内容包不存在：${packId}`)
+  const targetDeckId = opts.deckId ?? pack.deckId
+  const batchSize = Math.max(10, Math.min(1000, Math.floor(opts.batchSize ?? 200)))
+  // 只查 skipped（[packId+status] 索引）；不加载 applied/pending
+  const skipped = (await db.packItems.where('[packId+status]').equals([packId, 'skipped']).toArray()).filter(
+    (item) => item.skipReason === 'unknown-word' || item.skipReason === 'unknown-meaning',
+  )
+  const total = skipped.length
+  let retried = 0
+  opts.onProgress?.({ phase: 'resolve', done: 0, total, retried })
+
+  for (let offset = 0; offset < skipped.length; offset += batchSize) {
+    const batch = skipped.slice(offset, offset + batchSize)
+    await db.transaction('rw', [db.packItems, db.words, db.settings], async () => {
+      const updates: PackItemRecord[] = []
+      for (const item of batch) {
+        const resolved = await resolveItem(item.payload, item.seq, {
+          resolveAllDecks: true,
+          ...(targetDeckId ? { packDeckId: targetDeckId } : {}),
+        })
+        if (!resolved.ok) continue
+        updates.push({
+          ...item,
+          status: 'approved',
+          wordId: resolved.resolved.wordId,
+          ...(resolved.resolved.meaningId ? { meaningId: resolved.resolved.meaningId } : {}),
+          deckId: resolved.resolved.deckId,
+          skipReason: undefined,
+        })
+        retried += 1
+      }
+      if (updates.length > 0) await db.packItems.bulkPut(updates)
+    })
+    opts.onProgress?.({ phase: 'resolve', done: Math.min(offset + batchSize, total), total, retried })
+  }
+
+  const applied = await applyApproved(packId, { retrySkipped: true })
+  opts.onProgress?.({ phase: 'apply', done: total, total, retried })
+  return { ...applied, retried }
+}
+
+/** task-92：清理重复内容包（按 checksum 分组；保留「已应用最多 → 最早创建」的一份） */
+export interface DedupePacksResult {
+  removed: number
+  kept: number
+  packs: Array<{ checksum: string; keptPackId: string; removedPackIds: string[] }>
+}
+
+export async function dedupePacks(): Promise<DedupePacksResult> {
+  const db = getDb()
+  const packs = await db.packs.toArray()
+  const groups = new Map<string, PackRecord[]>()
+  for (const pack of packs) {
+    const list = groups.get(pack.checksum) ?? []
+    list.push(pack)
+    groups.set(pack.checksum, list)
+  }
+  const result: DedupePacksResult = { removed: 0, kept: 0, packs: [] }
+  const removableIds: string[] = []
+  for (const [checksum, group] of groups) {
+    if (group.length <= 1) continue
+    const stats = await Promise.all(
+      group.map(async (pack) => ({
+        pack,
+        applied: await db.packItems.where('[packId+status]').equals([pack.id, 'applied']).count(),
+      })),
+    )
+    stats.sort((a, b) => {
+      if (b.applied !== a.applied) return b.applied - a.applied
+      if (a.pack.createdAt !== b.pack.createdAt) return a.pack.createdAt - b.pack.createdAt
+      return a.pack.id < b.pack.id ? -1 : 1
+    })
+    const keptPack = stats[0]!.pack
+    const removedPacks = stats.slice(1).map((stat) => stat.pack)
+    removableIds.push(...removedPacks.map((pack) => pack.id))
+    result.packs.push({ checksum, keptPackId: keptPack.id, removedPackIds: removedPacks.map((pack) => pack.id) })
+  }
+  // task-94：一次性批量删除（单事务，不再每个重复包各开事务）
+  if (removableIds.length > 0) result.removed = (await deletePacks(removableIds)).removed
+  result.kept = packs.length - result.removed
+  return result
 }
 
 /** 重新统计 pack 状态/计数（在事务内调用） */
@@ -659,44 +868,80 @@ export async function getPackStats(): Promise<PackStats> {
 }
 
 /** 删除 pack（默认保留已落库内容；removeAppliedContent=true 时按 appliedContent 精确移除） */
-export async function deletePack(packId: string, opts: { removeAppliedContent?: boolean } = {}): Promise<void> {
+/**
+ * task-94：批量删除内容包。
+ * - 默认（removeAppliedContent=false）**不读取 packItems**：直接按 packId 索引删除 + 删 pack 记录；
+ * - removeAppliedContent=true 时只读 applied 条目，按批（默认 300 条）更新 Word（多包引用同一内容则保留）；
+ * - 不影响其它包/未由该包落库的词库内容。
+ */
+export async function deletePacks(
+  packIds: string[],
+  opts: { removeAppliedContent?: boolean } = {},
+): Promise<{ removed: number }> {
   const db = getDb()
-  await db.transaction('rw', [db.packs, db.packItems, db.words], async () => {
-    const items = await db.packItems.where('packId').equals(packId).toArray()
-    if (opts.removeAppliedContent) {
-      const applied = items.filter((item) => item.status === 'applied' && item.appliedContent && item.wordId)
-      // 其它已应用条目引用的内容不删（多包可能贡献同一内容）
-      const allApplied = (await db.packItems.where('status').equals('applied').toArray()).filter(
-        (item) => item.packId !== packId,
-      )
-      const keep = new Set(allApplied.flatMap((item) => item.contentHashes))
-      for (const item of applied) {
-        const word = await db.words.get(item.wordId!)
-        if (!word) continue
-        const removed = item.appliedContent!
-        const next = {
-          ...word,
-          examples: word.examples.filter((example) => {
-            const hash = contentHash('examples', word.headwordLower, undefined, example.en)
-            return !removed.examples.some((en) => normalizeEn(en) === normalizeEn(example.en)) || keep.has(hash)
-          }),
-          phrases: word.phrases.filter((phrase) => {
-            const idx = phrase.meaningId ? Number(phrase.meaningId.split('#M')[1]) : undefined
-            const hash = contentHash('phrases', word.headwordLower, idx, phrase.en)
-            return !removed.phrases.some((en) => normalizeEn(en) === normalizeEn(phrase.en)) || keep.has(hash)
-          }),
-          mnemonics: word.mnemonics.filter((mnemonic) => {
-            const key = mnemonicKey({ type: mnemonic.type, text: mnemonic.text })
-            const hash = contentHash('mnemonics', word.headwordLower, undefined, key)
-            return !removed.mnemonics.some((m) => mnemonicKey(m) === key) || keep.has(hash)
-          }),
-        }
-        await db.words.put(next)
+  const ids = [...new Set(packIds)]
+  if (ids.length === 0) return { removed: 0 }
+
+  if (!opts.removeAppliedContent) {
+    // 快路径：无需 toArray 全部条目（大包也不会占内存）
+    await db.transaction('rw', [db.packs, db.packItems], async () => {
+      for (const id of ids) {
+        await db.packItems.where('packId').equals(id).delete()
+        await db.packs.delete(id)
       }
+    })
+    return { removed: ids.length }
+  }
+
+  return db.transaction('rw', [db.packs, db.packItems, db.words], async () => {
+    const idSet = new Set(ids)
+    // 仅此路径需要读取 applied 条目（仍只读 applied，不读 pending/skipped 全量）
+    const allApplied = await db.packItems.where('status').equals('applied').toArray()
+    const keepHashes = new Set(
+      allApplied.filter((item) => !idSet.has(item.packId)).flatMap((item) => item.contentHashes),
+    )
+    const CHUNK = 300
+    for (const id of ids) {
+      const applied = allApplied.filter(
+        (item) => item.packId === id && item.wordId && item.appliedContent,
+      )
+      const pendingWords = new Map<string, Word>()
+      for (let offset = 0; offset < applied.length; offset += CHUNK) {
+        const chunk = applied.slice(offset, offset + CHUNK)
+        for (const item of chunk) {
+          const word = pendingWords.get(item.wordId!) ?? (await db.words.get(item.wordId!))
+          if (!word) continue
+          const removed = item.appliedContent!
+          pendingWords.set(item.wordId!, {
+            ...word,
+            examples: word.examples.filter((example) => {
+              const hash = contentHash('examples', word.headwordLower, undefined, example.en)
+              return !removed.examples.some((en) => normalizeEn(en) === normalizeEn(example.en)) || keepHashes.has(hash)
+            }),
+            phrases: word.phrases.filter((phrase) => {
+              const idx = phrase.meaningId ? Number(phrase.meaningId.split('#M')[1]) : undefined
+              const hash = contentHash('phrases', word.headwordLower, idx, phrase.en)
+              return !removed.phrases.some((en) => normalizeEn(en) === normalizeEn(phrase.en)) || keepHashes.has(hash)
+            }),
+            mnemonics: word.mnemonics.filter((mnemonic) => {
+              const key = mnemonicKey({ type: mnemonic.type, text: mnemonic.text })
+              const hash = contentHash('mnemonics', word.headwordLower, undefined, key)
+              return !removed.mnemonics.some((m) => mnemonicKey(m) === key) || keepHashes.has(hash)
+            }),
+          })
+        }
+      }
+      if (pendingWords.size > 0) await db.words.bulkPut([...pendingWords.values()])
+      await db.packItems.where('packId').equals(id).delete()
+      await db.packs.delete(id)
     }
-    await db.packItems.where('packId').equals(packId).delete()
-    await db.packs.delete(packId)
+    return { removed: ids.length }
   })
+}
+
+/** 删除单个内容包（默认保留已落库内容；removeAppliedContent=true 时按 appliedContent 精确移除） */
+export async function deletePack(packId: string, opts: { removeAppliedContent?: boolean } = {}): Promise<void> {
+  await deletePacks([packId], opts)
 }
 
 // ============ 有效内容查询 ============

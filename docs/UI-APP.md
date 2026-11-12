@@ -180,7 +180,10 @@
 - 设置页「内容包」区新增「内容包管理」：列出已导入 packs（名称/kind/条目数/已应用/来源），支持单个「导出」为 `.pack.json`（`exportPack` + `saveBlobFile`，APK 走桥接保存）、「导出全部」（逐个导出并汇总成功/失败）、「删除」（危险确认；已应用内容默认保留）。
 - 空态显示「还没有导入过内容包」；导出文件名 `名称-日期.pack.json`（非法字符替换）。
 - 验收：导入一个 pack → 列表出现条目 → 导出文件可再导入（往返一致）→ 删除后列表消失；空列表显示空态。
-- 测试：`tests/ui/content-pack-manager.test.ts`（3）。
+- **task-91（骨架）**：「重新检查内置内容」按钮（`ensureDefaultContentPacks({force:true})` + loading「正在重新应用内置内容…」/结果 toast）；pack 行 subtitle = `kind · 已应用 N / 总 M · 来源 source`，N<M 时显示「重新应用」入口（`reapplyPack` 就绪后注入 `onReapply`）。
+- **task-91**：每行 subtitle `kind · 已应用 N / 总 M · 来源 source`；N<M 显示「重新应用」（`reapplyPack`，成功 toast「已重新应用「名称」：应用 N 条，跳过 M 条」）；「重新检查内置内容」force seed 后对未完整应用的旧 packs 逐个 `reapplyPack`，toast 汇总应用/跳过条数。
+- **task-93**：「重新检查内置内容」运行中按钮禁用 + 分阶段进度（`ensureDefaultContentPacks({force,onProgress})` / `reapplyPack({batchSize,onProgress})` 显示 phase done/total）；重复 pack 警告 +「清理重复内容包」→ 确认框（只删重复记录、已应用内容保留）→ `dedupePacks()` → toast「已清理 N 个重复内容包（保留 M 个）」并自动刷新列表；列表按 createdAt 稳定倒序、每行「已应用 N / 总 M」。
+- 测试：`tests/ui/content-pack-manager.test.ts`（5，含重复检测）。
 
 ## 2.6 AI 扩充（task-71，可选）
 

@@ -271,6 +271,45 @@ describe('task-87：内置内容包首次启动自动导入', () => {
     expect(await getDb().meta.get(DEFAULT_PACKS_META_KEY)).toBeUndefined()
   })
 
+  it('reapplyPack 可修复 skipped(unknown-meaning) 条目（default pack 场景，task-90）', async () => {
+    const deck = await setupDeck()
+    const bodies = await makeBodies()
+    const calls: string[] = []
+    const first = await ensureDefaultContentPacks({ fetchImpl: mockFetch(bodies, calls) })
+    expect(first.ok).toBe(true)
+
+    const db = getDb()
+    const semanticsPack = (await db.packs.toArray()).find((pack) => pack.kind === 'semantics')!
+    const items = await db.packItems.where('packId').equals(semanticsPack.id).toArray()
+    expect(items.length).toBeGreaterThan(0)
+    await db.packItems.update(items[0]!.id, { status: 'skipped', skipReason: 'unknown-meaning' })
+
+    const { reapplyPack } = await import('../../src/data')
+    const repaired = await reapplyPack(semanticsPack.id, { deckId: deck.id })
+    expect(repaired.retried).toBeGreaterThanOrEqual(1)
+    expect(repaired.applied).toBeGreaterThanOrEqual(1)
+    expect((await db.packItems.get(items[0]!.id))!.status).toBe('applied')
+  })
+
+  it('force 两次：按 checksum 复用已有 pack，不产生重复包', async () => {
+    await setupDeck()
+    const bodies = await makeBodies()
+    const calls: string[] = []
+    await ensureDefaultContentPacks({ fetchImpl: mockFetch(bodies, calls) })
+    const db = getDb()
+    const packsBefore = await db.packs.count()
+    const checksumsBefore = (await db.packs.toArray()).map((pack) => pack.checksum)
+    expect(new Set(checksumsBefore).size).toBe(packsBefore) // 首次无重复
+
+    const second = await ensureDefaultContentPacks({ force: true, fetchImpl: mockFetch(bodies, calls) })
+    expect(second.ok).toBe(true)
+    const packsAfter = await db.packs.count()
+    expect(packsAfter).toBe(packsBefore) // task-92：不新增重复包
+    const checksumsAfter = (await db.packs.toArray()).map((pack) => pack.checksum)
+    expect(new Set(checksumsAfter).size).toBe(packsAfter)
+    expect(second.packs.every((pack) => pack.status === 'skipped' || pack.status === 'imported')).toBe(true)
+  })
+
   it('checksum 被篡改：该包 failed，不写标记', async () => {
     await setupDeck()
     const bodies = await makeBodies()
