@@ -182,11 +182,11 @@
 - 内容包 name/subtitle 同样换行显示；窄屏 360px 与深色模式沿用 tokens。
 - 验收：设置页「减少动效」等长副标题完整可见；内容包名称/说明不出现省略号；按钮不溢出。
 
-## 2.6.2 AI 分片/断点续跑（task-106，骨架）
+## 2.6.2 AI 分片/断点续跑（task-106）
 
 - 常量/文案：本次生成上限 50/100/500/全部；「生成一片先停」「继续上次生成（X/Y）」「放弃草稿」（二次确认）；「已生成 X / 总 Y（草稿已保存）」。
 - 纯函数：`batchSizeForLimit` / `formatDraftProgress` / `draftResumeMessage` / `isDraftComplete`（`src/app/hooks/aiDraft.ts`）。
-- 待 dev-data draft API（create/append/updateCursor/get/list/clear，draft=pack status 'reviewing'+meta.draft）后接面板：分片追加、取消保留、失败重试本片、逐片/合并审核、应用成功清 draft。
+- 已接 draft API：开始生成创建草稿；每片 `appendGenerationDraftItems` + `updateGenerationDraftCursor`，顶部「已生成 X / 总 Y（草稿已保存）」；「本次生成上限」50/100/500/全部 + 「生成一片先停」；重新打开面板 `listGenerationDrafts` 提示「继续上次生成（X/Y）」/「放弃草稿」（二次确认 `clearGenerationDraft`）；取消保留草稿；应用成功清草稿。逐片/合并审核沿用现有审核对话框（只应用 ✓ 条目）。
 
 ## 2.6.1 内容包管理（task-86）
 
