@@ -297,6 +297,8 @@ export interface PackRecord {
   scope?: unknown
   /** task-90：pack 目标词库 id（来自 meta.deckId；重应用时优先用） */
   deckId?: string
+  /** task-114：内置包条目 id（seed 追新版用；手工导入无此字段） */
+  builtinId?: string
   status: PackStatus
   /** task-106：AI 生成草稿元数据（仅草稿 pack 有；不参与已应用内容） */
   draft?: unknown

@@ -21,13 +21,24 @@ import {
   listPackItems,
   listPacks,
   pruneLegacySemanticsPacks,
+  pruneSupersededBuiltinSemanticsPacks,
   reapplyPack,
 } from './packs.repo'
 import type { ReapplyProgress } from './packs.repo'
 
 export const DEFAULT_PACKS_META_KEY = 'packs.defaultSeeded'
 /** 内置包集合版本：pack 内容/清单变化时 +1，触发重新导入检查（task-88：+私版清单后升到 2） */
-export const DEFAULT_PACKS_VERSION = 3
+export const DEFAULT_PACKS_VERSION = 4
+/** task-114：历史内置 semantics pack checksum（0.3.20/0.3.21 设备上已 seed 的旧版；seed 后清理，不误删手工包） */
+const LEGACY_BUILTIN_SEMANTICS_CHECKSUMS: readonly string[] = [
+  // hongbaoshu full v4（domain 修正前/步骤清洗前；当前 6edb5dec 不在列表）
+  '137004c4', 'c450b52f', '41f20f56',
+  // bikao / supplement 旧版（当前 246731a6 / 1551c4f1 不在列表）
+  '4d248421', '88cd0130',
+  // dagang 旧版（当前 d4e3485a 不在列表）
+  '8068fc50', '7f39e181', 'e8e50147', '99ef7a1d', '6eb80012',
+]
+
 
 export interface DefaultContentPackEntry {
   id: string
@@ -196,6 +207,7 @@ export async function ensureDefaultContentPacks(
       // 默认包可能属于任意词库（公开版=大纲；私版可同时有受限商业词表）→ 跨全部 deck 解析
       const imported = await importContentPack(text, {
         resolveAllDecks: true,
+        builtinId: entry.id,
         onProgress: (progress) =>
           opts.onProgress?.({
             path: entry.path,
@@ -304,6 +316,7 @@ export async function ensureDefaultContentPacks(
     // 清理失败不阻塞 seed（UI 仍可手动「替换为 v4 数据」）。
     try {
       await pruneLegacySemanticsPacks()
+      await pruneSupersededBuiltinSemanticsPacks(LEGACY_BUILTIN_SEMANTICS_CHECKSUMS)
     } catch {
       // ignore
     }

@@ -5,6 +5,7 @@ import {
   ContentPackList,
   countDuplicatePacks,
   dedupeSummary,
+  packSourceLabel,
   packExportFileName,
   type ContentPackRow,
 } from '../../src/ui/me/ContentPackManagerSection'
@@ -22,6 +23,7 @@ describe('内容包管理（task-86）', () => {
         onExportAll: () => undefined,
         onDelete: () => undefined,
         onRecheckBuiltin: () => undefined,
+        onResetSemantics: () => undefined,
       }),
     )
     expect(html).toContain('AI 生成')
@@ -31,6 +33,7 @@ describe('内容包管理（task-86）', () => {
     expect(html).toContain('删除')
     expect(html).toContain('导出全部')
     expect(html).toContain('重新检查内置内容')
+    expect(html).toContain('重置本义数据')
   })
 
   it('N<M 时显示「重新应用」入口；相等时不显示', () => {
@@ -84,6 +87,13 @@ describe('内容包管理（task-86）', () => {
     )
     expect(html).toContain('检测到 1 个重复内容包')
     expect(html).toContain('清理重复内容包')
+  })
+
+  it('来源标签与草稿过滤辅助（task-116）', () => {
+    expect(packSourceLabel('builtin')).toBe('内置')
+    expect(packSourceLabel('ai')).toBe('AI')
+    expect(packSourceLabel('import')).toBe('手工')
+    expect(packSourceLabel('ai', true)).toBe('草稿')
   })
 
   it('清理结果文案（task-93）', () => {

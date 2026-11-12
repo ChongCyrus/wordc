@@ -14,6 +14,7 @@ import {
   getEffectiveContent,
   getPackStats,
   isPrivatePacksEnabled,
+  pruneSupersededBuiltinSemanticsPacks,
 } from '../../src/data'
 import { computeChecksum } from '../../src/data/checksum'
 import { packChecksumPayload } from '../../src/data/packs/schema'
@@ -355,4 +356,60 @@ describe('task-87：内置内容包首次启动自动导入', () => {
     expect(result.issues.some((issue) => issue.code === 'E_CHECKSUM')).toBe(true)
     expect(await getDb().meta.get(DEFAULT_PACKS_META_KEY)).toBeUndefined()
   })
+
+  it('task-114：seed 升级删除同 builtinId 旧包/已知旧 checksum，保留当前与手工包', async () => {
+    const db = getDb()
+    const now = Date.now()
+    const base = {
+      formatVersion: 1 as const, kind: 'semantics' as const, status: 'applied' as const,
+      counts: { items: 1, pending: 0, approved: 0, applied: 1, rejected: 0, skipped: 0 },
+      createdAt: now, updatedAt: now,
+    }
+    await db.packs.put({ ...base, id: 'builtin-old', name: 'old builtin', checksum: 'old-checksum', source: 'ai', promptVersion: 'v4.0-semantics-grouped', deckId: 'kaoyan-2027-dagang', builtinId: 'hongbaoshu-semantics-full', createdAt: now - 1000 })
+    await db.packs.put({ ...base, id: 'builtin-new', name: 'new builtin', checksum: 'new-checksum', source: 'ai', promptVersion: 'v4.0-semantics-grouped', deckId: 'kaoyan-2027-dagang', builtinId: 'hongbaoshu-semantics-full' })
+    await db.packs.put({ ...base, id: 'legacy-checksum', name: 'legacy v4', checksum: '137004c4deadbeef', source: 'ai', promptVersion: 'v4.0-semantics-grouped', deckId: 'kaoyan-2027-dagang' })
+    await db.packs.put({ ...base, id: 'manual', name: 'manual', checksum: 'manual-checksum', source: 'import', promptVersion: 'v4.0-semantics-grouped', deckId: 'kaoyan-2027-dagang' })
+    const result = await pruneSupersededBuiltinSemanticsPacks(['137004c4'])
+    expect(result.removed).toEqual(expect.arrayContaining(['builtin-old', 'legacy-checksum']))
+    expect(result.removed).not.toContain('builtin-new')
+    expect(result.removed).not.toContain('manual')
+    expect(await db.packs.get('builtin-old')).toBeUndefined()
+    expect(await db.packs.get('builtin-new')).toBeDefined()
+    expect(await db.packs.get('manual')).toBeDefined()
+  })
+
+
+  it('task-114：老设备旧 v4 semantics applied + 新 checksum seed → 旧 items 删除，effective 取新 steps', async () => {
+    const deck = await setupDeck()
+    const db = getDb()
+    const bank = (await db.words.toArray()).find((word) => word.headwordLower === 'bank')!
+    const now = Date.now()
+    const oldPayload: PackItemV1 = {
+      headword: 'bank',
+      coreSenses: [{ index: 1, label: '旧本义', confidence: 'low' }],
+      meaningMap: [{ meaningIndex: 1, coreSenseIndex: 1, steps: ['通读4条释义', '判定', '与其余1义区分'] }],
+    }
+    await db.packs.put({
+      id: 'old-builtin-v4', name: '受限商业词表本义链-全量6702词（旧 v4）', kind: 'semantics', formatVersion: 1,
+      checksum: '137004c4deadbeef', source: 'ai', promptVersion: 'v4.0-semantics-grouped', deckId: deck.id,
+      status: 'applied',
+      counts: { items: 1, pending: 0, approved: 0, applied: 1, rejected: 0, skipped: 0 },
+      createdAt: now - 1000, updatedAt: now - 1000, appliedAt: now - 1000,
+    })
+    await db.packItems.put({
+      id: 'old-builtin-v4:1', packId: 'old-builtin-v4', seq: 1, headword: 'bank', headwordLower: 'bank',
+      wordId: bank.id, deckId: deck.id, meaningIndex: 1, payload: oldPayload, status: 'applied',
+      contentHashes: [], createdAt: now - 1000, appliedAt: now - 1000,
+    })
+    const bodies = await makeBodies(deck.id)
+    const result = await ensureDefaultContentPacks({ fetchImpl: mockFetch(bodies, []) })
+    expect(result.ok).toBe(true)
+    // 旧检查明细包/旧 checksum pack 被清理（手工包不受影响由其他用例覆盖）
+    expect(await db.packs.get('old-builtin-v4')).toBeUndefined()
+    expect(await db.packItems.where('packId').equals('old-builtin-v4').count()).toBe(0)
+    const effective = await getEffectiveContent(bank.id, `${bank.id}#M1`)
+    expect(JSON.stringify(effective)).not.toContain('通读4条释义')
+    expect(JSON.stringify(effective)).not.toContain('旧本义')
+  })
+
 })

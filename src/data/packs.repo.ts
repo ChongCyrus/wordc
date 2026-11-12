@@ -218,6 +218,8 @@ interface ResolveOptions {
   resolveAllDecks?: boolean
   /** 导入进度（解析/写入分批）；供 UI 进度条 */
   onProgress?: (progress: { phase: 'resolve' | 'write'; done: number; total: number }) => void
+  /** task-114：内置默认包条目 id（seed 识别/追新版；手工导入不传） */
+  builtinId?: string
 }
 
 type WordIndex = Map<string, Word[]>
@@ -552,6 +554,7 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
     ...(file.meta?.promptVersion ? { promptVersion: file.meta.promptVersion } : {}),
     ...(file.meta?.scope !== undefined ? { scope: file.meta.scope } : {}),
     ...(file.meta?.deckId ? { deckId: file.meta.deckId } : {}),
+    ...(opts.builtinId ? { builtinId: opts.builtinId } : {}),
     status: itemRecords.length > 0 ? 'reviewing' : 'empty',
     counts,
     createdAt: now,
@@ -1640,4 +1643,47 @@ export async function clearContentForReplace(
     }
   })
   return { words, semanticsItems }
+}
+
+
+/**
+ * task-114：seed 追新版内置 semantics 包时，删除被新版取代的旧内置包。
+ * - 只看内置标记（builtinId）或已知历史内置 checksum；
+ * - 保留同 builtinId 的最新 createdAt 一份；
+ * - 手工导入（无 builtinId 且 checksum 不在列表）不动。
+ */
+export async function pruneSupersededBuiltinSemanticsPacks(
+  legacyChecksums: readonly string[] = [],
+): Promise<{ removed: string[]; kept: string[] }> {
+  const packs = await listPacks()
+  const semantics = packs.filter((pack) => pack.kind === 'semantics')
+  const latestByBuiltin = new Map<string, PackRecord>()
+  for (const pack of semantics) {
+    if (!pack.builtinId) continue
+    const prev = latestByBuiltin.get(pack.builtinId)
+    if (!prev || pack.createdAt > prev.createdAt) latestByBuiltin.set(pack.builtinId, pack)
+  }
+  const legacyPrefixes = legacyChecksums.map((checksum) => checksum.trim()).filter(Boolean)
+  const removable: PackRecord[] = []
+  for (const pack of semantics) {
+    const latest = pack.builtinId ? latestByBuiltin.get(pack.builtinId) : undefined
+    if (latest && latest.id !== pack.id) {
+      removable.push(pack)
+      continue
+    }
+    if (legacyPrefixes.some((prefix) => pack.checksum.startsWith(prefix))) {
+      // 仅当同 deck 已有 v4 semantics 才删（避免误删用户唯一数据）
+      const hasCurrent = semantics.some(
+        (candidate) =>
+          candidate.id !== pack.id &&
+          candidate.deckId === pack.deckId &&
+          candidate.promptVersion === 'v4.0-semantics-grouped',
+      )
+      if (hasCurrent) removable.push(pack)
+    }
+  }
+  const ids = [...new Set(removable.map((pack) => pack.id))]
+  if (ids.length > 0) await deletePacks(ids)
+  const removed = new Set(ids)
+  return { removed: ids, kept: packs.filter((pack) => !removed.has(pack.id)).map((pack) => pack.id) }
 }

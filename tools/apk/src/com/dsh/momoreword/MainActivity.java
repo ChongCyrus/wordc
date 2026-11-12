@@ -515,27 +515,27 @@ public class MainActivity extends Activity {
             if (requestId == null || requestId.isEmpty()) return;
             final String verb = method == null ? "POST" : method.trim().toUpperCase(Locale.US);
             if (!"POST".equals(verb)) {
-                postResult(requestId, aiErrorResult("AI 只允许 POST"));
+                postAiResult(requestId, aiErrorResult("AI 只允许 POST"));
                 return;
             }
             URL parsed;
             try {
                 parsed = new URL(url == null ? "" : url);
             } catch (Exception e) {
-                postResult(requestId, aiErrorResult("URL 无效"));
+                postAiResult(requestId, aiErrorResult("URL 无效"));
                 return;
             }
             if (!"https".equalsIgnoreCase(parsed.getProtocol()) || parsed.getUserInfo() != null) {
-                postResult(requestId, aiErrorResult("只允许 https 且不带 userinfo"));
+                postAiResult(requestId, aiErrorResult("只允许 https 且不带 userinfo"));
                 return;
             }
             int port = parsed.getPort();
             if (port != -1 && port != 443) {
-                postResult(requestId, aiErrorResult("只允许 443 端口"));
+                postAiResult(requestId, aiErrorResult("只允许 443 端口"));
                 return;
             }
             if (!isAllowedAiHost(parsed.getHost())) {
-                postResult(requestId, aiErrorResult("host 不在白名单（请先在设置中确认添加）"));
+                postAiResult(requestId, aiErrorResult("host 不在白名单（请先在设置中确认添加）"));
                 return;
             }
             final String target = url;
@@ -646,9 +646,9 @@ public class MainActivity extends Activity {
             result.put("ok", true);
             result.put("status", status);
             result.put("body", text);
-            postResult(requestId, result.toString());
+            postAiResult(requestId, result.toString());
         } catch (Exception e) {
-            postResult(requestId, aiErrorResult(e.getClass().getSimpleName()
+            postAiResult(requestId, aiErrorResult(e.getClass().getSimpleName()
                     + (e.getMessage() == null ? "" : ": " + e.getMessage())));
         } finally {
             aiConnections.remove(requestId);
@@ -874,6 +874,23 @@ public class MainActivity extends Activity {
     }
 
     /** 回主线程调用 window.__momoApiCallback(requestId, resultJson) */
+    /** AiApi 原生桥回调（task-117：必须调用 __aiApiCallback，不能复用 MomoApi 的 __momoApiCallback） */
+    private void postAiResult(final String requestId, final String resultJson) {
+        final WebView view = webView;
+        if (view == null) return;
+        view.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String js = "window.__aiApiCallback(" + JSONObject.quote(requestId)
+                            + "," + JSONObject.quote(resultJson) + ")";
+                    view.evaluateJavascript(js, null);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+    }
+
     private void postResult(final String requestId, final String resultJson) {
         final WebView view = webView;
         if (view == null) return;

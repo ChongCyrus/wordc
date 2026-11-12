@@ -20,6 +20,7 @@ import {
   AI_SEMANTICS_MODE_OPTIONS,
   aiModeLabel,
   withAiTimeout,
+  formatAiTestFailure,
 } from '../../src/app/hooks/aiUi'
 import { AiGenerateView, itemLines } from '../../src/ui/ai/AiGeneratePanel'
 import { AiReviewDialog } from '../../src/ui/ai/AiGeneratePanel'
@@ -161,6 +162,13 @@ describe('AI 扩充 UI（task-71）', () => {
     expect(AI_SEMANTICS_MODE_OPTIONS.map((option) => option.value)).toEqual(['missing', 'replace'])
     expect(aiModeLabel('append')).toBe('追加更多')
     expect(aiScopeLabel('meanings')).toBe('指定含义')
+  })
+
+  it('task-117：测试连接失败文案带底层原因', () => {
+    expect(formatAiTestFailure('AI_TIMEOUT')).toContain('请求超时')
+    expect(formatAiTestFailure('AI_NETWORK', 'UnknownHostException: api.deepseek.com')).toContain('UnknownHostException')
+    expect(formatAiTestFailure(undefined, '401')).toContain('401')
+    expect(formatAiTestFailure('AI_NETWORK')).not.toContain('（')
   })
 
   it('task-107/108 面板：指定含义多选 + 生成模式控件', () => {

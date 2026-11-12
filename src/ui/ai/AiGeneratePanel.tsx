@@ -577,7 +577,7 @@ export function AiGeneratePanel({
     if (!open) return
     void (async () => {
       const drafts = await listGenerationDrafts()
-      const usable = drafts.filter((draft) => draft.done > 0 || draft.meta.targetTotal > 0)
+      const usable = drafts.filter((draft) => draft.done > 0)
       // 空草稿（0/0）自动清理，避免幽灵横幅
       for (const empty of drafts.filter((draft) => !usable.includes(draft))) {
         await clearGenerationDraft(empty.id)
@@ -664,7 +664,14 @@ export function AiGeneratePanel({
   }
 
   const refreshEstimate = async () => {
+    setError(null)
     try {
+      // 指定含义但未勾选：目标数应为 0/请选择含义
+      if (scope === 'meanings' && selectedMeaningIndexes.length === 0) {
+        setTargetCount(0)
+        setEstimateText('请先勾选要生成的含义（c）')
+        return
+      }
       const settings = await loadAiSettings()
       const groups = await buildTargetsByKind(kinds)
       const targets = groups.flatMap((group) => group.targets)
@@ -681,7 +688,7 @@ export function AiGeneratePanel({
   useEffect(() => {
     void refreshEstimate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, targetDeckId, customSearch, selectedWordIds, kinds, modes])
+  }, [scope, targetDeckId, customSearch, selectedWordIds, kinds, modes, batchLimit, selectedMeaningIndexes])
 
   const handleStart = () => {
     void (async () => {
@@ -790,6 +797,14 @@ export function AiGeneratePanel({
           }
         }
         setPending(allEntries)
+        // task-117：失败/超时且 0 条目 → 清理空生成草稿（取消时保留）
+        if (allItems.length === 0 && activeDraftId && !canceled) {
+          try { await clearGenerationDraft(activeDraftId) } catch { /* ignore */ }
+          setDraftId(null)
+          setDraftDone(0)
+          setDraftTotal(0)
+          setDraftCursor(0)
+        }
         // QA S18 P2：402/429/408 等不能只显示「失败 N 条」，要展示分类文案
         if (canceled) {
           setSummary(`已取消，草稿已保存：${formatDraftProgress(done, total)}`)
@@ -945,7 +960,7 @@ export function AiGeneratePanel({
               ? null
               : draftPrompt && !draftId
                 ? draftResumeMessage(draftPrompt.done, draftPrompt.total)
-                : draftTotal > 0
+                : draftId && (draftDone > 0 || running)
                   ? formatDraftProgress(draftDone, draftTotal)
                   : null
           }

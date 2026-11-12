@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AiConfig, AiProviderId, AiSettingsState } from '../../data/ai'
 import {
   AI_PROVIDER_OPTIONS,
-  aiErrorMessage,
+  formatAiTestFailure,
 } from '../../app/hooks/aiUi'
 import {
   clearAiApiKey,
@@ -355,7 +355,7 @@ export function AiSettingsSection() {
           error && typeof error === 'object' && 'code' in error
             ? String((error as { code?: unknown }).code)
             : undefined
-        setTestMessage(`连接失败：${aiErrorMessage(code, '请检查网络/Key/baseURL')}`)
+        setTestMessage(formatAiTestFailure(code, error instanceof Error ? error.message : undefined))
       } finally {
         setTesting(false)
       }

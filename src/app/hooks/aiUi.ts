@@ -206,3 +206,10 @@ export async function withAiTimeout<T>(
   })
   try { return await Promise.race([promise, timeout]) } finally { if (timer) clearTimeout(timer) }
 }
+
+/** 设置页「测试连接」失败文案：错误码文案 + 底层原因（task-117） */
+export function formatAiTestFailure(code: string | undefined, detail?: string): string {
+  const base = aiErrorMessage(code, '请检查网络/Key/baseURL')
+  const extra = String(detail ?? '').trim()
+  return extra ? `连接失败：${base}（${extra.slice(0, 120)}）` : `连接失败：${base}`
+}

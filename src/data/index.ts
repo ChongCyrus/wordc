@@ -71,6 +71,7 @@ export {
   dedupePacks,
   listLegacySemanticsPacks,
   pruneLegacySemanticsPacks,
+  pruneSupersededBuiltinSemanticsPacks,
   replacePackContent,
   reapplyAppliedPacks,
   reapplyPack,

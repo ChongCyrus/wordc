@@ -9,6 +9,15 @@ import { useToast } from '../../app/toast'
 import { ConfirmDialog } from '../components/Dialog'
 import { dateSuffix, saveBlobFile, saveResultMessage } from '../../app/utils/files'
 
+/** 包来源展示（task-116）：内置/手工/草稿/AI */
+export function packSourceLabel(source: string, isDraft = false): string {
+  if (isDraft) return '草稿'
+  if (source === 'builtin') return '内置'
+  if (source === 'ai') return 'AI'
+  if (source === 'import') return '手工'
+  return '手工'
+}
+
 export interface ContentPackRow {
   id: string
   name: string
@@ -49,6 +58,7 @@ export function ContentPackList({
   onRecheckBuiltin,
   onReapply,
   onDedupe,
+  onResetSemantics,
   busy = false,
 }: {
   rows: ContentPackRow[]
@@ -61,6 +71,8 @@ export function ContentPackList({
   onReapply?: (row: ContentPackRow) => void
   /** 清理重复内容包（task-93；dedupePacks） */
   onDedupe?: () => void
+  /** 重置本义数据并重新应用内置 v4（task-116） */
+  onResetSemantics?: () => void
   busy?: boolean
 }) {
   if (rows.length === 0) {
@@ -142,6 +154,16 @@ export function ContentPackList({
             重新检查内置内容
           </button>
         ) : null}
+        {onResetSemantics ? (
+          <button
+            type="button"
+            className="mm-btn mm-btn--danger"
+            onClick={onResetSemantics}
+            disabled={busy}
+          >
+            重置本义数据
+          </button>
+        ) : null}
       </div>
     </div>
   )
@@ -152,11 +174,15 @@ export function ContentPackManagerSection() {
   const [busy, setBusy] = useState(false)
   const [recheckMessage, setRecheckMessage] = useState<string | null>(null)
   const [dedupeConfirm, setDedupeConfirm] = useState(false)
+  const [removeAppliedOnDelete, setRemoveAppliedOnDelete] = useState(false)
+  const [resetSemanticsConfirm, setResetSemanticsConfirm] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<ContentPackRow | null>(null)
   const rows = useLiveQuery<ContentPackRow[]>(async () => {
     const packs = await listPacks()
+    // task-116：草稿包（draft pack）不混入内容包列表
+    const visible = packs.filter((pack) => !(pack as { draft?: unknown }).draft)
     return Promise.all(
-      packs.map(async (pack) => {
+      visible.map(async (pack) => {
         const items = await listPackItems(pack.id)
         return {
           id: pack.id,
@@ -164,7 +190,7 @@ export function ContentPackManagerSection() {
           kind: pack.kind,
           items: items.length,
           applied: items.filter((item) => item.status === 'applied').length,
-          source: String(pack.source ?? 'import'),
+          source: packSourceLabel(String(pack.source ?? 'import')),
           createdAt: pack.createdAt,
         }
       }),
@@ -263,6 +289,7 @@ export function ContentPackManagerSection() {
         onRecheckBuiltin={recheckBuiltin}
         onReapply={(row) => void reapplyOne(row)}
         onDedupe={() => setDedupeConfirm(true)}
+        onResetSemantics={() => setResetSemanticsConfirm(true)}
         onExport={(row) => void exportOne(row)}
         onExportAll={() => {
           void (async () => {
@@ -302,23 +329,64 @@ export function ContentPackManagerSection() {
         }}
       />
       <ConfirmDialog
+        open={resetSemanticsConfirm}
+        title="重置本义数据并重新应用内置 v4？"
+        body="将移除所有已应用的本义链（semantics）内容，并重新应用当前内置 v4 本义包；词条/学习数据不动。若中途失败，已移除内容需重新应用。"
+        confirmLabel="重置并重应用"
+        danger
+        busy={busy}
+        onCancel={() => setResetSemanticsConfirm(false)}
+        onConfirm={() => {
+          void (async () => {
+            setBusy(true)
+            try {
+              const packs = await listPacks()
+              const semantics = packs.filter(
+                (pack) => pack.kind === 'semantics' || pack.kind === 'mixed',
+              )
+              for (const pack of semantics) {
+                await deletePack(pack.id, { removeAppliedContent: true })
+              }
+              const seeded = await ensureDefaultContentPacks({ force: true })
+              toast.success(
+                `已重置本义数据：清理 ${semantics.length} 个旧包，重新应用内置内容（应用 ${seeded.applied} 条）`,
+              )
+              setResetSemanticsConfirm(false)
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : '重置本义数据失败')
+            } finally {
+              setBusy(false)
+            }
+          })()
+        }}
+      />
+      <ConfirmDialog
         open={pendingDelete != null}
         title="删除内容包？"
         body={
           pendingDelete
-            ? `将删除「${pendingDelete.name}」及其 ${pendingDelete.items} 条内容记录；已应用到词库的内容默认保留。`
+            ? `将删除「${pendingDelete.name}」及其 ${pendingDelete.items} 条内容记录。${
+                removeAppliedOnDelete
+                  ? '已应用到词库的内容也会移除（词条本身保留）。'
+                  : '已应用到词库的内容默认保留。'
+              }`
             : ''
         }
         confirmLabel="删除"
         danger
         busy={busy}
-        onCancel={() => setPendingDelete(null)}
+        onCancel={() => {
+          setPendingDelete(null)
+          setRemoveAppliedOnDelete(false)
+        }}
         onConfirm={() => {
           void (async () => {
             if (!pendingDelete) return
             setBusy(true)
             try {
-              await deletePack(pendingDelete.id)
+              await deletePack(pendingDelete.id, {
+                removeAppliedContent: removeAppliedOnDelete,
+              })
               toast.success('已删除内容包')
               setPendingDelete(null)
             } catch (error) {

@@ -176,7 +176,8 @@ export function createLlmProvider(opts: CreateLlmProviderOptions = {}): LlmProvi
           throw new AiRequestError('AI_CANCELED', '已取消')
         }
         if (error instanceof AiNetworkError) {
-          throw new AiRequestError('AI_NETWORK', 'AI 网络请求失败', { retryable: true })
+          const detail = error.message && error.message !== 'AI network error' ? `：${error.message}` : ''
+          throw new AiRequestError('AI_NETWORK', `AI 网络请求失败${detail}`, { retryable: true })
         }
         throw new AiRequestError('AI_UNKNOWN', 'AI 请求失败')
       }
