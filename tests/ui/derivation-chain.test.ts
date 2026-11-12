@@ -66,6 +66,29 @@ describe('本义→引申链（task-77）', () => {
     expect(legacy).toContain('本义① 「一起吃面包的人」')
   })
 
+  it('本义序号（task-111）：c 归属 coreSenseIndex 渲染 ①②③④/(N)，缺省回退 ①', () => {
+    const c2 = renderToStaticMarkup(
+      createElement(DerivationChain, { label: '专门', coreSenseIndex: 2, steps: ['加 -ist 表人'] }),
+    )
+    expect(c2).toContain('本义② 「专门」')
+    expect(c2).not.toContain('本义①')
+
+    for (const [index, expected] of [
+      [3, '本义③'],
+      [4, '本义④'],
+      [7, '本义(7)'],
+    ] as const) {
+      const html = renderToStaticMarkup(
+        createElement(DerivationChain, { label: '基础', coreSenseIndex: index, steps: [] }),
+      )
+      expect(html).toContain(expected)
+    }
+    const fallback = renderToStaticMarkup(
+      createElement(DerivationChain, { label: '技术', steps: [] }),
+    )
+    expect(fallback).toContain('本义①')
+  })
+
   it('无映射不显示；非 AI 不显示 AI 标识', () => {
     expect(
       renderToStaticMarkup(createElement(DerivationChain, { steps: [] })),

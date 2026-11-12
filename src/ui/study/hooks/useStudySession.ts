@@ -101,6 +101,7 @@ function derivationFor(
   if (!label && steps.length === 0) return undefined
   return {
     ...(label ? { label } : {}),
+    coreSenseIndex: mapping.coreSenseIndex,
     steps,
     aiGenerated: core?.source === 'ai' || mapping.source === 'ai',
   }
