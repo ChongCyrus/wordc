@@ -1,0 +1,335 @@
+{
+  "at": "2026-11-12T14:20:02.898Z",
+  "build": "index-DkmxpqUg.js",
+  "finalWord": {
+    "activePlanId": "2026-11-12:kaoyan-hongbaoshu-2025",
+    "addresses": [
+      {
+        "id": "kaoyan-2027-dagang:address",
+        "deckId": "kaoyan-2027-dagang",
+        "meanings": [
+          {
+            "c": 1,
+            "examples": [
+              "The president gave an address to the nation.",
+              "His address lasted twenty minutes."
+            ]
+          }
+        ],
+        "examples": [
+          "address an audience"
+        ],
+        "phrases": [
+          "email address",
+          "ip address",
+          "address book",
+          "home address",
+          "mailing address",
+          "network address",
+          "address space",
+          "address as"
+        ],
+        "mnemonics": [
+          {
+            "type": "串记",
+            "text": "把话“指向”听众讲出来，address 就是演说。",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          }
+        ]
+      },
+      {
+        "id": "kaoyan-hongbaoshu-2025:address",
+        "deckId": "kaoyan-hongbaoshu-2025",
+        "meanings": [
+          {
+            "c": 1,
+            "examples": [
+              "Write your address clearly on the envelope.",
+              "Please write your address clearly on the envelope.",
+              "She moved to a new address last month.",
+              "Q32A example for address c1",
+              "Q32R31 example for address c1"
+            ]
+          },
+          {
+            "c": 2,
+            "examples": [
+              "The president gave a short address to the nation.",
+              "The president delivered an address to the nation.",
+              "His address at the ceremony was short but moving.",
+              "QA1-2 example for address",
+              "Q32A example for address c2",
+              "Q32R31 example for address c2"
+            ]
+          },
+          {
+            "c": 3,
+            "examples": [
+              "He delivered the opening address at the conference."
+            ]
+          },
+          {
+            "c": 4,
+            "examples": [
+              "Her address in front of the crowd was calm and clear."
+            ]
+          },
+          {
+            "c": 5,
+            "examples": [
+              "In English we use \"Mr\" as a form of address."
+            ]
+          },
+          {
+            "c": 6,
+            "examples": [
+              "The mayor addressed the crowd from the steps."
+            ]
+          },
+          {
+            "c": 7,
+            "examples": [
+              "The committee must address the problem of waste."
+            ]
+          },
+          {
+            "c": 8,
+            "examples": [
+              "She addressed herself to the pile of letters on her desk."
+            ]
+          },
+          {
+            "c": 9,
+            "examples": [
+              "Please address the parcel to my office."
+            ]
+          },
+          {
+            "c": 10,
+            "examples": [
+              "He addressed the guests at the wedding dinner."
+            ]
+          },
+          {
+            "c": 11,
+            "examples": [
+              "She turned and addressed the stranger politely."
+            ]
+          },
+          {
+            "c": 12,
+            "examples": [
+              "They addressed a formal protest to the embassy."
+            ]
+          }
+        ],
+        "examples": [
+          "address an audience",
+          "Please write your address on the envelope clearly.",
+          "The president delivered a short address to the nation.",
+          "QA1-1 example for address",
+          "QA7-1 example for address",
+          "Q32A example for address c-"
+        ],
+        "phrases": [
+          "email address",
+          "ip address",
+          "address book",
+          "home address",
+          "mailing address",
+          "network address",
+          "address space",
+          "address as",
+          "address Q32B up"
+        ],
+        "mnemonics": [
+          {
+            "type": "联想",
+            "text": "Q32R21 助记 c1",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M1"
+          },
+          {
+            "type": "联想",
+            "text": "Q32R21 助记 c2",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M2"
+          }
+        ]
+      }
+    ],
+    "recent": [
+      {
+        "id": "draft_1794493197451_ukadhr",
+        "kind": "examples",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "pending",
+            "skipReason": null,
+            "wordId": null,
+            "meaningIndex": null
+          }
+        ]
+      },
+      {
+        "id": "pk_1794489543957_hhillo",
+        "kind": "examples",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": null
+          }
+        ]
+      },
+      {
+        "id": "pk_1794489740506_15089a",
+        "kind": "examples",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": 1
+          },
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": 2
+          }
+        ]
+      },
+      {
+        "id": "pk_1794489871089_pq1ym8",
+        "kind": "mixed",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": null
+          },
+          {
+            "status": "skipped",
+            "skipReason": "limit",
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": null
+          }
+        ]
+      },
+      {
+        "id": "pk_1794490035937_urf1az",
+        "kind": "examples",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": 2
+          }
+        ]
+      },
+      {
+        "id": "pk_1794490808927_9fgex1",
+        "kind": "examples",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": null
+          }
+        ]
+      },
+      {
+        "id": "pk_1794492047356_hr130u",
+        "kind": "examples",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": 1
+          }
+        ]
+      },
+      {
+        "id": "pk_1794492049504_kn2r34",
+        "kind": "examples",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": 2
+          }
+        ]
+      },
+      {
+        "id": "pk_1794492497909_d1aa7h",
+        "kind": "mixed",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": null
+          },
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": null
+          }
+        ]
+      },
+      {
+        "id": "pk_1794492935379_kslfsj",
+        "kind": "examples",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": 1
+          },
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": 2
+          }
+        ]
+      },
+      {
+        "id": "pk_1794493068866_9m99r8",
+        "kind": "mnemonics",
+        "deckMeta": null,
+        "items": [
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": 1
+          },
+          {
+            "status": "applied",
+            "skipReason": null,
+            "wordId": "kaoyan-hongbaoshu-2025:address",
+            "meaningIndex": 2
+          }
+        ]
+      }
+    ]
+  }
+}

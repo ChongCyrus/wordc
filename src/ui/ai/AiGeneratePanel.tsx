@@ -917,6 +917,24 @@ export function AiGeneratePanel({
         if (failureSummary) {
           setSummary((prev) => (prev ? `${prev} · ${failureSummary}` : failureSummary))
         }
+        const fatalCode = errorCodes.find(
+          (code): code is string =>
+            typeof code === 'string' &&
+            ['AI_AUTH', 'AI_NO_KEY', 'AI_QUOTA', 'AI_RATE_LIMIT', 'AI_TIMEOUT', 'AI_DISABLED'].includes(code),
+        )
+        if (fatalCode && !canceled) {
+          setError(aiErrorMessage(fatalCode))
+          setSummary(null)
+          setProgress(null)
+          if ((fatalCode === 'AI_AUTH' || fatalCode === 'AI_NO_KEY') && activeDraftId) {
+            try { await clearGenerationDraft(activeDraftId) } catch { /* ignore */ }
+            setDraftId(null)
+            setDraftDone(0)
+            setDraftTotal(0)
+            setDraftCursor(0)
+          }
+          return
+        }
         if (fatalMessage) {
           setError(fatalMessage)
         }
@@ -935,8 +953,9 @@ export function AiGeneratePanel({
           return
         }
         if (!isDraftComplete(cursor, total)) {
+          const draftLeft = Math.max(0, total - cursor)
           setSummary(
-            `${formatDraftProgress(done, total)} · 本次已达上限 ${batchLimit === 'all' ? '全部' : batchLimit}，可点「${AI_BATCH_CONTINUE_STOP_LABEL}」/重新打开继续`,
+            `${formatDraftProgress(done, total)} · 剩余 ${draftLeft} 个目标 · 本次已达上限 ${batchLimit === 'all' ? '全部' : batchLimit}，可点「${AI_BATCH_CONTINUE_STOP_LABEL}」/重新打开继续`,
           )
           return
         }

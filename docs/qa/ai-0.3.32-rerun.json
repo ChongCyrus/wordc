@@ -1,0 +1,548 @@
+{
+  "at": "2026-11-12T14:13:22.112Z",
+  "build": "index-DkmxpqUg.js",
+  "scenarios": {
+    "S3": {
+      "target": 2,
+      "wordId": "kaoyan-hongbaoshu-2025:address",
+      "calls": 1,
+      "review": {
+        "shown": true,
+        "items": 2,
+        "text": "审核生成内容（2） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 Q32R31 example for address c1 — Q32R31 例句翻译 c1 ❌ address · 例句 Q32R31 example for address c2 — Q32R31 例句翻译 c2 ❌ 全不选 保存已选（2） 关闭"
+      },
+      "save": {
+        "closed": true,
+        "ms": 4990,
+        "err": null,
+        "packs": [
+          {
+            "id": "pk_1794492935379_kslfsj",
+            "kind": "examples"
+          }
+        ]
+      },
+      "items": [
+        {
+          "packId": "pk_1794492935379_kslfsj",
+          "status": "applied",
+          "skipReason": null,
+          "meaningIndex": 1,
+          "wordId": "kaoyan-hongbaoshu-2025:address"
+        },
+        {
+          "packId": "pk_1794492935379_kslfsj",
+          "status": "applied",
+          "skipReason": null,
+          "meaningIndex": 2,
+          "wordId": "kaoyan-hongbaoshu-2025:address"
+        }
+      ],
+      "deep": {
+        "id": "kaoyan-hongbaoshu-2025:address",
+        "deckId": "kaoyan-hongbaoshu-2025",
+        "meanings": [
+          {
+            "c": 1,
+            "cn": "地址",
+            "examples": [
+              "Write your address clearly on the envelope.",
+              "Please write your address clearly on the envelope.",
+              "She moved to a new address last month.",
+              "Q32A example for address c1",
+              "Q32R31 example for address c1"
+            ]
+          },
+          {
+            "c": 2,
+            "cn": "演讲",
+            "examples": [
+              "The president gave a short address to the nation.",
+              "The president delivered an address to the nation.",
+              "His address at the ceremony was short but moving.",
+              "QA1-2 example for address",
+              "Q32A example for address c2",
+              "Q32R31 example for address c2"
+            ]
+          },
+          {
+            "c": 3,
+            "cn": "致辞",
+            "examples": [
+              "He delivered the opening address at the conference."
+            ]
+          },
+          {
+            "c": 4,
+            "cn": "说话的技巧",
+            "examples": [
+              "Her address in front of the crowd was calm and clear."
+            ]
+          },
+          {
+            "c": 5,
+            "cn": "称呼",
+            "examples": [
+              "In English we use \"Mr\" as a form of address."
+            ]
+          },
+          {
+            "c": 6,
+            "cn": "演说",
+            "examples": [
+              "The mayor addressed the crowd from the steps."
+            ]
+          },
+          {
+            "c": 7,
+            "cn": "从事",
+            "examples": [
+              "The committee must address the problem of waste."
+            ]
+          },
+          {
+            "c": 8,
+            "cn": "忙于",
+            "examples": [
+              "She addressed herself to the pile of letters on her desk."
+            ]
+          },
+          {
+            "c": 9,
+            "cn": "写姓名地址",
+            "examples": [
+              "Please address the parcel to my office."
+            ]
+          },
+          {
+            "c": 10,
+            "cn": "向…致辞",
+            "examples": [
+              "He addressed the guests at the wedding dinner."
+            ]
+          },
+          {
+            "c": 11,
+            "cn": "与…说话",
+            "examples": [
+              "She turned and addressed the stranger politely."
+            ]
+          },
+          {
+            "c": 12,
+            "cn": "提出",
+            "examples": [
+              "They addressed a formal protest to the embassy."
+            ]
+          }
+        ],
+        "examples": [
+          "address an audience",
+          "Please write your address on the envelope clearly.",
+          "The president delivered a short address to the nation.",
+          "QA1-1 example for address",
+          "QA7-1 example for address",
+          "Q32A example for address c-"
+        ],
+        "phrases": [
+          "email address",
+          "ip address",
+          "address book",
+          "home address",
+          "mailing address",
+          "network address",
+          "address space",
+          "address as",
+          "address Q32B up"
+        ],
+        "mnemonics": []
+      },
+      "annotation": {
+        "rows": [
+          {
+            "text": "[名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]从事 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]忙于 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]写姓名地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]向…致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]与…说话 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]提出 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+            "examples": [],
+            "mnem": []
+          }
+        ],
+        "globalExamples": [
+          "address an audience 向听众发表讲话",
+          "Please write your address on the envelope clearly. 请把地址清楚地写在信封上。",
+          "The president delivered a short address to the nation. 总统向全国发表了简短讲话。",
+          "QA1-1 example for address QA1 例句 c-",
+          "QA7-1 example for address QA7 例句 1",
+          "Q32A example for address c- Q32A 例句翻译 c-"
+        ],
+        "body": "address 本义1「地址」 住处或通信处，也指写地址 词源：拉丁 ad-向+directus 使直 本义2「演讲」 正式讲话、致辞 词源：同源 addresser 致意、进言 本义3「称呼」 对人使用的称谓 词源：同源 addresser 称谓 本义4「处理」 着手应对、致力于 词源：同源 address 指向、着手 [名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 [名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as [动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]从事 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 [动]忙于 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 [动]写姓名地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 [动]向…致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]与…说话 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]提出 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 例句 address an audience 向听众发表讲话 Please write your address on the envelope clearly. 请把地址清楚地写在信封上。 The president delivered "
+      },
+      "c1": [
+        "Q32R31 example for address c1"
+      ],
+      "c2": [
+        "Q32R31 example for address c2"
+      ],
+      "domC1": [],
+      "domC2": [],
+      "applied": 2
+    },
+    "S2": {
+      "target": 2,
+      "wordId": "kaoyan-hongbaoshu-2025:address",
+      "calls": 1,
+      "mockLog": [
+        {
+          "kind": "examples",
+          "tag": "Q32R31",
+          "targets": 2,
+          "items": 2
+        },
+        {
+          "kind": "mnemonics",
+          "tag": "Q32R21",
+          "targets": 2,
+          "items": 2
+        },
+        {
+          "kind": "examples",
+          "tag": "Q32R61",
+          "targets": 1,
+          "items": 1
+        }
+      ],
+      "panel": {
+        "text": "AI 扩充内容 已生成 2 / 总 2（草稿已保存） 继续 放弃草稿 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 选择含义（可多选） c1 n. 地址 c2 n. 演讲 c3 n. 致辞 c4 n. 说话的技巧 c5 n. 称呼 c6 vt. 演说 c7 vt. 从事 c8 vt. 忙于 c9 vt. 写姓名地址 c10 vt. 向…致辞 c11 vt. 与…说话 c12 vt. 提出 生成类型（可多选） ✓ 例句 词组 ✓ 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 助记 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：2 个词/含义 · 例句 / 助记 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.44 / 单次上限 ¥3.00 完成 2 / 2 条 · 已用 ¥0.00 开始生成 关闭",
+        "danger": []
+      },
+      "review": {
+        "shown": true,
+        "items": 2,
+        "text": "审核生成内容（2） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 助记 c1 地址 → [assoc] Q32R21 助记 c1 ❌ address · 助记 c2 演讲 → [assoc] Q32R21 助记 c2 ❌ 全不选 保存已选（2） 关闭"
+      },
+      "hasLimitText": false,
+      "perC": true,
+      "save": {
+        "closed": true,
+        "ms": 4828,
+        "err": null,
+        "packs": [
+          {
+            "id": "pk_1794493068866_9m99r8",
+            "kind": "mnemonics"
+          }
+        ]
+      },
+      "items": [
+        {
+          "packId": "pk_1794493068866_9m99r8",
+          "status": "applied",
+          "skipReason": null,
+          "meaningIndex": 1,
+          "wordId": "kaoyan-hongbaoshu-2025:address"
+        },
+        {
+          "packId": "pk_1794493068866_9m99r8",
+          "status": "applied",
+          "skipReason": null,
+          "meaningIndex": 2,
+          "wordId": "kaoyan-hongbaoshu-2025:address"
+        }
+      ],
+      "applied": 2,
+      "deep": {
+        "id": "kaoyan-hongbaoshu-2025:address",
+        "deckId": "kaoyan-hongbaoshu-2025",
+        "meanings": [
+          {
+            "c": 1,
+            "cn": "地址",
+            "examples": [
+              "Write your address clearly on the envelope.",
+              "Please write your address clearly on the envelope.",
+              "She moved to a new address last month.",
+              "Q32A example for address c1",
+              "Q32R31 example for address c1"
+            ]
+          },
+          {
+            "c": 2,
+            "cn": "演讲",
+            "examples": [
+              "The president gave a short address to the nation.",
+              "The president delivered an address to the nation.",
+              "His address at the ceremony was short but moving.",
+              "QA1-2 example for address",
+              "Q32A example for address c2",
+              "Q32R31 example for address c2"
+            ]
+          },
+          {
+            "c": 3,
+            "cn": "致辞",
+            "examples": [
+              "He delivered the opening address at the conference."
+            ]
+          },
+          {
+            "c": 4,
+            "cn": "说话的技巧",
+            "examples": [
+              "Her address in front of the crowd was calm and clear."
+            ]
+          },
+          {
+            "c": 5,
+            "cn": "称呼",
+            "examples": [
+              "In English we use \"Mr\" as a form of address."
+            ]
+          },
+          {
+            "c": 6,
+            "cn": "演说",
+            "examples": [
+              "The mayor addressed the crowd from the steps."
+            ]
+          },
+          {
+            "c": 7,
+            "cn": "从事",
+            "examples": [
+              "The committee must address the problem of waste."
+            ]
+          },
+          {
+            "c": 8,
+            "cn": "忙于",
+            "examples": [
+              "She addressed herself to the pile of letters on her desk."
+            ]
+          },
+          {
+            "c": 9,
+            "cn": "写姓名地址",
+            "examples": [
+              "Please address the parcel to my office."
+            ]
+          },
+          {
+            "c": 10,
+            "cn": "向…致辞",
+            "examples": [
+              "He addressed the guests at the wedding dinner."
+            ]
+          },
+          {
+            "c": 11,
+            "cn": "与…说话",
+            "examples": [
+              "She turned and addressed the stranger politely."
+            ]
+          },
+          {
+            "c": 12,
+            "cn": "提出",
+            "examples": [
+              "They addressed a formal protest to the embassy."
+            ]
+          }
+        ],
+        "examples": [
+          "address an audience",
+          "Please write your address on the envelope clearly.",
+          "The president delivered a short address to the nation.",
+          "QA1-1 example for address",
+          "QA7-1 example for address",
+          "Q32A example for address c-"
+        ],
+        "phrases": [
+          "email address",
+          "ip address",
+          "address book",
+          "home address",
+          "mailing address",
+          "network address",
+          "address space",
+          "address as",
+          "address Q32B up"
+        ],
+        "mnemonics": [
+          {
+            "type": "联想",
+            "text": "Q32R21 助记 c1",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M1"
+          },
+          {
+            "type": "联想",
+            "text": "Q32R21 助记 c2",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M2"
+          }
+        ]
+      },
+      "annotation": {
+        "rows": [
+          {
+            "text": "[名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 [联想]Q32R21 助记 c1",
+            "examples": [],
+            "mnem": [
+              "[联想]Q32R21 助记 c1"
+            ]
+          },
+          {
+            "text": "[名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [联想]Q32R21 助记 c2",
+            "examples": [],
+            "mnem": [
+              "[联想]Q32R21 助记 c2"
+            ]
+          },
+          {
+            "text": "[名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]从事 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]忙于 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]写姓名地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]向…致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]与…说话 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+            "examples": [],
+            "mnem": []
+          },
+          {
+            "text": "[动]提出 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+            "examples": [],
+            "mnem": []
+          }
+        ],
+        "globalExamples": [
+          "address an audience 向听众发表讲话",
+          "Please write your address on the envelope clearly. 请把地址清楚地写在信封上。",
+          "The president delivered a short address to the nation. 总统向全国发表了简短讲话。",
+          "QA1-1 example for address QA1 例句 c-",
+          "QA7-1 example for address QA7 例句 1",
+          "Q32A example for address c- Q32A 例句翻译 c-"
+        ],
+        "body": "address 本义1「地址」 住处或通信处，也指写地址 词源：拉丁 ad-向+directus 使直 本义2「演讲」 正式讲话、致辞 词源：同源 addresser 致意、进言 本义3「称呼」 对人使用的称谓 词源：同源 addresser 称谓 本义4「处理」 着手应对、致力于 词源：同源 address 指向、着手 [名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 [联想]Q32R21 助记 c1 [名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [联想]Q32R21 助记 c2 [名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as [动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]从事 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 [动]忙于 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 [动]写姓名地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 [动]向…致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]与…说话 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]提出 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 例句 address an audience 向听众发表讲话 Please write your address on the envelope clearly. 请把地址"
+      },
+      "rows": [
+        [
+          "[联想]Q32R21 助记 c1"
+        ],
+        [
+          "[联想]Q32R21 助记 c2"
+        ]
+      ]
+    },
+    "S6": {
+      "target": 1,
+      "cancelVisible320": true,
+      "panelAfterEarlyCancel": "AI 扩充内容 已生成 0 / 总 1（草稿已保存） 继续 放弃草稿 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 正在生成 0 / 1 · 已用 ¥0.00 取消生成 关闭",
+      "calls": 1,
+      "review": {
+        "shown": true,
+        "items": 1,
+        "text": "审核生成内容（1） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 Q32R61 example for address c- — Q32R61 例句翻译 c- ❌ 全不选 保存已选（1） 关闭"
+      },
+      "cancelled": false
+    }
+  },
+  "findings": [
+    {
+      "id": "F13",
+      "severity": "P1",
+      "title": "注解面 c1/c2 行未显示对应例句（DB 有、UI 无）",
+      "actual": "{\"domC1\":[],\"domC2\":[],\"dbC1\":[\"Q32R31 example for address c1\"],\"dbC2\":[\"Q32R31 example for address c2\"]}"
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "mockCalls": 3,
+  "phase": "6",
+  "finishedAt": "2026-11-12T14:20:02.900Z"
+}
