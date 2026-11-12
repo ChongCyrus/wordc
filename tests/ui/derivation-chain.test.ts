@@ -67,6 +67,18 @@ describe('本义→引申链（task-77）', () => {
     expect(html).toContain('meaning-mnemonic')
   })
 
+  it('注解面按 c 渲染 meaning.examples（task-133）', () => {
+    const html = annotation([
+      {
+        ...meaningBase,
+        examples: [{ en: 'The bank is near.', cn: '银行就在附近。' }],
+      },
+    ])
+    expect(html).toContain('The bank is near.')
+    expect(html).toContain('银行就在附近。')
+    expect(html).toContain('meaning-example')
+  })
+
   it('v4 label 与 steps 分离（task-110）：括号显示 label，不显示 steps[0]', () => {
     const html = renderToStaticMarkup(
       createElement(DerivationChain, {

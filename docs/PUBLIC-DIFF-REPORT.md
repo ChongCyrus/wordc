@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T13:20:15.985Z
+- 生成时间：2026-11-12T14:25:58.711Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**361**；修改 **76**；新增 **5**；私有仓未进入公开树 **1816**
+- 公开文件：**371**；修改 **80**；新增 **5**；私有仓未进入公开树 **1851**
 
 ## 结论
 
@@ -33,6 +33,8 @@
 | `docs/prompts/semantics-v4.md` | 配置/文档 | 文本变化 |
 | `docs/qa/ai-0.3.26-raw.json` | 配置 | JSON 字段变化 |
 | `docs/qa/ai-0.3.28-raw.json` | 配置 | JSON 字段变化 |
+| `docs/qa/ai-0.3.28.md` | 配置/文档 | 文本变化 |
+| `docs/qa/ai-regress-0.3.30.md` | 配置/文档 | 文本变化 |
 | `package.json` | 配置 | JSON 字段变化 |
 | `public/packs/dagang/semantics-v37-v4.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
 | `public/packs/dagang/wc-content-full.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
@@ -78,6 +80,8 @@
 | `tests/e2e/algo-independent.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/data-robustness.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/demo-public.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `tests/e2e/qa030-inspect2.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `tests/e2e/qa030-inspect3.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/v2-e2e.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/tools/clean-steps.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/tools/deck-split.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |

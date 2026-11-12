@@ -931,7 +931,9 @@ public class MainActivity extends Activity {
             // 单页应用回退：无扩展名的路径交给 index.html（HashRouter 本不需要，防御 WebView 差异）
             if (assetPath.indexOf('.') < 0) {
                 try {
-                    return new WebResourceResponse("text/html", "utf-8", 200, "OK", null,
+                    Map<String, String> fallbackHeaders = new HashMap<String, String>();
+                    fallbackHeaders.put("Cache-Control", "no-cache");
+                    return new WebResourceResponse("text/html", "utf-8", 200, "OK", fallbackHeaders,
                             getAssets().open(ASSET_ROOT + "index.html"));
                 } catch (IOException ignored) {
                 }

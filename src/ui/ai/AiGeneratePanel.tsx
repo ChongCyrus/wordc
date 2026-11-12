@@ -787,9 +787,12 @@ export function AiGeneratePanel({
             kind: record.kind as GenerationKind,
             mode: 'missing' as AiGenerationMode,
             target: {
-              wordId: record.headwordLower,
+              wordId: (record as { wordId?: string }).wordId ?? record.headwordLower,
               headwordLower: record.headwordLower,
               ...(record.meaningIndex != null ? { meaningIndex: record.meaningIndex } : {}),
+              ...((record as { deckId?: string }).deckId
+                ? { deckId: (record as { deckId?: string }).deckId }
+                : {}),
             },
             item: record.payload,
           }))
@@ -860,6 +863,8 @@ export function AiGeneratePanel({
             .map((result) => ({
               headwordLower: result.target.headwordLower,
               ...(result.target.meaningIndex != null ? { meaningIndex: result.target.meaningIndex } : {}),
+              ...(result.target.wordId ? { wordId: result.target.wordId } : {}),
+              ...(result.target.deckId ? { deckId: result.target.deckId } : {}),
               payload: result.item!,
             }))
           if (appendItems.length > 0 && activeDraftId) {
@@ -982,12 +987,25 @@ export function AiGeneratePanel({
         const selectedEntries = pending.filter((entry) => selected.has(keyOf(entry)))
         if (selectedEntries.length === 0) return
         // task-131：按目标词库分组生成 pack，meta.deckId 显式指定，禁止 import 跨 deck 猜 headword
-        const byDeck = new Map<string, typeof selectedEntries>()
+        // task-132：历史草稿条目可能缺 deckId；按 wordId 反查，单 deck 场景归入同组，避免同一 deck 拆 2 pack
+        const resolved: Array<{ entry: (typeof selectedEntries)[number]; deckId: string }> = []
         for (const entry of selectedEntries) {
-          const deckId = entry.target.deckId ?? ''
-          const list = byDeck.get(deckId) ?? []
-          list.push(entry)
-          byDeck.set(deckId, list)
+          let deckId = entry.target.deckId ?? ''
+          if (!deckId && entry.target.wordId) {
+            const word = await getWord(entry.target.wordId)
+            deckId = word?.deckId ?? ''
+          }
+          resolved.push({ entry, deckId })
+        }
+        const knownDecks = [...new Set(resolved.map((row) => row.deckId).filter(Boolean))]
+        if (knownDecks.length === 1) {
+          for (const row of resolved) if (!row.deckId) row.deckId = knownDecks[0]!
+        }
+        const byDeck = new Map<string, typeof selectedEntries>()
+        for (const row of resolved) {
+          const list = byDeck.get(row.deckId) ?? []
+          list.push(row.entry)
+          byDeck.set(row.deckId, list)
         }
         const settings = await loadAiSettings()
         let appliedTotal = 0

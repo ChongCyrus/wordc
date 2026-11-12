@@ -38,6 +38,8 @@ export interface GenerationDraft {
 export interface GenerationDraftItemInput {
   headwordLower: string
   meaningIndex?: number
+  wordId?: string
+  deckId?: string
   payload: PackItemV1
 }
 
@@ -142,6 +144,8 @@ export async function appendGenerationDraftItems(
         headword: input.payload.headword || lower,
         headwordLower: lower,
         ...(input.meaningIndex != null ? { meaningIndex: input.meaningIndex } : {}),
+        ...(input.wordId ? { wordId: input.wordId } : {}),
+        ...(input.deckId ? { deckId: input.deckId } : {}),
         payload: input.payload,
         status: 'pending',
         contentHashes: [],
@@ -188,6 +192,9 @@ export interface GenerationDraftItem {
   id: string
   headwordLower: string
   meaningIndex?: number
+  /** task-132：resume 合并/按 deck 分组用 */
+  wordId?: string
+  deckId?: string
   kind: GenerationKind
   payload: PackItemV1
 }
@@ -214,6 +221,8 @@ export async function listGenerationDraftItems(draftId: string): Promise<Generat
     id: row.id,
     headwordLower: row.headwordLower,
     ...(row.meaningIndex != null ? { meaningIndex: row.meaningIndex } : {}),
+    ...(row.wordId ? { wordId: row.wordId } : {}),
+    ...(row.deckId ? { deckId: row.deckId } : {}),
     kind: draftItemKind(row.payload),
     payload: row.payload,
   }))

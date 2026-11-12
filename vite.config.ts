@@ -61,13 +61,16 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // task-132：部署后强制新 SW 接管，避免旧构建缓存；mode=development 规避 workbox-build+terser 已知写 SW 失败
         mode: 'development',
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         // 内置词库 chunk 随例句/词组回填会超过 Workbox 默认 2MiB 上限
         // （2026-11 受限商业词表 deck 已达 2.24MB）。提高上限，保证离线首启可完整安装；
         // 仍不够时考虑把 deck 改为 runtimeCaching 或进一步拆分。
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,png,svg,webmanifest,woff2}'],
-        cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',
       },
       devOptions: {

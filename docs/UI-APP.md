@@ -182,6 +182,12 @@
 - 内容包 name/subtitle 同样换行显示；窄屏 360px 与深色模式沿用 tokens。
 - 验收：设置页「减少动效」等长副标题完整可见；内容包名称/说明不出现省略号；按钮不溢出。
 
+## 2.6.12 注解面 per-c 例句修复（task-133）
+
+- `useStudySession` 的 meanings 视图从已加载 `Word.meanings[].examples` 映射（不再只依赖 session 精简含义），保存 AI 例句后 `reloadCurrentWord` 即可在对应 c 行显示。
+- `AnnotationStage` 在含义行下渲染 `meaning.examples`（en/cn 小字），多 c 例句分别挂各自 c。
+- 回归测试覆盖 `meaning.examples` 渲染。
+
 ## 2.6.11 AI 回归 P0/P1 修复（task-132）
 
 - 每次开始生成前（不论是否点「继续」）都 `listGenerationDraftItems` 并入 pending/items/selected，再合并本次结果 → 审核/保存包含历史，关掉审核框再生成不丢历史。

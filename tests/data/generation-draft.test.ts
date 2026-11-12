@@ -36,7 +36,7 @@ describe('task-106 · generation draft', () => {
     expect(draft!.done).toBe(0)
 
     const first = await appendGenerationDraftItems(draft!.id, [
-      { headwordLower: 'alpha', meaningIndex: 1, payload: item('alpha', 1) },
+      { headwordLower: 'alpha', meaningIndex: 1, wordId: 'w-alpha', deckId: 'd1', payload: item('alpha', 1) },
       { headwordLower: 'alpha', meaningIndex: 2, payload: item('alpha', 2) },
     ])
     expect(first.added).toBe(2)
@@ -44,7 +44,7 @@ describe('task-106 · generation draft', () => {
 
     // 幂等：同 headwordLower+meaningIndex 不再追加
     const again = await appendGenerationDraftItems(draft!.id, [
-      { headwordLower: 'alpha', meaningIndex: 1, payload: item('alpha', 1) },
+      { headwordLower: 'alpha', meaningIndex: 1, wordId: 'w-alpha', deckId: 'd1', payload: item('alpha', 1) },
       { headwordLower: 'beta', meaningIndex: 1, payload: item('beta', 1) },
     ])
     expect(again.added).toBe(1)
@@ -95,7 +95,7 @@ describe('task-106 · generation draft', () => {
   it('task-130：listGenerationDraftItems 返回已生成条目并按 payload 推断 kind', async () => {
     const draft = await createGenerationDraft({ scope: null, kind: ['examples', 'mnemonics'] })
     await appendGenerationDraftItems(draft.id, [
-      { headwordLower: 'alpha', meaningIndex: 1, payload: item('alpha', 1) },
+      { headwordLower: 'alpha', meaningIndex: 1, wordId: 'w-alpha', deckId: 'd1', payload: item('alpha', 1) },
       {
         headwordLower: 'alpha', meaningIndex: 2,
         payload: { headword: 'alpha', meaningIndex: 2, mnemonics: [{ type: '联想', text: 'alpha 阿尔法联想' }] },
@@ -103,6 +103,8 @@ describe('task-106 · generation draft', () => {
     ])
     const items = await listGenerationDraftItems(draft.id)
     expect(items.map((entry) => entry.kind)).toEqual(['examples', 'mnemonics'])
+    expect(items[0]!.wordId).toBe('w-alpha')
+    expect(items[0]!.deckId).toBe('d1')
     expect(items.map((entry) => entry.meaningIndex)).toEqual([1, 2])
     await expect(listGenerationDraftItems('missing')).rejects.toThrow(/不存在/)
   })
