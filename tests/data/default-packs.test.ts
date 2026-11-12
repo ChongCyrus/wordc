@@ -15,6 +15,7 @@ import {
   getPackStats,
   isPrivatePacksEnabled,
   pruneSupersededBuiltinSemanticsPacks,
+  resetSemanticsData,
 } from '../../src/data'
 import { computeChecksum } from '../../src/data/checksum'
 import { packChecksumPayload } from '../../src/data/packs/schema'
@@ -410,6 +411,49 @@ describe('task-87：内置内容包首次启动自动导入', () => {
     const effective = await getEffectiveContent(bank.id, `${bank.id}#M1`)
     expect(JSON.stringify(effective)).not.toContain('通读4条释义')
     expect(JSON.stringify(effective)).not.toContain('旧本义')
+  })
+
+
+  it('task-120：resetSemanticsData 删除 semantics 包与 mixed 语义 items，保留 mixed 例句内容', async () => {
+    const deck = await setupDeck()
+    const db = getDb()
+    const bank = (await db.words.toArray()).find((word) => word.headwordLower === 'bank')!
+    const now = Date.now()
+    await db.packs.put({
+      id: 'old-sem', name: '旧语义包', kind: 'semantics', formatVersion: 1, checksum: 'old-sem',
+      source: 'ai', promptVersion: 'v4.0-semantics-grouped', deckId: deck.id, status: 'applied',
+      counts: { items: 1, pending: 0, approved: 0, applied: 1, rejected: 0, skipped: 0 },
+      createdAt: now, updatedAt: now,
+    })
+    await db.packItems.put({
+      id: 'old-sem:1', packId: 'old-sem', seq: 1, headword: 'bank', headwordLower: 'bank',
+      wordId: bank.id, deckId: deck.id, payload: {
+        headword: 'bank', coreSenses: [{ index: 1, label: '旧本义', confidence: 'low' }],
+        meaningMap: [{ meaningIndex: 1, coreSenseIndex: 1, steps: ['通读2条释义', '判定'] }],
+      }, status: 'applied', contentHashes: [], createdAt: now,
+    })
+    await db.packs.put({
+      id: 'mixed', name: '混合包', kind: 'mixed', formatVersion: 1, checksum: 'mixed-checksum',
+      source: 'import', deckId: deck.id, status: 'applied',
+      counts: { items: 2, pending: 0, approved: 0, applied: 2, rejected: 0, skipped: 0 },
+      createdAt: now, updatedAt: now,
+    })
+    await db.packItems.put({
+      id: 'mixed:1', packId: 'mixed', seq: 1, headword: 'bank', headwordLower: 'bank',
+      wordId: bank.id, deckId: deck.id, payload: { headword: 'bank', examples: [{ en: 'keep me', cn: '保留' }] },
+      status: 'applied', contentHashes: [], createdAt: now,
+    })
+    await db.packItems.put({
+      id: 'mixed:2', packId: 'mixed', seq: 2, headword: 'bank', headwordLower: 'bank',
+      wordId: bank.id, deckId: deck.id, payload: { headword: 'bank', coreSenses: [{ index: 1, label: '混合旧义', confidence: 'low' }] },
+      status: 'applied', contentHashes: [], createdAt: now,
+    })
+    const result = await resetSemanticsData()
+    expect(result.removedPacks).toBe(1)
+    expect(result.removedItems).toBeGreaterThanOrEqual(2)
+    expect(await db.packs.get('old-sem')).toBeUndefined()
+    expect(await db.packItems.get('mixed:2')).toBeUndefined()
+    expect(await db.packItems.get('mixed:1')).toBeDefined()
   })
 
 })

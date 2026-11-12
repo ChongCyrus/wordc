@@ -1687,3 +1687,34 @@ export async function pruneSupersededBuiltinSemanticsPacks(
   const removed = new Set(ids)
   return { removed: ids, kept: packs.filter((pack) => !removed.has(pack.id)).map((pack) => pack.id) }
 }
+
+/**
+ * task-120：重置本义数据（内容包管理「重置本义数据」用）。
+ * - 删除全部 semantics pack（pack+items，快路径；语义不写 Word）；
+ * - 删除 mixed pack 中携带 semantics payload 的 items（其它例句/词组内容保留）；
+ * - 不动 Word/学习进度；随后由调用方 ensureDefaultContentPacks({force:true}) 重新应用内置 v4。
+ */
+export async function resetSemanticsData(): Promise<{ removedPacks: number; removedItems: number }> {
+  const db = getDb()
+  const packs = await listPacks()
+  const semanticsIds = packs.filter((pack) => pack.kind === 'semantics').map((pack) => pack.id)
+  let removedItems = 0
+  if (semanticsIds.length > 0) {
+    const count = await db.packItems.where('packId').anyOf(semanticsIds).count()
+    removedItems += count
+    await deletePacks(semanticsIds)
+  }
+  const mixedIds = packs.filter((pack) => pack.kind === 'mixed').map((pack) => pack.id)
+  for (const packId of mixedIds) {
+    const items = await db.packItems.where('packId').equals(packId).toArray()
+    const removable = items.filter(
+      (item) => (item.payload.coreSenses ?? []).length > 0 || (item.payload.meaningMap ?? []).length > 0,
+    )
+    if (removable.length > 0) {
+      await db.packItems.bulkDelete(removable.map((item) => item.id))
+      removedItems += removable.length
+      await refreshPack(packId, Date.now())
+    }
+  }
+  return { removedPacks: semanticsIds.length, removedItems }
+}

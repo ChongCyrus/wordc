@@ -4,7 +4,7 @@
  */
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { dedupePacks, deletePack, ensureDefaultContentPacks, exportPack, listPackItems, listPacks, reapplyPack } from '../../data'
+import { dedupePacks, deletePack, ensureDefaultContentPacks, exportPack, listPackItems, listPacks, reapplyPack, resetSemanticsData } from '../../data'
 import { useToast } from '../../app/toast'
 import { ConfirmDialog } from '../components/Dialog'
 import { dateSuffix, saveBlobFile, saveResultMessage } from '../../app/utils/files'
@@ -339,22 +339,20 @@ export function ContentPackManagerSection() {
         onConfirm={() => {
           void (async () => {
             setBusy(true)
+            setRecheckMessage('正在重置本义数据：清理旧语义包…')
             try {
-              const packs = await listPacks()
-              const semantics = packs.filter(
-                (pack) => pack.kind === 'semantics' || pack.kind === 'mixed',
-              )
-              for (const pack of semantics) {
-                await deletePack(pack.id, { removeAppliedContent: true })
-              }
+              const result = await resetSemanticsData()
+              setRecheckMessage('正在重新应用内置 v4 本义包…')
               const seeded = await ensureDefaultContentPacks({ force: true })
+              setRecheckMessage(null)
               toast.success(
-                `已重置本义数据：清理 ${semantics.length} 个旧包，重新应用内置内容（应用 ${seeded.applied} 条）`,
+                `已重置本义数据：清理 ${result.removedPacks} 个旧语义包 / ${result.removedItems} 条旧语义记录；内置应用 ${seeded.applied} 条`,
               )
               setResetSemanticsConfirm(false)
             } catch (error) {
               toast.error(error instanceof Error ? error.message : '重置本义数据失败')
             } finally {
+              setRecheckMessage(null)
               setBusy(false)
             }
           })()

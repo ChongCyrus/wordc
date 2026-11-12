@@ -73,6 +73,7 @@ export {
   pruneLegacySemanticsPacks,
   pruneSupersededBuiltinSemanticsPacks,
   replacePackContent,
+  resetSemanticsData,
   reapplyAppliedPacks,
   reapplyPack,
   clearContentForReplace,

@@ -345,7 +345,7 @@ export function AiSettingsSection() {
         const current = state.config
         const provider = createLlmProvider()
         await provider.chat(
-          { messages: [{ role: 'user', content: '这句话只用于连通性测试，请回答 ok。' }] },
+          { messages: [{ role: 'user', content: '这句话只用于连通性测试，请回答 ok。' }], jsonMode: false },
           current,
           new AbortController().signal,
         )

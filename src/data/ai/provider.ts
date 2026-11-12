@@ -184,18 +184,18 @@ export function createLlmProvider(opts: CreateLlmProviderOptions = {}): LlmProvi
 
       if (res.status < 200 || res.status >= 300) {
         const info = classifyHttpStatus(res.status)
+        const base =
+          info.code === 'AI_AUTH'
+            ? 'AI 鉴权失败（请检查 Key）'
+            : info.code === 'AI_QUOTA'
+              ? 'AI 配额/余额不足'
+              : info.code === 'AI_RATE_LIMIT'
+                ? 'AI 接口限流，请稍后重试'
+                : `AI 接口返回错误（HTTP ${res.status}）`
+        const bodySnippet = sanitizeSnippet(String(res.text ?? '').slice(0, 200), cfg.apiKey).trim()
         throw new AiRequestError(
           info.code,
-          sanitizeSnippet(
-            info.code === 'AI_AUTH'
-              ? 'AI 鉴权失败（请检查 Key）'
-              : info.code === 'AI_QUOTA'
-                ? 'AI 配额/余额不足'
-                : info.code === 'AI_RATE_LIMIT'
-                  ? 'AI 接口限流，请稍后重试'
-                  : `AI 接口返回错误（HTTP ${res.status}）`,
-            cfg.apiKey,
-          ),
+          bodySnippet ? `${base}：${bodySnippet}` : base,
           { status: res.status, retryable: info.retryable },
         )
       }
