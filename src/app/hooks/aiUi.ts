@@ -20,9 +20,23 @@ export const AI_ERROR_MESSAGES: Record<AiErrorCode, string> = {
   AI_UNKNOWN: '生成失败：请稍后重试。',
 }
 
-export function aiErrorMessage(code: string | undefined, fallback = '生成失败'): string {
-  if (code && code in AI_ERROR_MESSAGES) return AI_ERROR_MESSAGES[code as AiErrorCode]
-  return fallback
+/** 错误码 → 常见 HTTP 状态（用于文案补充；not available 时不加） */
+const AI_ERROR_HTTP: Partial<Record<AiErrorCode, number>> = {
+  AI_AUTH: 401,
+  AI_QUOTA: 402,
+  AI_RATE_LIMIT: 429,
+  AI_TIMEOUT: 408,
+}
+
+export function aiErrorMessage(
+  code: string | undefined,
+  fallback = '生成失败',
+  status?: number,
+): string {
+  if (!code || !(code in AI_ERROR_MESSAGES)) return fallback
+  const message = AI_ERROR_MESSAGES[code as AiErrorCode]
+  const http = status ?? AI_ERROR_HTTP[code as AiErrorCode]
+  return http ? `${message}（HTTP ${http}）` : message
 }
 
 /** 失败分类短文案（summary 计数用；QA S18 P2） */

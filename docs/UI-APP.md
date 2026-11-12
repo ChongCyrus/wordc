@@ -182,6 +182,13 @@
 - 内容包 name/subtitle 同样换行显示；窄屏 360px 与深色模式沿用 tokens。
 - 验收：设置页「减少动效」等长副标题完整可见；内容包名称/说明不出现省略号；按钮不溢出。
 
+## 2.6.8 AI 面板 QA P2 修复（task-127）
+
+- 错误文案补 HTTP 状态：401/402/429/408 显示「（HTTP 401）」等（`aiErrorMessage` 映射）；测试连接与生成共用。
+- 审核条目「（将替换）」仅 cover/replace 模式显示；append 不标。
+- 取消摘要以持久化草稿 `getGenerationDraft().done` 为准（避免本地计数 1/总1 vs DB 0 不一致）。
+- 面板内容底部增加 88px 安全内边距，滚动到底时「开始生成/关闭」不被学习页评分栏遮挡。
+
 ## 2.6.7 AI 面板替换校验/草稿守卫（task-126）
 
 - replace 前校验待应用语义条目 `coreSenses/meaningMap` 非空，应用后校验 `applied>0`；失败 toast 并保留草稿/旧本义，不清空。

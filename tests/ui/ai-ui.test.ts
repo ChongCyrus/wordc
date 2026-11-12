@@ -38,6 +38,9 @@ describe('AI 扩充 UI（task-71）', () => {
       expect(message).not.toMatch(/sk-[A-Za-z0-9]{6,}/)
     }
     expect(aiErrorMessage('AI_AUTH')).toContain('Key 无效')
+    expect(aiErrorMessage('AI_AUTH')).toContain('HTTP 401')
+    expect(aiErrorMessage('AI_QUOTA')).toContain('HTTP 402')
+    expect(aiErrorMessage('AI_RATE_LIMIT')).toContain('HTTP 429')
     expect(aiErrorMessage('AI_RATE_LIMIT')).toContain('频繁')
     expect(aiErrorMessage('AI_CANCELED')).toContain('取消')
     expect(aiErrorMessage('UNKNOWN' as never, '兜底')).toBe('兜底')

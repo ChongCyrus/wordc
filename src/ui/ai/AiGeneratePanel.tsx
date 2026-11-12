@@ -22,6 +22,7 @@ import {
 } from '../../app/hooks/aiUi'
 import {
   appendGenerationDraftItems,
+  getGenerationDraft,
   estimateBatchCost,
   applyApproved,
   approveItems,
@@ -145,7 +146,7 @@ export function AiGenerateView({
   onDiscardDraft,
 }: AiGenerateViewProps) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 88 }}>
       {draftMessage ? (
         <div className="mm-caption" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span>{draftMessage}</span>
@@ -796,10 +797,9 @@ export function AiGeneratePanel({
             allResults.push({
               key: keyOf({ kind, target: result.target }),
               headword: result.target.headword,
-              kindLabel:
-                (modes[kind] ?? 'missing') === 'missing'
-                  ? aiKindLabel(kind)
-                  : `${aiKindLabel(kind)}（将替换）`,
+              kindLabel: ['cover', 'replace'].includes(modes[kind] ?? 'missing')
+                ? `${aiKindLabel(kind)}（将替换）`
+                : aiKindLabel(kind),
               lines: itemLines(kind, result.item),
             })
           }
@@ -835,7 +835,16 @@ export function AiGeneratePanel({
         }
         // QA S18 P2：402/429/408 等不能只显示「失败 N 条」，要展示分类文案
         if (canceled) {
-          setSummary(`已取消，草稿已保存：${formatDraftProgress(done, total)}`)
+          let persistedDone = done
+          if (activeDraftId) {
+            try {
+              const draft = await getGenerationDraft(activeDraftId)
+              if (draft) persistedDone = draft.done
+            } catch {
+              /* 保留本地计数兜底 */
+            }
+          }
+          setSummary(`已取消，草稿已保存：${formatDraftProgress(persistedDone, total)}`)
           return
         }
         if (!isDraftComplete(cursor, total)) {

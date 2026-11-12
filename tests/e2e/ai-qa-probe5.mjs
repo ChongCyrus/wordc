@@ -1,0 +1,22 @@
+import { launch, newContext, BASE, waitSeededHome, setupAi, injectPlanForWord, clickHomeLearn, enterAnnotation, openAiPanel, shot, makeMockState, installMock, sleep, listDrafts } from './ai-qa-lib.mjs'
+const browser = await launch(); const { context, page, bag } = await newContext(browser); await installMock(page, makeMockState())
+await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 }); await waitSeededHome(page); await setupAi(page)
+const injected = await injectPlanForWord(page, 1, { headword: 'address' }); console.log('word',injected.headword, 'meanings', injected.meaningCount)
+await page.reload({ waitUntil: 'domcontentloaded' }); await waitSeededHome(page); await clickHomeLearn(page); await enterAnnotation(page)
+const gen = await openAiPanel(page); await sleep(1000)
+const t = async(label)=>{ await sleep(1500); const txt=(await gen.innerText()).replace(/\s+/g,' '); console.log(label, '|', txt.match(/目标：\d+ 个词\/含义[^|]*?·[^·]*?(?= 预计| 本义| 没有| 开始)/)?.[0] ?? txt.match(/目标：\d+ 个词\/含义/)?.[0], '| startDisabled=', await gen.getByRole('button',{name:'开始生成',exact:true}).isDisabled(), '| err=', /请先勾选|请至少选择/.test(txt)) }
+await t('initial missing')
+const sel=gen.getByLabel('例句生成模式')
+await sel.selectOption('append'); await t('append')
+await sel.selectOption('missing'); await t('missing again')
+await gen.getByRole('button',{name:'指定含义',exact:true}).click(); await t('meanings none')
+const c1=gen.getByRole('checkbox',{name:'选择含义 c1'}); await c1.click(); await t('meanings c1')
+await page.waitForTimeout(1500); console.log('meanings c1 text', (await gen.innerText()).replace(/\s+/g,' ').match(/目标：[^|]*/)?.[0])
+const c2=gen.getByRole('checkbox',{name:'选择含义 c2'}); await c2.click(); await t('meanings c1+c2')
+console.log('rejects', await page.evaluate(async()=>{const db=await new Promise(r=>{const q=indexedDB.open('momo-reword');q.onsuccess=()=>r(q.result)});return await new Promise(r=>{const q=db.transaction('contentRejects','readonly').objectStore('contentRejects').count();q.onsuccess=()=>r(q.result)})}))
+// current word scope
+await gen.getByRole('button',{name:'当前词',exact:true}).click(); await t('word scope')
+console.log('after word text', (await gen.innerText()).replace(/\s+/g,' ').match(/目标：[^|]*/)?.[0])
+console.log('bag', bag.consoleErrors, bag.pageErrors)
+await shot(page,'probe5')
+await context.close(); await browser.close()
