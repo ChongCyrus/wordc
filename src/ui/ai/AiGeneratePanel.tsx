@@ -25,7 +25,6 @@ import {
   getGenerationDraft,
   listGenerationDraftItems,
   estimateBatchCost,
-  applyApproved,
   applyGeneratedPack,
   applyReplacementPack,
   clearGenerationDraft,
@@ -581,7 +580,7 @@ export function AiGeneratePanel({
   const [summary, setSummary] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<AiReviewItem[]>([])
-  const [pending, setPending] = useState<Array<{ kind: GenerationKind; mode: AiGenerationMode; target: { wordId: string; headwordLower: string; meaningIndex?: number }; item: PackItemV1 }>>([])
+  const [pending, setPending] = useState<Array<{ kind: GenerationKind; mode: AiGenerationMode; target: { wordId: string; deckId?: string; headwordLower: string; meaningIndex?: number }; item: PackItemV1 }>>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [controller, setController] = useState<AbortController | null>(null)
   const [modes, setModes] = useState<Record<GenerationKind, AiGenerationMode>>({
@@ -933,73 +932,83 @@ export function AiGeneratePanel({
       try {
         const selectedEntries = pending.filter((entry) => selected.has(keyOf(entry)))
         if (selectedEntries.length === 0) return
-        const kindsUsed = [...new Set(selectedEntries.map((entry) => entry.kind))] as GenerationKind[]
-        const packKind = kindsUsed.length === 1 ? kindsUsed[0] : 'mixed'
-        const items = selectedEntries.map((entry) => ({
-          ...entry.item,
-          ...(entry.item.mnemonics
-            ? {
-                mnemonics: entry.item.mnemonics.map((mnemonic) => ({
-                  type: toCoreMnemonicType(mnemonic.type),
-                  text: mnemonic.text,
-                })),
-              }
-            : {}),
-        }))
-        const checksum = await computeChecksum(
-          stableStringify({ format: 'momo-pack', formatVersion: 1, kind: packKind, items }),
-        )
+        // task-131：按目标词库分组生成 pack，meta.deckId 显式指定，禁止 import 跨 deck 猜 headword
+        const byDeck = new Map<string, typeof selectedEntries>()
+        for (const entry of selectedEntries) {
+          const deckId = entry.target.deckId ?? ''
+          const list = byDeck.get(deckId) ?? []
+          list.push(entry)
+          byDeck.set(deckId, list)
+        }
         const settings = await loadAiSettings()
-        const packFile = {
-          format: 'momo-pack',
-          formatVersion: 1,
-          kind: packKind,
-          createdAt: Date.now(),
-          generator: 'wordc-ai',
-          items,
-          checksum: checksum.hex,
-          meta: {
-            name: 'AI 生成',
-            source: 'ai',
-            provider: settings.config.provider,
-            model: settings.config.model,
-            promptVersion,
-            checksumAlgo: checksum.algo,
-          },
-        }
-        const imported = await importContentPack(JSON.stringify(packFile))
-        if (!imported.ok || !imported.packId) {
-          throw new Error(imported.issues?.[0]?.message ?? '内容包导入失败')
-        }
-        const replaceEntries = selectedEntries.filter((entry) => entry.mode === 'replace')
-        // P1：replace 时必须有待应用语义内容，且应用后确有替换，否则保留旧内容/草稿
-        if (replaceEntries.length > 0) {
-          const hasSemantics = replaceEntries.every((entry) => {
-            const item = entry.item as unknown as
-              | { coreSenses?: unknown[]; meaningMap?: unknown[] }
-              | undefined
-            return (
-              entry.kind !== 'semantics' ||
-              ((item?.coreSenses?.length ?? 0) > 0 && (item?.meaningMap?.length ?? 0) > 0)
-            )
-          })
-          if (!hasSemantics) {
-            throw new Error('替换内容为空或格式不完整：已保留原内容与草稿，请重新生成')
+        let appliedTotal = 0
+        let skippedTotal = 0
+        for (const [deckId, entries] of byDeck) {
+          const kindsUsed = [...new Set(entries.map((entry) => entry.kind))] as GenerationKind[]
+          const packKind = kindsUsed.length === 1 ? kindsUsed[0] : 'mixed'
+          const items = entries.map((entry) => ({
+            ...entry.item,
+            ...(entry.item.mnemonics
+              ? {
+                  mnemonics: entry.item.mnemonics.map((mnemonic) => ({
+                    type: toCoreMnemonicType(mnemonic.type),
+                    text: mnemonic.text,
+                  })),
+                }
+              : {}),
+          }))
+          const checksum = await computeChecksum(
+            stableStringify({ format: 'momo-pack', formatVersion: 1, kind: packKind, items }),
+          )
+          const packFile = {
+            format: 'momo-pack' as const,
+            formatVersion: 1 as const,
+            kind: packKind,
+            createdAt: Date.now(),
+            generator: 'wordc-ai',
+            items,
+            checksum: checksum.hex,
+            meta: {
+              name: 'AI 生成',
+              source: 'ai' as const,
+              provider: settings.config.provider,
+              model: settings.config.model,
+              promptVersion,
+              checksumAlgo: checksum.algo,
+              ...(deckId ? { deckId } : {}),
+            },
+          }
+          const imported = await importContentPack(JSON.stringify(packFile))
+          if (!imported.ok || !imported.packId) {
+            throw new Error(imported.issues?.[0]?.message ?? '内容包导入失败')
+          }
+          const replaceEntries = entries.filter((entry) => entry.mode === 'replace')
+          if (replaceEntries.length > 0) {
+            const hasSemantics = replaceEntries.every((entry) => {
+              const item = entry.item as unknown as
+                | { coreSenses?: unknown[]; meaningMap?: unknown[] }
+                | undefined
+              return (
+                entry.kind !== 'semantics' ||
+                ((item?.coreSenses?.length ?? 0) > 0 && (item?.meaningMap?.length ?? 0) > 0)
+              )
+            })
+            if (!hasSemantics) {
+              throw new Error('替换内容为空或格式不完整：已保留原内容与草稿，请重新生成')
+            }
+            const wordIds = [...new Set(replaceEntries.map((entry) => entry.target.wordId))]
+            const kinds = [...new Set(replaceEntries.map((entry) => entry.kind))]
+            const replacement = await applyReplacementPack(imported.packId, wordIds, kinds as never)
+            if (replacement.applied <= 0) throw new Error('替换未应用任何内容，旧数据已保留')
+            appliedTotal += replacement.applied
+            skippedTotal += replacement.skipped
+          } else {
+            const applied = await applyGeneratedPack(imported.packId)
+            appliedTotal += applied.applied
+            skippedTotal += applied.skipped
           }
         }
-        let applied: Awaited<ReturnType<typeof applyApproved>>
-        if (replaceEntries.length > 0) {
-          const wordIds = [...new Set(replaceEntries.map((entry) => entry.target.wordId))]
-          const kinds = [...new Set(replaceEntries.map((entry) => entry.kind))]
-          const replacement = await applyReplacementPack(imported.packId, wordIds, kinds as never)
-          if (replacement.applied <= 0) throw new Error('替换未应用任何内容，旧数据已保留')
-          applied = replacement
-        } else {
-          applied = await applyGeneratedPack(imported.packId)
-        }
-        if (replaceEntries.length > 0 && applied.applied <= 0) {
-          throw new Error('替换未生效：已保留原内容与草稿，请重试')
-        }
+        const applied = { applied: appliedTotal, skipped: skippedTotal }
         toast.success(`已应用 ${applied.applied} 条生成内容（跳过 ${applied.skipped}）`)
         if (activeDraftId) await clearGenerationDraft(activeDraftId)
         setDraftId(null)

@@ -404,4 +404,34 @@ describe('task-90：pack.meta.deckId 优先解析（多词库同 headword）', (
     expect(again.retried).toBe(0)
     expect((await getDb().words.get(`${dagang.id}:embrace`))!.meanings).toHaveLength(1)
   })
+
+  it('task-131：AI pack meta.deckId 指定当前 deck，同 headword 两个 c 都落到该词而非其它 deck', async () => {
+    const hong = await createDeck({ name: '受限商业词表', words: [{ headword: 'fragment', meanings: [{ pos: 'n.', cn: '碎片' }, { pos: 'v.', cn: '使碎裂' }] }] })
+    const dagang = await createDeck({ name: '大纲', words: [{ headword: 'fragment', meanings: [{ pos: 'n.', cn: '片段' }] }] })
+    const file = await makePack(
+      [{
+        headword: 'fragment',
+        coreSenses: [{ index: 1, label: '碎片', confidence: 'high' }, { index: 2, label: '使碎裂', confidence: 'high' }],
+        meaningMap: [{ meaningIndex: 1, coreSenseIndex: 1 }, { meaningIndex: 2, coreSenseIndex: 2 }],
+      }],
+      'semantics',
+      { deckId: hong.id },
+    )
+    const imported = await importPack(JSON.stringify(file))
+    expect(imported.ok).toBe(true)
+    expect(imported.preview.matched).toHaveLength(1)
+    const items = await listPackItems(imported.packId!)
+    await approveItems(imported.packId!, items.map((item) => item.id))
+    const applied = await applyApproved(imported.packId!)
+    expect(applied.applied).toBe(1)
+    const db = getDb()
+    const hongWord = (await db.words.where('deckId').equals(hong.id).toArray()).find((word) => word.headwordLower === 'fragment')!
+    const dagangWord = (await db.words.where('deckId').equals(dagang.id).toArray()).find((word) => word.headwordLower === 'fragment')!
+    const effective = await getEffectiveContent(hongWord.id, `${hongWord.id}#M2`)
+    expect(effective).not.toBeNull()
+    expect(JSON.stringify(effective)).not.toContain('片段')
+    const dagangItems = await db.packItems.where('wordId').equals(dagangWord.id).count()
+    expect(dagangItems).toBe(0)
+  })
+
 })

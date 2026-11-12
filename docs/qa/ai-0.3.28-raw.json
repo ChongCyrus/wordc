@@ -1,0 +1,1035 @@
+{
+  "startedAt": "2026-11-12T12:57:03.587Z",
+  "base": "http://127.0.0.1:4190/",
+  "build": "index-BfF_vX45.js",
+  "versionText": "0.3.28 (APK PWA index-BfF_vX45.js) @ 127.0.0.1:4190",
+  "profile": "/tmp/qa028-profile",
+  "scenarios": {
+    "S1 双击（真实API）": {
+      "ok": true,
+      "ms": 84745,
+      "word": {
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "headword": "address",
+        "meaningCount": 12,
+        "meanings": [
+          {
+            "cn": "地址",
+            "pos": "n."
+          },
+          {
+            "cn": "演讲",
+            "pos": "n."
+          },
+          {
+            "cn": "致辞",
+            "pos": "n."
+          },
+          {
+            "cn": "说话的技巧",
+            "pos": "n."
+          },
+          {
+            "cn": "称呼",
+            "pos": "n."
+          },
+          {
+            "cn": "演说",
+            "pos": "vt."
+          },
+          {
+            "cn": "从事",
+            "pos": "vt."
+          },
+          {
+            "cn": "忙于",
+            "pos": "vt."
+          },
+          {
+            "cn": "写姓名地址",
+            "pos": "vt."
+          },
+          {
+            "cn": "向…致辞",
+            "pos": "vt."
+          },
+          {
+            "cn": "与…说话",
+            "pos": "vt."
+          },
+          {
+            "cn": "提出",
+            "pos": "vt."
+          }
+        ]
+      },
+      "single": {
+        "btnBox": {
+          "x": 45,
+          "y": 607.40625,
+          "width": 144,
+          "height": 44
+        },
+        "hit": {
+          "tag": "BUTTON",
+          "cls": "mm-btn mm-btn--primary",
+          "text": "开始生成"
+        },
+        "runningAfter500ms": true,
+        "panelAt500ms": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.2",
+        "calls": 0,
+        "reviewShown": true,
+        "reviewItems": 1,
+        "reviewText": "审核生成内容（1） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 Please write your address on the form. — 请在表格上写下你的地址。 The president gave an address to the nation. — 总统向全国发表了讲话。 ❌ 全不选 保存已选（1） 关闭",
+        "callsTotal": 1
+      },
+      "dbl": {},
+      "save": {
+        "closed": true,
+        "elapsed": 13917,
+        "clickError": null,
+        "toasts": [
+          "已应用 1 条生成内容（跳过 0）",
+          "已应用 0 条生成内容（跳过 1）"
+        ],
+        "packs": [
+          {
+            "id": "pk_1794488254315_j9sfs9",
+            "name": "WordC AI 扩展包 · 2027 考研大纲（w-c 级）",
+            "kind": "mixed",
+            "status": "reviewing",
+            "source": "ai",
+            "draft": false,
+            "items": 6921,
+            "applied": 0
+          },
+          {
+            "id": "pk_1794488284816_t1r9om",
+            "name": "AI 生成",
+            "kind": "examples",
+            "status": "applied",
+            "source": "ai",
+            "draft": false,
+            "items": 1,
+            "applied": 1
+          },
+          {
+            "id": "pk_1794488285254_3dca5l",
+            "name": "AI 生成",
+            "kind": "examples",
+            "status": "reviewing",
+            "source": "ai",
+            "draft": false,
+            "items": 1,
+            "applied": 0
+          },
+          {
+            "id": "pk_1794488296577_6kcvj3",
+            "name": "受限商业词表本义链-全量6702词（v4 重生成 2451 词）",
+            "kind": "semantics",
+            "status": "reviewing",
+            "source": "import",
+            "draft": false,
+            "items": 6702,
+            "applied": 0
+          }
+        ],
+        "drafts": [],
+        "annotation": {
+          "core": [],
+          "examples": [
+            "address an audience 向听众发表讲话",
+            "Please write your address on the form. 请在表格上写下你的地址。",
+            "The president gave an address to the nation. 总统向全国发表了讲话。"
+          ],
+          "phrases": [
+            "email address — 电子邮箱信箱",
+            "ip address — 网络地址，IP地址",
+            "address book — 通讯簿；住址名册",
+            "home address — 家庭住址；标识地址；内部地址",
+            "mailing address — 邮寄地址",
+            "network address — 网络地址",
+            "address space — 地址空间",
+            "address as — 称呼"
+          ],
+          "meanings": [
+            "[名]地址 0/1 0%",
+            "[名]演讲 0/1 0%",
+            "[名]致辞 0/1 0%",
+            "[名]说话的技巧 0/1 0%",
+            "[名]称呼 0/1 0%",
+            "[动]演说 0/1 0%",
+            "[动]从事 0/1 0%",
+            "[动]忙于 0/1 0%",
+            "[动]写姓名地址 0/1 0%",
+            "[动]向…致辞 0/1 0%",
+            "[动]与…说话 0/1 0%",
+            "[动]提出 0/1 0%"
+          ],
+          "bodyText": "address [名]地址 0/1 0% [名]演讲 0/1 0% [名]致辞 0/1 0% [名]说话的技巧 0/1 0% [名]称呼 0/1 0% [动]演说 0/1 0% [动]从事 0/1 0% [动]忙于 0/1 0% [动]写姓名地址 0/1 0% [动]向…致辞 0/1 0% [动]与…说话 0/1 0% [动]提出 0/1 0% 例句 address an audience 向听众发表讲话 Please write your address on the form. 请在表格上写下你的地址。 The president gave an address to the nation. 总统向全国发表了讲话。 词组 email address — 电子邮箱信箱 ip address — 网络地址，IP地址 address book — 通讯簿；住址名册 home address — 家庭住址；标识地址；内部地址 mailing address — 邮寄地址 network address — 网络地址 address space — 地址空间 address as — 称呼"
+        },
+        "snapshot": {
+          "id": "kaoyan-2027-dagang:address",
+          "headword": "address",
+          "meanings": [
+            {
+              "cn": "演说、地址",
+              "examples": 2
+            }
+          ],
+          "coreSenses": null,
+          "meaningMap": null,
+          "examples": [
+            {
+              "en": "address an audience",
+              "cn": "向听众发表讲话"
+            }
+          ],
+          "phrases": [
+            {
+              "en": "email address",
+              "cn": "电子邮箱信箱"
+            },
+            {
+              "en": "ip address",
+              "cn": "网络地址，IP地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "address book",
+              "cn": "通讯簿；住址名册"
+            },
+            {
+              "en": "home address",
+              "cn": "家庭住址；标识地址；内部地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "mailing address",
+              "cn": "邮寄地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "network address",
+              "cn": "网络地址",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "address space",
+              "cn": "地址空间",
+              "meaningId": "kaoyan-2027-dagang:address#M1"
+            },
+            {
+              "en": "address as",
+              "cn": "称呼"
+            }
+          ],
+          "mnemonics": [
+            {
+              "type": "串记",
+              "text": "把话“指向”听众讲出来，address 就是演说。"
+            }
+          ],
+          "appliedItems": [],
+          "state": null
+        },
+        "packsNow": [
+          {
+            "kind": "mixed",
+            "status": "reviewing",
+            "draft": null
+          },
+          {
+            "kind": "examples",
+            "status": "applied",
+            "draft": null
+          },
+          {
+            "kind": "examples",
+            "status": "reviewing",
+            "draft": null
+          },
+          {
+            "kind": "semantics",
+            "status": "reviewing",
+            "draft": null
+          }
+        ],
+        "domExamples": [
+          "address an audience 向听众发表讲话",
+          "Please write your address on the form. 请在表格上写下你的地址。",
+          "The president gave an address to the nation. 总统向全国发表了讲话。"
+        ]
+      },
+      "target": 1,
+      "panel": {
+        "text": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 开始生成 关闭",
+        "target": 1,
+        "est": "0.22"
+      }
+    },
+    "S2 双击开始生成（真实API）": {
+      "ok": true,
+      "ms": 123137,
+      "target": 1,
+      "box": {
+        "x": 45,
+        "y": 607.40625,
+        "width": 144,
+        "height": 44
+      },
+      "after400": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 取消生成 关闭",
+      "cancelVisible": true,
+      "reviewShown": false,
+      "calls": 0,
+      "panelAfter": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 已取消，草稿已保存：已生成 0 / 总 1（草稿已保存） 开始生成 关闭"
+    },
+    "S3 多kind（真实API）": {
+      "ok": true,
+      "ms": 62422,
+      "target": 2,
+      "panel": {
+        "text": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 ✓ 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 词组 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：2 个词/含义 · 例句 / 词组 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.44 / 单次上限 ¥3.00 开始生成 关闭",
+        "target": 2,
+        "est": "0.44"
+      },
+      "reviewShown": true,
+      "calls": 2,
+      "reviewItems": 2,
+      "reviewText": "审核生成内容（2） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 She gave a moving address at the graduation ceremony. — 她在毕业典礼上发表了感人的演讲。 The mayor addressed the crowd gathered in the square. — 市长向聚集在广场上的人群致辞。 ❌ address · 词组 deliver an address — 发表演讲 address the meeting — 向会议致辞 address a problem — 着手处理问题 ❌ 全不选 保存已选（2） 关闭",
+      "save": {
+        "closed": true,
+        "toasts": [],
+        "packs": [
+          {
+            "id": "pk_1794488284816_t1r9om",
+            "name": "AI 生成",
+            "kind": "examples",
+            "status": "applied",
+            "source": "ai",
+            "draft": false,
+            "items": 1,
+            "applied": 1
+          },
+          {
+            "id": "pk_1794488285254_3dca5l",
+            "name": "AI 生成",
+            "kind": "examples",
+            "status": "reviewing",
+            "source": "ai",
+            "draft": false,
+            "items": 1,
+            "applied": 0
+          },
+          {
+            "id": "pk_1794488486101_uz198f",
+            "name": "AI 生成",
+            "kind": "mixed",
+            "status": "applied",
+            "source": "ai",
+            "draft": false,
+            "items": 2,
+            "applied": 1
+          }
+        ],
+        "applied": 2
+      },
+      "snapshot": {
+        "id": "kaoyan-2027-dagang:address",
+        "headword": "address",
+        "meanings": [
+          {
+            "cn": "演说、地址",
+            "examples": 2
+          }
+        ],
+        "coreSenses": null,
+        "meaningMap": null,
+        "examples": [
+          {
+            "en": "address an audience",
+            "cn": "向听众发表讲话"
+          }
+        ],
+        "phrases": [
+          {
+            "en": "email address",
+            "cn": "电子邮箱信箱"
+          },
+          {
+            "en": "ip address",
+            "cn": "网络地址，IP地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address book",
+            "cn": "通讯簿；住址名册"
+          },
+          {
+            "en": "home address",
+            "cn": "家庭住址；标识地址；内部地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "mailing address",
+            "cn": "邮寄地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "network address",
+            "cn": "网络地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address space",
+            "cn": "地址空间",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address as",
+            "cn": "称呼"
+          }
+        ],
+        "mnemonics": [
+          {
+            "type": "串记",
+            "text": "把话“指向”听众讲出来，address 就是演说。"
+          }
+        ],
+        "appliedItems": [],
+        "state": null
+      },
+      "annotation": {
+        "core": [
+          "本义1「地址」 住处或通信处，也指写地址 词源：拉丁 ad-向+directus 使直",
+          "本义2「演讲」 正式讲话、致辞 词源：同源 addresser 致意、进言",
+          "本义3「称呼」 对人使用的称谓 词源：同源 addresser 称谓",
+          "本义4「处理」 着手应对、致力于 词源：同源 address 指向、着手"
+        ],
+        "examples": [
+          "address an audience 向听众发表讲话",
+          "Please write your address on the form. 请在表格上写下你的地址。",
+          "The president gave an address to the nation. 总统向全国发表了讲话。",
+          "She gave a moving address at the graduation ceremony. 她在毕业典礼上发表了感人的演讲。",
+          "The mayor addressed the crowd gathered in the square. 市长向聚集在广场上的人群致辞。"
+        ],
+        "phrases": [
+          "email address — 电子邮箱信箱",
+          "ip address — 网络地址，IP地址",
+          "address book — 通讯簿；住址名册",
+          "home address — 家庭住址；标识地址；内部地址",
+          "mailing address — 邮寄地址",
+          "network address — 网络地址",
+          "address space — 地址空间",
+          "address as — 称呼"
+        ],
+        "meanings": [
+          "[名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址",
+          "[名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as",
+          "[动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[动]从事 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+          "[动]忙于 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+          "[动]写姓名地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址",
+          "[动]向…致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[动]与…说话 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[动]提出 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出"
+        ],
+        "bodyText": "address 本义1「地址」 住处或通信处，也指写地址 词源：拉丁 ad-向+directus 使直 本义2「演讲」 正式讲话、致辞 词源：同源 addresser 致意、进言 本义3「称呼」 对人使用的称谓 词源：同源 addresser 称谓 本义4「处理」 着手应对、致力于 词源：同源 address 指向、着手 [名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 [名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as [动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]从事 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 [动]忙于 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 [动]写姓名地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 [动]向…致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]与…说话 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]提出 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 例句 address an audien"
+      },
+      "landed": {
+        "examples": 1,
+        "phrases": 8,
+        "domExamples": 5,
+        "domPhrases": 8
+      }
+    },
+    "S4 多c（mock）": {
+      "ok": true,
+      "ms": 69647,
+      "meanings": [
+        "c1 n. 地址",
+        "c2 n. 演讲",
+        "c3 n. 致辞",
+        "c4 n. 说话的技巧",
+        "c5 n. 称呼"
+      ],
+      "target": 2,
+      "panel": {
+        "text": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 选择含义（可多选） c1 n. 地址 c2 n. 演讲 c3 n. 致辞 c4 n. 说话的技巧 c5 n. 称呼 c6 vt. 演说 c7 vt. 从事 c8 vt. 忙于 c9 vt. 写姓名地址 c10 vt. 向…致辞 c11 vt. 与…说话 c12 vt. 提出 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：2 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.44 / 单次上限 ¥3.00 开始生成 关闭",
+        "target": 2,
+        "est": "0.44"
+      },
+      "reviewShown": true,
+      "calls": 1,
+      "reviewItems": 2,
+      "reviewText": "审核生成内容（2） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 QA-1 ex 1 for address — QA-1 例句 1 ❌ address · 例句 QA-1 ex 2 for address — QA-1 例句 2 ❌ 全不选 保存已选（2） 关闭",
+      "snapshot": {
+        "id": "kaoyan-2027-dagang:address",
+        "headword": "address",
+        "meanings": [
+          {
+            "cn": "演说、地址",
+            "examples": 2
+          }
+        ],
+        "coreSenses": null,
+        "meaningMap": null,
+        "examples": [
+          {
+            "en": "address an audience",
+            "cn": "向听众发表讲话"
+          }
+        ],
+        "phrases": [
+          {
+            "en": "email address",
+            "cn": "电子邮箱信箱"
+          },
+          {
+            "en": "ip address",
+            "cn": "网络地址，IP地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address book",
+            "cn": "通讯簿；住址名册"
+          },
+          {
+            "en": "home address",
+            "cn": "家庭住址；标识地址；内部地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "mailing address",
+            "cn": "邮寄地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "network address",
+            "cn": "网络地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address space",
+            "cn": "地址空间",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address as",
+            "cn": "称呼"
+          }
+        ],
+        "mnemonics": [
+          {
+            "type": "串记",
+            "text": "把话“指向”听众讲出来，address 就是演说。"
+          }
+        ],
+        "appliedItems": [],
+        "state": null
+      },
+      "save": {
+        "closed": true,
+        "toasts": [
+          "已应用 0 条生成内容（跳过 2）"
+        ],
+        "packs": [
+          {
+            "id": "pk_1794489076075_t55mxz",
+            "name": "AI 生成",
+            "kind": "examples",
+            "status": "reviewing",
+            "source": "ai",
+            "draft": false,
+            "items": 2,
+            "applied": 0
+          }
+        ]
+      },
+      "skipReasons": [
+        {
+          "status": "skipped",
+          "reason": "duplicate",
+          "headword": "a",
+          "meaningIndex": 1,
+          "meaningId": "kaoyan-2027-dagang:a#M1",
+          "payloadKeys": [
+            "headword",
+            "headwordLower",
+            "meaningIndex",
+            "examples",
+            "phrases",
+            "mnemonics"
+          ]
+        },
+        {
+          "status": "skipped",
+          "reason": "duplicate",
+          "headword": "ago",
+          "meaningIndex": 1,
+          "meaningId": "kaoyan-2027-dagang:ago#M1",
+          "payloadKeys": [
+            "headword",
+            "headwordLower",
+            "meaningIndex",
+            "examples",
+            "phrases",
+            "mnemonics"
+          ]
+        },
+        {
+          "status": "skipped",
+          "reason": "duplicate",
+          "headword": "different",
+          "meaningIndex": 1,
+          "meaningId": "kaoyan-2027-dagang:different#M1",
+          "payloadKeys": [
+            "headword",
+            "headwordLower",
+            "meaningIndex",
+            "examples",
+            "phrases",
+            "mnemonics"
+          ]
+        },
+        {
+          "status": "skipped",
+          "reason": "duplicate",
+          "headword": "classroom",
+          "meaningIndex": 1,
+          "meaningId": "kaoyan-2027-dagang:classroom#M1",
+          "payloadKeys": [
+            "headword",
+            "headwordLower",
+            "meaningIndex",
+            "examples",
+            "phrases",
+            "mnemonics"
+          ]
+        },
+        {
+          "status": "skipped",
+          "reason": "duplicate",
+          "headword": "clock",
+          "meaningIndex": 1,
+          "meaningId": "kaoyan-2027-dagang:clock#M1",
+          "payloadKeys": [
+            "headword",
+            "headwordLower",
+            "meaningIndex",
+            "examples",
+            "phrases",
+            "mnemonics"
+          ]
+        },
+        {
+          "status": "skipped",
+          "reason": "duplicate",
+          "headword": "clothe",
+          "meaningIndex": 1,
+          "meaningId": "kaoyan-2027-dagang:clothe#M1",
+          "payloadKeys": [
+            "headword",
+            "headwordLower",
+            "meaningIndex",
+            "examples",
+            "phrases",
+            "mnemonics"
+          ]
+        }
+      ],
+      "annotation": {
+        "core": [],
+        "examples": [
+          "address an audience 向听众发表讲话",
+          "Please write your address on the form. 请在表格上写下你的地址。",
+          "The president gave an address to the nation. 总统向全国发表了讲话。",
+          "She gave a moving address at the graduation ceremony. 她在毕业典礼上发表了感人的演讲。",
+          "The mayor addressed the crowd gathered in the square. 市长向聚集在广场上的人群致辞。"
+        ],
+        "phrases": [
+          "email address — 电子邮箱信箱",
+          "ip address — 网络地址，IP地址",
+          "address book — 通讯簿；住址名册",
+          "home address — 家庭住址；标识地址；内部地址",
+          "mailing address — 邮寄地址",
+          "network address — 网络地址",
+          "address space — 地址空间",
+          "address as — 称呼"
+        ],
+        "meanings": [
+          "[名]地址 0/1 0%",
+          "[名]演讲 0/1 0%",
+          "[名]致辞 0/1 0%",
+          "[名]说话的技巧 0/1 0%",
+          "[名]称呼 0/1 0%",
+          "[动]演说 0/1 0%",
+          "[动]从事 0/1 0%",
+          "[动]忙于 0/1 0%",
+          "[动]写姓名地址 0/1 0%",
+          "[动]向…致辞 0/1 0%",
+          "[动]与…说话 0/1 0%",
+          "[动]提出 0/1 0%"
+        ],
+        "bodyText": "address [名]地址 0/1 0% [名]演讲 0/1 0% [名]致辞 0/1 0% [名]说话的技巧 0/1 0% [名]称呼 0/1 0% [动]演说 0/1 0% [动]从事 0/1 0% [动]忙于 0/1 0% [动]写姓名地址 0/1 0% [动]向…致辞 0/1 0% [动]与…说话 0/1 0% [动]提出 0/1 0% 例句 address an audience 向听众发表讲话 Please write your address on the form. 请在表格上写下你的地址。 The president gave an address to the nation. 总统向全国发表了讲话。 She gave a moving address at the graduation ceremony. 她在毕业典礼上发表了感人的演讲。 The mayor addressed the crowd gathered in the square. 市长向聚集在广场上的人群致辞。 词组 email address — 电子邮箱信箱 ip address — 网络地址，IP地址 address book — 通讯簿；住址名册 home address — 家庭住址；标识地址；内部地址 mailing address — 邮寄地址 network address — 网络地址 address space — 地址空间 address as — 称呼"
+      },
+      "landed": {
+        "examples": 1,
+        "meaningIds": [
+          null
+        ]
+      }
+    },
+    "S5 append/cover 混合（mock）": {
+      "ok": true,
+      "ms": 124268,
+      "before": {
+        "examples": 1,
+        "phrases": 8
+      },
+      "beforeAnnotation": {
+        "core": [],
+        "examples": [
+          "address an audience 向听众发表讲话",
+          "Please write your address on the form. 请在表格上写下你的地址。",
+          "The president gave an address to the nation. 总统向全国发表了讲话。",
+          "She gave a moving address at the graduation ceremony. 她在毕业典礼上发表了感人的演讲。",
+          "The mayor addressed the crowd gathered in the square. 市长向聚集在广场上的人群致辞。"
+        ],
+        "phrases": [
+          "email address — 电子邮箱信箱",
+          "ip address — 网络地址，IP地址",
+          "address book — 通讯簿；住址名册",
+          "home address — 家庭住址；标识地址；内部地址",
+          "mailing address — 邮寄地址",
+          "network address — 网络地址",
+          "address space — 地址空间",
+          "address as — 称呼"
+        ],
+        "meanings": [
+          "[名]地址 0/1 0%",
+          "[名]演讲 0/1 0%",
+          "[名]致辞 0/1 0%",
+          "[名]说话的技巧 0/1 0%",
+          "[名]称呼 0/1 0%",
+          "[动]演说 0/1 0%",
+          "[动]从事 0/1 0%",
+          "[动]忙于 0/1 0%",
+          "[动]写姓名地址 0/1 0%",
+          "[动]向…致辞 0/1 0%",
+          "[动]与…说话 0/1 0%",
+          "[动]提出 0/1 0%"
+        ],
+        "bodyText": "address [名]地址 0/1 0% [名]演讲 0/1 0% [名]致辞 0/1 0% [名]说话的技巧 0/1 0% [名]称呼 0/1 0% [动]演说 0/1 0% [动]从事 0/1 0% [动]忙于 0/1 0% [动]写姓名地址 0/1 0% [动]向…致辞 0/1 0% [动]与…说话 0/1 0% [动]提出 0/1 0% 例句 address an audience 向听众发表讲话 Please write your address on the form. 请在表格上写下你的地址。 The president gave an address to the nation. 总统向全国发表了讲话。 She gave a moving address at the graduation ceremony. 她在毕业典礼上发表了感人的演讲。 The mayor addressed the crowd gathered in the square. 市长向聚集在广场上的人群致辞。 词组 email address — 电子邮箱信箱 ip address — 网络地址，IP地址 address book — 通讯簿；住址名册 home address — 家庭住址；标识地址；内部地址 mailing address — 邮寄地址 network address — 网络地址 address space — 地址空间 address as — 称呼"
+      },
+      "target": 2,
+      "panel": {
+        "text": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 ✓ 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 词组 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：2 个词/含义 · 例句 / 词组 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.44 / 单次上限 ¥3.00 开始生成 关闭",
+        "target": 2,
+        "est": "0.44"
+      },
+      "reviewShown": true,
+      "mockLog": [
+        {
+          "kind": "examples",
+          "tag": 1,
+          "items": 2
+        },
+        {
+          "kind": "examples",
+          "tag": 1,
+          "items": 1
+        },
+        {
+          "kind": "phrases",
+          "tag": 2,
+          "items": 1
+        }
+      ],
+      "panelAfter": "AI 扩充内容 已生成 1 / 总 2（草稿已保存） 继续 放弃草稿 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 ✓ 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 词组 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：2 个词/含义 · 例句 / 词组 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.44 / 单次上限 ¥3.00 完成 2 / 2 条 · 已用 ¥0.00 开始生成 关闭",
+      "reviewItems": 2,
+      "reviewText": "审核生成内容（2） 覆盖模式：保存后将替换已选词对应类型的内容（旧内容被清空后写入新内容） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 QA-1 ex 1 for address — QA-1 例句 1 ❌ address · 词组（将替换） QA-2 address up — QA-2 词组 1 ❌ 全不选 保存已选（2） 关闭",
+      "replaceNotice": true,
+      "snapshot": {
+        "id": "kaoyan-2027-dagang:address",
+        "headword": "address",
+        "meanings": [
+          {
+            "cn": "演说、地址",
+            "examples": 2
+          }
+        ],
+        "coreSenses": null,
+        "meaningMap": null,
+        "examples": [
+          {
+            "en": "address an audience",
+            "cn": "向听众发表讲话"
+          }
+        ],
+        "phrases": [
+          {
+            "en": "email address",
+            "cn": "电子邮箱信箱"
+          },
+          {
+            "en": "ip address",
+            "cn": "网络地址，IP地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address book",
+            "cn": "通讯簿；住址名册"
+          },
+          {
+            "en": "home address",
+            "cn": "家庭住址；标识地址；内部地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "mailing address",
+            "cn": "邮寄地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "network address",
+            "cn": "网络地址",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address space",
+            "cn": "地址空间",
+            "meaningId": "kaoyan-2027-dagang:address#M1"
+          },
+          {
+            "en": "address as",
+            "cn": "称呼"
+          }
+        ],
+        "mnemonics": [
+          {
+            "type": "串记",
+            "text": "把话“指向”听众讲出来，address 就是演说。"
+          }
+        ],
+        "appliedItems": [],
+        "state": null
+      },
+      "annotation": {
+        "core": [
+          "本义1「地址」 住处或通信处，也指写地址 词源：拉丁 ad-向+directus 使直",
+          "本义2「演讲」 正式讲话、致辞 词源：同源 addresser 致意、进言",
+          "本义3「称呼」 对人使用的称谓 词源：同源 addresser 称谓",
+          "本义4「处理」 着手应对、致力于 词源：同源 address 指向、着手"
+        ],
+        "examples": [
+          "address an audience 向听众发表讲话",
+          "Please write your address on the form. 请在表格上写下你的地址。",
+          "The president gave an address to the nation. 总统向全国发表了讲话。",
+          "She gave a moving address at the graduation ceremony. 她在毕业典礼上发表了感人的演讲。",
+          "The mayor addressed the crowd gathered in the square. 市长向聚集在广场上的人群致辞。",
+          "QA-1 ex 1 for address QA-1 例句 1"
+        ],
+        "phrases": [
+          "QA-2 address up — QA-2 词组 1"
+        ],
+        "meanings": [
+          "[名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址",
+          "[名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as",
+          "[动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[动]从事 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+          "[动]忙于 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出",
+          "[动]写姓名地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址",
+          "[动]向…致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[动]与…说话 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞",
+          "[动]提出 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出"
+        ],
+        "bodyText": "address 本义1「地址」 住处或通信处，也指写地址 词源：拉丁 ad-向+directus 使直 本义2「演讲」 正式讲话、致辞 词源：同源 addresser 致意、进言 本义3「称呼」 对人使用的称谓 词源：同源 addresser 称谓 本义4「处理」 着手应对、致力于 词源：同源 address 指向、着手 [名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 [名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as [动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]从事 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 [动]忙于 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 [动]写姓名地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 [动]向…致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]与…说话 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 [动]提出 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 例句 address an audien"
+      },
+      "save": {
+        "toasts": [
+          "已应用 2 条生成内容（跳过 0）"
+        ],
+        "packs": [
+          {
+            "id": "pk_1794489076075_t55mxz",
+            "name": "AI 生成",
+            "kind": "examples",
+            "status": "reviewing",
+            "source": "ai",
+            "draft": false,
+            "items": 2,
+            "applied": 0
+          },
+          {
+            "id": "pk_1794489129600_nz7fw8",
+            "name": "AI 生成",
+            "kind": "mixed",
+            "status": "applied",
+            "source": "ai",
+            "draft": false,
+            "items": 2,
+            "applied": 2
+          }
+        ],
+        "applied": 2
+      },
+      "after": {
+        "examples": 1,
+        "phrases": 8,
+        "exTexts": [
+          "address an audience"
+        ],
+        "phTexts": [
+          "email address",
+          "ip address",
+          "address book",
+          "home address",
+          "mailing address",
+          "network address",
+          "address space",
+          "address as"
+        ]
+      }
+    },
+    "S6 失败不静默（mock 部分返回）": {
+      "ok": true,
+      "ms": 81079,
+      "target": 2,
+      "calls": 1,
+      "reviewShown": true,
+      "reviewItems": 1,
+      "reviewText": "审核生成内容（1） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 QA-1 ex 1 for address — QA-1 例句 1 ❌ 全不选 保存已选（1） 关闭",
+      "failureHint": true,
+      "failureText": [
+        "失败 1 条 · 已用 ¥0.00 未生成有效内容：可稍后重试或换用其它类型"
+      ],
+      "mockLog": [
+        {
+          "kind": "examples",
+          "tag": 1,
+          "items": 2
+        },
+        {
+          "kind": "phrases",
+          "tag": 1,
+          "items": 1
+        },
+        {
+          "kind": "phrases",
+          "tag": 1,
+          "items": 1
+        },
+        {
+          "kind": "examples",
+          "tag": 1,
+          "items": 2
+        }
+      ],
+      "note": "完整日志来自 run4；本 JSON 中该段为 run4 结果回填"
+    }
+  },
+  "findings": [
+    {
+      "id": "F01",
+      "severity": "P0",
+      "title": "双击「开始生成」命中「取消生成」：0 请求、无审核、留下 0/1 空草稿",
+      "scenario": "S2",
+      "expected": "双击=一次生成，1 请求 + 审核框",
+      "actual": "0 请求；面板『已取消，草稿已保存：已生成 0 / 总 1』",
+      "evidence": [
+        "docs/assets/qa/ai-0.3.28/S2-01-dblclick-start-result.png"
+      ]
+    },
+    {
+      "id": "F02",
+      "severity": "P0",
+      "title": "双击「保存已选」创建 2 个 pack（1 applied + 1 reviewing 孤儿）与 2 条 toast",
+      "scenario": "S1",
+      "expected": "1 pack / 1 toast",
+      "actual": "pk_…t1r9om applied=1；pk_…3dca5l reviewing applied=0；toast 已应用1 / 已应用0(跳过1)",
+      "evidence": [
+        "docs/assets/qa/ai-0.3.28/S1-03-after-dblclick-save.png"
+      ]
+    },
+    {
+      "id": "F03",
+      "severity": "P0",
+      "title": "多 c c1+c2：审核 2 条，保存 applied=0（跳过 2），注解面无新增",
+      "scenario": "S4",
+      "expected": "applied=2",
+      "actual": "toast『已应用 0 条（跳过 2）』；items skipped/duplicate；meaningId 解析到 hongbaoshu 而当前词为 dagang",
+      "evidence": [
+        "docs/assets/qa/ai-0.3.28/S4-03-multic-after-save.png"
+      ]
+    },
+    {
+      "id": "F04",
+      "severity": "P1",
+      "title": "多 kind 真实 API：mixed pack items=2 applied=1，词组未落地",
+      "scenario": "S3",
+      "expected": "例句+词组均落地",
+      "actual": "注解面 例句 3→5，词组 8→8",
+      "evidence": [
+        "docs/assets/qa/ai-0.3.28/S3-03-multikind-after-save.png"
+      ]
+    },
+    {
+      "id": "F05",
+      "severity": "P2",
+      "title": "双击保存出现两条已应用 toast",
+      "scenario": "S1",
+      "expected": "1 条",
+      "actual": "已应用1 / 已应用0（跳过1）",
+      "evidence": [
+        "docs/assets/qa/ai-0.3.28/S1-03-after-dblclick-save.png"
+      ]
+    },
+    {
+      "id": "F06",
+      "severity": "P2",
+      "title": "多 c 审核条目不显示 c1/c2 标签",
+      "scenario": "S4",
+      "expected": "每条标注 c 序号",
+      "actual": "两条均为 address · 例句",
+      "evidence": [
+        "docs/assets/qa/ai-0.3.28/S4-02-multic-review.png"
+      ]
+    },
+    {
+      "id": "F07",
+      "severity": "P2",
+      "title": "部分失败提示不在审核框内且原因笼统",
+      "scenario": "S6",
+      "expected": "审核框内显示失败 1 条+原因",
+      "actual": "审核框仅 1 条；面板『失败 1 条…未生成有效内容』",
+      "evidence": [
+        "docs/assets/qa/ai-0.3.28/S6-01-partial-failure.png"
+      ]
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "cost": {
+    "realCalls": 8,
+    "prompt": 4608,
+    "completion": 798,
+    "estimatedCny": 0.02
+  },
+  "notes": [
+    "S6 由 run4 回填；S4/S5 由 run5 覆盖；S1-S3 来自 run2"
+  ],
+  "settings": {
+    "enabled": true,
+    "keyStorage": "persistent",
+    "hasKey": true,
+    "keyTail": "8f5e"
+  },
+  "served4173": "index-CjXxA1np.js / APP_VERSION 0.3.29"
+}
