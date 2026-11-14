@@ -163,3 +163,12 @@ export {
   setSessionApiKey,
 } from './settings'
 export type { AiSettingsState, SaveAiConfigOptions, SaveAiSettingsOptions } from './settings'
+
+export {
+  generateDerivationMap,
+  validateDerivationMapDraft,
+  type DerivationMapDraft,
+  type DerivationMapResult,
+  type GenerateDerivationMapOptions,
+} from './derivation-map'
+export type { DerivationMapSource } from './prompts'

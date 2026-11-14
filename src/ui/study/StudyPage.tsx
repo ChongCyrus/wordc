@@ -14,10 +14,21 @@ import { QuickSettingsSheet } from './components/QuickSettingsSheet'
 import { BackRevertNotice } from './components/BackRevertNotice'
 import { AiGeneratePanel } from '../ai/AiGeneratePanel'
 import { UserContentEditor } from './components/UserContent'
+import { DerivationPanel } from './components/DerivationPanel'
+import { useSidePanelSwipe } from './lib/use-side-panel-swipe'
+import type { DerivationMapContent } from './components/types'
 import type { UserMnemonicType } from './components/types'
 import { useSwipeBack } from './lib/use-swipe-back'
 import { applyDailyGoalChange } from '../../app/hooks/useDailyGoal'
-import { listUserMnemonics, listUserNotes } from '../../data'
+import {
+  generateDerivationMap,
+  getDerivationMap,
+  listUserMnemonics,
+  listUserNotes,
+  loadAiConfig,
+  saveDerivationMap,
+} from '../../data'
+import { aiErrorMessage } from '../../app/hooks/aiUi'
 import {
   hasBoardShowMeaningPhrasesSetting,
   readBoardShowMeaningPhrases,
@@ -58,6 +69,12 @@ export default function StudyPage() {
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false)
   const [aiGenerateOpen, setAiGenerateOpen] = useState(false)
   const [confirmUserDelete, setConfirmUserDelete] = useState(false)
+  const [derivationPanelOpen, setDerivationPanelOpen] = useState(false)
+  const [derivationContents, setDerivationContents] = useState<
+    Record<string, DerivationMapContent>
+  >({})
+  const [derivationAiBusy, setDerivationAiBusy] = useState(false)
+  const [derivationAiError, setDerivationAiError] = useState<string | null>(null)
   const [userEditor, setUserEditor] = useState<null | {
     mode: 'note' | 'mnemonic'
     targetLabel: string
@@ -74,8 +91,47 @@ export default function StudyPage() {
   const speakTimerRef = useRef<number | null>(null)
   const cooldownTimerRef = useRef<number | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  const panelWordIdRef = useRef<string | null>(null)
   const memoryScrollRef = useRef(0)
   const previousStageRef = useRef(stage)
+
+  const currentWordId = session?.word.wordId ?? null
+  useEffect(() => {
+    if (panelWordIdRef.current !== currentWordId) {
+      panelWordIdRef.current = currentWordId
+      setDerivationPanelOpen(false)
+    }
+  }, [currentWordId])
+
+  useEffect(() => {
+    if (!currentWordId) return
+    let alive = true
+    void getDerivationMap(currentWordId)
+      .then((map) => {
+        if (!alive || !map) return
+        setDerivationContents((prev) => ({
+          ...prev,
+          [currentWordId]: {
+            mode: map.mermaid ? 'mermaid' : 'text',
+            text: map.text ?? '',
+            mermaid: map.mermaid ?? '',
+            ...(map.rootLabel ? { rootLabel: map.rootLabel } : {}),
+            ...(map.source ? { source: map.source } : {}),
+          },
+        }))
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [currentWordId])
+
+  const sideSwipe = useSidePanelSwipe({
+    enabled: stage === 'annotation',
+    open: derivationPanelOpen,
+    onOpen: () => setDerivationPanelOpen(true),
+    onClose: () => setDerivationPanelOpen(false),
+  })
 
   useEffect(() => {
     warmUpVoices()
@@ -274,7 +330,7 @@ export default function StudyPage() {
 
   return (
     <div
-      className={`study-page study-page--${stage}${study.browseBack ? ' study-page--browse' : ''}`}
+      className={`study-page study-page--${stage}${study.browseBack ? ' study-page--browse' : ''}${derivationPanelOpen ? ' study-page--side' : ''}`}
     >
       <StudyTopBar
         title={topTitle}
@@ -288,7 +344,19 @@ export default function StudyPage() {
       <div
         className={`study-body${swipe.dragging ? ' is-swiping' : ''}`}
         ref={bodyRef}
-        {...swipe.handlers}
+        onPointerDown={(event) => {
+          swipe.handlers.onPointerDown(event)
+          sideSwipe.onPointerDown(event)
+        }}
+        onPointerMove={swipe.handlers.onPointerMove}
+        onPointerUp={(event) => {
+          swipe.handlers.onPointerUp(event)
+          sideSwipe.onPointerUp(event)
+        }}
+        onPointerCancel={(event) => {
+          swipe.handlers.onPointerCancel(event)
+          sideSwipe.onPointerCancel()
+        }}
         style={swipe.offset > 0 ? { transform: `translateX(${swipe.offset}px)` } : undefined}
       >
         {stage === 'board' && session ? (
@@ -399,6 +467,110 @@ export default function StudyPage() {
           />
         ) : null}
       </div>
+
+      {stage === 'annotation' && session ? (
+        <>
+          {!derivationPanelOpen ? (
+            <button
+              type="button"
+              className="derivation-handle"
+              aria-label="展开生成元引申"
+              onClick={() => setDerivationPanelOpen(true)}
+            >
+              ‹ 引申
+            </button>
+          ) : null}
+          <DerivationPanel
+            open={derivationPanelOpen}
+            headword={session.word.headword}
+            content={
+              derivationContents[session.word.wordId] ?? {
+                mode: 'text',
+                text: study.coreSenses.length
+                  ? `生成元（本义）→ 各含义\n\n${study.coreSenses
+                      .map((sense, index) => `${index + 1}. ${sense.label}`)
+                      .join('\n')}`
+                  : '暂无引申内容：点「编辑」或「AI 生成」。',
+                mermaid: '',
+              }
+            }
+            onClose={() => {
+              setDerivationPanelOpen(false)
+              setDerivationAiError(null)
+            }}
+            saving={derivationAiBusy}
+            aiBusy={derivationAiBusy}
+            aiError={derivationAiError}
+            onSave={(content) => {
+              void (async () => {
+                try {
+                  const saved = await saveDerivationMap(session.word.wordId, {
+                    ...(content.rootLabel ? { rootLabel: content.rootLabel } : {}),
+                    text: content.text,
+                    mermaid: content.mermaid,
+                    source: content.source === 'ai' ? 'ai' : 'manual',
+                  })
+                  setDerivationContents((prev) => ({
+                    ...prev,
+                    [session.word.wordId]: {
+                      mode: content.mode,
+                      text: saved.text ?? content.text,
+                      mermaid: saved.mermaid ?? content.mermaid,
+                      ...(saved.rootLabel ? { rootLabel: saved.rootLabel } : {}),
+                      source: saved.source ?? content.source ?? 'manual',
+                    },
+                  }))
+                  showToast('已保存引申内容')
+                } catch (error) {
+                  showToast(error instanceof Error ? error.message : '保存引申内容失败')
+                }
+              })()
+            }}
+            onAiGenerate={() => {
+              void (async () => {
+                setDerivationAiBusy(true)
+                setDerivationAiError(null)
+                try {
+                  const config = await loadAiConfig()
+                  if (!config.apiKey) throw Object.assign(new Error('未配置 Key'), { code: 'AI_NO_KEY' })
+                  const meanings = session.word.meanings.map((meaning, index) => ({
+                    index: index + 1,
+                    cn: meaning.cn,
+                    ...(meaning.pos ? { pos: meaning.pos } : {}),
+                  }))
+                  const result = await generateDerivationMap(
+                    {
+                      word: session.word.headword,
+                      coreSenses: study.coreSenses.map((sense) => ({
+                        label: sense.label,
+                        ...(sense.note ? { note: sense.note } : {}),
+                      })),
+                      meanings,
+                    },
+                    config,
+                  )
+                  setDerivationContents((prev) => ({
+                    ...prev,
+                    [session.word.wordId]: {
+                      mode: result.mermaid ? 'mermaid' : 'text',
+                      text: result.text ?? '',
+                      mermaid: result.mermaid ?? '',
+                      rootLabel: result.rootLabel,
+                      source: 'ai',
+                    },
+                  }))
+                  showToast('AI 引申图已生成预览：确认后点「保存」写入')
+                } catch (error) {
+                  const code = (error as { code?: string })?.code
+                  setDerivationAiError(aiErrorMessage(code, 'AI 生成引申图失败'))
+                } finally {
+                  setDerivationAiBusy(false)
+                }
+              })()
+            }}
+          />
+        </>
+      ) : null}
 
       {stage === 'annotation' ? (
         <ActionBar

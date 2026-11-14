@@ -68,6 +68,19 @@ export interface Meaning {
   examples?: Example[]
 }
 
+/** F8：生成元 → 含义 引申图（每词一条；文字或 Mermaid 二选一/并存） */
+export interface DerivationMap {
+  /** 统一生成元（最共性本义）标签 */
+  rootLabel?: string
+  /** 结构化文字版（生成元 → 场景/对象/词性 → 含义） */
+  text?: string
+  /** Mermaid 图源（mindmap / flowchart LR） */
+  mermaid?: string
+  /** 来源：人工编辑或 AI 生成 */
+  source: 'manual' | 'ai'
+  updatedAt: number
+}
+
 /** 用户自定义笔记（F6/task-139；meaningId 缺省 = w 级） */
 export interface UserNote {
   id: string
@@ -130,6 +143,8 @@ export interface Word {
    * 展示时过滤这些 key；重新应用 AI 内容包不会清除该列表。
    */
   hiddenMnemonicKeys?: string[]
+  /** F8：生成元→含义 引申图（人工/AI；导出/导入包含，AI apply 不覆盖） */
+  derivationMap?: DerivationMap
   createdAt: number
 }
 

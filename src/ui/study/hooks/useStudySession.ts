@@ -1087,14 +1087,12 @@ export function useStudySession(options?: {
       return familiarity(stat.clicks, stat.encounters)
     })(),
     userNotes: (word?.userNotes ?? []).map((note) => ({ id: note.id, text: note.text, ...(note.meaningId ? { meaningId: note.meaningId } : {}) })),
-    userMnemonics: mergedMnemonics
-      .filter((item) => item.source === 'user')
-      .map((item) => ({
-        id: item.userMnemonicId ?? item.key,
-        type: item.type,
-        text: item.text,
-        ...(item.meaningId ? { meaningId: item.meaningId } : {}),
-      })),
+    userMnemonics: (word?.userMnemonics ?? []).map((item) => ({
+      id: item.id,
+      type: item.type,
+      text: item.text,
+      ...(item.meaningId ? { meaningId: item.meaningId } : {}),
+    })),
     memoryUserNotes: (() => {
       if (!session?.activeMeaningId) return []
       return (word?.userNotes ?? [])
@@ -1103,13 +1101,10 @@ export function useStudySession(options?: {
     })(),
     memoryUserMnemonics: (() => {
       if (!session?.activeMeaningId) return []
-      return mergedMnemonics
-        .filter(
-          (mnemonic) =>
-            mnemonic.source === 'user' && mnemonic.meaningId === session.activeMeaningId,
-        )
+      return (word?.userMnemonics ?? [])
+        .filter((mnemonic) => mnemonic.meaningId === session.activeMeaningId)
         .map((mnemonic) => ({
-          id: mnemonic.userMnemonicId ?? mnemonic.key,
+          id: mnemonic.id,
           type: mnemonic.type,
           text: mnemonic.text,
           meaningId: mnemonic.meaningId,

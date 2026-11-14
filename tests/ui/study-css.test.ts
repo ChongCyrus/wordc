@@ -23,6 +23,15 @@ describe('学习页长文本/裁切修复（task-136 B1/B4/B5）', () => {
     expect(block).toContain('overflow: visible')
   })
 
+  it('F8 副页宽度/左栏重排/文本换行', () => {
+    expect(studyCss).toContain('.study-page--side .annotation-stage')
+    expect(studyCss).toContain('padding-right: calc(42% + 10px)')
+    const panel = studyCss.slice(studyCss.indexOf('.derivation-panel {'), studyCss.indexOf('.derivation-panel {') + 500)
+    expect(panel).toContain('width: 42%')
+    expect(panel).toContain('overflow-y: auto')
+    expect(studyCss).toContain('white-space: pre-wrap')
+  })
+
   it('白板面含义多时可滚动、从顶部排布（task-144 F4/F7 布局）', () => {
     const stage = studyCss.slice(studyCss.indexOf('.board-stage'), studyCss.indexOf('.board-stage') + 260)
     expect(stage).toContain('overflow-y: auto')

@@ -109,6 +109,17 @@ describe('F6 用户笔记/助记 UI', () => {
     expect(overridden).toEqual([])
   })
 
+  it('词级/ c 级「我的助记」都在注释面显示（task-149）', () => {
+    const wordLevel = annotation([], [{ id: 'mw', type: '联想', text: '词级我的助记' }])
+    expect(wordLevel).toContain('词级我的助记')
+    expect(wordLevel).toContain('user-content-line')
+
+    const cLevel = annotation([], [
+      { id: 'mc', type: '谐音', text: 'c 级我的助记', meaningId: 'w#M1' },
+    ])
+    expect(cLevel).toContain('c 级我的助记')
+  })
+
   it('w-c 页：当前 c 用户笔记/助记只读展示，无编辑按钮', () => {
     const html = renderToStaticMarkup(
       createElement(MemoryStage, {

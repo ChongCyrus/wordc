@@ -37,6 +37,16 @@ export interface MnemonicView {
 export type UserMnemonicType = '联想' | '谐音' | '词根' | '词源' | '串记' | '口诀' | '其他'
 
 /** 用户笔记/助记（F6；meaningId 缺省=词级） */
+/** F8：生成元→引申内容 */
+export interface DerivationMapContent {
+  mode: 'text' | 'mermaid'
+  text: string
+  mermaid: string
+  rootLabel?: string
+  /** 内容来源：manual=人工编辑；ai=AI 预览保存 */
+  source?: 'manual' | 'ai'
+}
+
 export interface UserNoteView {
   id: string
   text: string

@@ -440,3 +440,9 @@ export {
   upsertUserNote,
 } from './user-content'
 export type { MergedMnemonic, UserMnemonicInput, UserNoteInput } from './user-content'
+
+export { deleteDerivationMap, getDerivationMap, saveDerivationMap } from './derivation-map'
+export type { DerivationMap, DerivationMapInput } from './derivation-map'
+
+export { generateDerivationMap, validateDerivationMapDraft } from './ai/derivation-map'
+export type { DerivationMapDraft, DerivationMapResult, GenerateDerivationMapOptions } from './ai/derivation-map'

@@ -1402,3 +1402,50 @@ html.study-reduce-motion .study-page *::after {
 
 /* F7 白板面各 c 英文词组（不显示中文） */
 .board-meaning-phrase { font-size: 13px; line-height: 18px; color: var(--mm-text-3); overflow-wrap: anywhere; }
+
+/* F8 注释面左滑右侧副页（生成元 → 含义） */
+.study-page--side .annotation-stage {
+  padding-right: calc(42% + 10px);
+  transition: padding-right 180ms var(--mm-ease-out);
+}
+.derivation-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 42%;
+  min-width: 150px;
+  max-width: 320px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 56px 12px 100px;
+  box-sizing: border-box;
+  background: var(--mm-surface);
+  border-left: 1px solid var(--mm-border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08);
+  overflow-y: auto;
+  animation: study-slide-in-right 180ms var(--mm-ease-out) both;
+}
+@keyframes study-slide-in-right {
+  from { transform: translateX(100%); opacity: 0.6; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.derivation-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.derivation-panel .mm-btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.derivation-panel .mm-btn { min-height: 34px; padding: 4px 10px; font-size: 12px; }
+.derivation-panel-editor { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.derivation-map-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--mm-text-2);
+}
+.derivation-mermaid { width: 100%; overflow-x: auto; }
+.derivation-mermaid svg { max-width: 100%; height: auto; }
+.derivation-mermaid-fallback { display: flex; flex-direction: column; gap: 4px; }
+.derivation-panel-actions { margin-top: auto; }

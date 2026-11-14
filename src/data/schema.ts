@@ -169,6 +169,16 @@ export const rawWordSchema = z.object({
     .optional(),
   /** F6：被用户编辑/删除的 AI 助记 key 列表 */
   hiddenMnemonicKeys: z.array(z.string()).optional(),
+  /** F8：生成元→含义 引申图 */
+  derivationMap: z
+    .object({
+      rootLabel: z.string().optional(),
+      text: z.string().optional(),
+      mermaid: z.string().optional(),
+      source: z.enum(['manual', 'ai']),
+      updatedAt: z.number(),
+    })
+    .optional(),
   createdAt: z.number().optional(),
 })
 
@@ -472,6 +482,21 @@ export function normalizeWordRecord(
   if (Array.isArray(raw.hiddenMnemonicKeys)) {
     const hidden = [...new Set(raw.hiddenMnemonicKeys.filter((key): key is string => typeof key === 'string' && key.length > 0))]
     if (hidden.length > 0) word.hiddenMnemonicKeys = hidden
+  }
+  if (raw.derivationMap) {
+    const map = raw.derivationMap
+    const rootLabel = String(map.rootLabel ?? '').trim()
+    const text = String(map.text ?? '').trim()
+    const mermaid = String(map.mermaid ?? '').trim()
+    if (rootLabel || text || mermaid) {
+      word.derivationMap = {
+        ...(rootLabel ? { rootLabel } : {}),
+        ...(text ? { text } : {}),
+        ...(mermaid ? { mermaid } : {}),
+        source: map.source === 'ai' ? 'ai' : 'manual',
+        updatedAt: Number.isFinite(map.updatedAt) ? map.updatedAt : Date.now(),
+      }
+    }
   }
   if (Number.isFinite(raw.difficulty)) {
     word.difficulty = Math.min(10, Math.max(1, Math.round(raw.difficulty!)))
