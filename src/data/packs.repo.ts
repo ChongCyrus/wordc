@@ -667,6 +667,8 @@ export interface ApplyResult {
   skipped: number
   packStatus: PackRecord['status']
   skippedDetails: SkipRecord[]
+  /** task-138：批次级异常（已回滚，条目仍为 approved，可再次「重新应用」补齐） */
+  errors?: string[]
 }
 
 /** 应用某 pack 的全部 approved 条目（单事务；幂等：已存在内容不重复追加） */
@@ -687,8 +689,7 @@ export async function applyApproved(
     ? (await db.packItems.where('packId').equals(packId).toArray()).filter(
         (item) =>
           item.status === 'approved' ||
-          (item.status === 'skipped' &&
-            (item.skipReason === 'unknown-word' || item.skipReason === 'unknown-meaning')),
+          (item.status === 'skipped' && item.skipReason !== 'rejected'),
       )
     : await db.packItems.where('[packId+status]').equals([packId, 'approved']).toArray()
   const rejectIndex = await loadRejectIndex()
@@ -696,12 +697,16 @@ export async function applyApproved(
   let applied = 0
   let skipped = 0
   const skippedDetails: SkipRecord[] = []
+  const errors: string[] = []
   const total = items.length
   opts.onProgress?.({ phase: 'apply', done: 0, total })
   // task-96：按 BATCH 拆事务（不再单个巨型事务）；每批 commit 后可进下一批/让出主线程。
   // 幂等：mergeItemIntoWord 去重；中途失败已提交的批次不会重复追加内容。
   for (let offset = 0; offset < items.length; offset += BATCH) {
     const batch = items.slice(offset, offset + BATCH)
+    // task-138：单批异常（IDB/Dexie 等）不让整个应用中断；回滚该批计数，后续批次继续
+    const snapshot = { applied, skipped, details: skippedDetails.length }
+    try {
     await db.transaction('rw', [db.words, db.packItems], async () => {
       const wordIds = [...new Set(batch.map((item) => item.wordId).filter((id): id is string => Boolean(id)))]
       const wordRows = wordIds.length > 0 ? await db.words.bulkGet(wordIds) : []
@@ -712,6 +717,7 @@ export async function applyApproved(
       const updatedWords = new Map<string, Word>()
       const updatedItems: PackItemRecord[] = []
       for (const item of batch) {
+        try {
         let word = item.wordId ? (updatedWords.get(item.wordId) ?? words.get(item.wordId)) : undefined
         if (!word || !item.wordId) {
           updatedItems.push({ ...item, status: 'skipped', skipReason: 'unknown-word' })
@@ -774,6 +780,20 @@ export async function applyApproved(
           skipped += 1
           skippedDetails.push({ headwordLower: item.headwordLower, meaningIndex: item.meaningIndex, reason, itemId: item.id })
         }
+        } catch (error) {
+          // task-138：单条异常不中断整批；标记跳过并记录原因（避免永远卡在 approved）
+          const message = error instanceof Error ? error.message : String(error)
+          updatedItems.push({ ...item, status: 'skipped', skipReason: 'invalid' })
+          skipped += 1
+          skippedDetails.push({
+            headwordLower: item.headwordLower,
+            meaningIndex: item.meaningIndex,
+            reason: 'invalid',
+            detail: `apply-error: ${message}`.slice(0, 200),
+            itemId: item.id,
+          })
+          errors.push(`item@${item.id}: ${message}`)
+        }
       }
       const WRITE_BATCH = 500
       const wordValues = [...updatedWords.values()]
@@ -784,10 +804,19 @@ export async function applyApproved(
         await db.packItems.bulkPut(updatedItems.slice(i, i + WRITE_BATCH))
       }
     })
+    } catch (error) {
+      applied = snapshot.applied
+      skipped = snapshot.skipped
+      skippedDetails.length = snapshot.details
+      const message = error instanceof Error ? error.message : String(error)
+      errors.push(`batch@${offset}: ${message}`)
+      opts.onProgress?.({ phase: 'apply', done: Math.min(offset + batch.length, total), total })
+      continue
+    }
     opts.onProgress?.({ phase: 'apply', done: Math.min(offset + batch.length, total), total })
   }
   const pack = await refreshPack(packId, now)
-  return { applied, skipped, packStatus: pack?.status ?? 'empty', skippedDetails }
+  return { applied, skipped, packStatus: pack?.status ?? 'empty', skippedDetails, ...(errors.length > 0 ? { errors } : {}) }
 }
 
 /**
@@ -796,7 +825,7 @@ export async function applyApproved(
  * - 重新解析 headwordLower → 正确 deck 的 wordId/meaningId，再走 apply 事务；幂等。
  */
 export interface ReapplyProgress {
-  phase: 'resolve' | 'apply'
+  phase: 'resolve' | 'approve' | 'apply'
   done: number
   total: number
   retried: number
@@ -858,9 +887,19 @@ async function reapplyOnePack(
     opts.onProgress?.({ phase: 'resolve', done: Math.min(offset + batchSize, total), total, retried })
   }
 
-  const applied = await applyApproved(packId, { retrySkipped: true })
-  opts.onProgress?.({ phase: 'apply', done: total, total, retried })
-  return { ...applied, retried }
+  // task-138：重新应用时把 pending 也补审（历史中断可能遗留 pending），再全量 apply；
+  // allowOverLimit=true → 因 limit 跳过的内容也能补齐，完成后 applied+skipped == items。
+  const pending = await db.packItems.where('[packId+status]').equals([packId, 'pending']).toArray()
+  if (pending.length > 0) {
+    const approveBatch = 500
+    for (let offset = 0; offset < pending.length; offset += approveBatch) {
+      await db.packItems.bulkPut(pending.slice(offset, offset + approveBatch).map((item) => ({ ...item, status: 'approved' as const })))
+      opts.onProgress?.({ phase: 'approve', done: Math.min(offset + approveBatch, pending.length), total: pending.length, retried })
+    }
+  }
+  const applied = await applyApproved(packId, { retrySkipped: true, allowOverLimit: true })
+  opts.onProgress?.({ phase: 'apply', done: total + pending.length, total: total + pending.length, retried })
+  return { ...applied, ...(pending.length > 0 ? { approvedPending: pending.length } : {}), retried }
 }
 
 /**

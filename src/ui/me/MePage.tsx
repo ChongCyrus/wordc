@@ -137,6 +137,27 @@ export default function MePage() {
         />
       </div>
 
+      <SectionBand title="使用说明" />
+      <Card>
+        <details>
+          <summary className="mm-row-title" style={{ cursor: 'pointer' }}>
+            怎么练：推荐主流程（点开展开）
+          </summary>
+          <div className="mm-caption" style={{ lineHeight: 1.8, paddingTop: 8 }}>
+            <p style={{ margin: '0 0 8px' }}>
+              <strong>记忆 → 回忆 → 标记不认识的 → 加权记忆 → 回忆 → 标记不认识的 → 加权记忆 …</strong>
+              循环，直到所有（主要）含义映射都能回忆起来。
+            </p>
+            <p style={{ margin: '0 0 4px' }}>· 白板面：只看单词/词性/英文例句，先回忆中文含义。</p>
+            <p style={{ margin: '0 0 4px' }}>· 注释面：看中文含义/例句/助记；点「记忆」练 w→c，「加权记忆」对不熟悉的 c 多练。</p>
+            <p style={{ margin: '0 0 4px' }}>· 三键：认识 / 模糊 / 不认识；模糊/不认识会当天回炉。</p>
+            <p style={{ margin: '0 0 4px' }}>· 今日单词：查看今天复习/新学分别学了哪些。</p>
+            <p style={{ margin: '0 0 4px' }}>· 统计：看累计学习量、评分分布与不熟悉度最高的含义。</p>
+            <p style={{ margin: 0 }}>· 设置：调学习量、记忆次数、加权记忆、新词顺序、字号/主题等。</p>
+          </div>
+        </details>
+      </Card>
+
       <SectionBand title="数据" />
       <div className="mm-list">
         <SettingRow label="词库管理" hint="新建 / 导入 / 导出 / 从墨墨导入" chevron onClick={() => navigate('/decks')} />

@@ -22,6 +22,7 @@
 
 import { clamp } from './params'
 import type { SessionSnapshot } from './types'
+import { WEIGHTED_MAX_MAX, WEIGHTED_MIN_MIN } from './weighted-memory'
 
 /** 当前设置范围（SPEC §5）：越界值读时 clamp，不抛错 */
 export const TOTAL_REPEATS_MIN = 1
@@ -58,6 +59,11 @@ export const DEFAULT_SESSION_SETTINGS: SessionSettings = {
 export interface SessionState {
   word: SessionWord
   settings: SessionSettings
+  /**
+   * 加权记忆：per-c 目标次数（meaningId → 1–20）。
+   * 缺省 = 普通记忆（全部 c 用 settings.totalRepeats），普通行为完全不变。
+   */
+  weightedTotals?: Record<string, number>
   stage: 'board' | 'annotation' | 'memory'
   /** 当前 w-c 活动含义 id；非 memory 阶段为 null */
   activeMeaningId: string | null
@@ -93,9 +99,20 @@ function totalOf(state: SessionState): number {
   return state.settings.totalRepeats
 }
 
+/**
+ * 某 c 的目标总次数：
+ * - 普通记忆：全部 c = settings.totalRepeats；
+ * - 加权记忆：`weightedTotals[meaningId]`（1–20，由 `weightedMemoryTotals` 计算后传入）。
+ * 缺失/非法 → 回退普通 total（不破坏普通记忆）。
+ */
+export function memoryTotalForMeaning(state: SessionState, meaningId: string): number {
+  const raw = state.weightedTotals?.[meaningId]
+  if (raw == null || !Number.isFinite(raw)) return totalOf(state)
+  return Math.min(WEIGHTED_MAX_MAX, Math.max(WEIGHTED_MIN_MIN, Math.round(raw)))
+}
+
 function unfilledOf(state: SessionState): SessionWord['meanings'] {
-  const total = totalOf(state)
-  return meaningsOf(state).filter((m) => countOf(state, m.meaningId) < total)
+  return meaningsOf(state).filter((m) => countOf(state, m.meaningId) < memoryTotalForMeaning(state, m.meaningId))
 }
 
 /** 规范化会话设置（越界 clamp；不抛错） */
@@ -129,27 +146,44 @@ export function createSession(input: {
   word: SessionWord
   settings: SessionSettings
   savedCounts?: Record<string, number>
+  /** 加权记忆：per-c 目标次数（由 weightedMemoryTotals 计算）；缺省 = 普通记忆 */
+  weightedTotals?: Record<string, number>
   now?: number
 }): SessionState {
   const settings = normalizeSessionSettings(input.settings)
-  const total = settings.totalRepeats
+  const weightedTotals =
+    input.weightedTotals == null
+      ? undefined
+      : Object.fromEntries(
+          Object.entries(input.weightedTotals).map(([id, value]) => [
+            id,
+            Math.min(WEIGHTED_MAX_MAX, Math.max(WEIGHTED_MIN_MIN, Math.round(Number.isFinite(value) ? value : 1))),
+          ]),
+        )
   const word: SessionWord = {
     ...input.word,
     meanings: input.word.meanings.map((m) => ({ ...m })),
     phrases: input.word.phrases.map((p) => ({ ...p })),
   }
+  const totalFor = (meaningId: string): number => {
+    const weighted = weightedTotals?.[meaningId]
+    if (weighted != null && Number.isFinite(weighted)) return Math.max(WEIGHTED_MIN_MIN, weighted)
+    return settings.totalRepeats
+  }
   const wcCounts: Record<string, number> = {}
   for (const m of word.meanings) {
+    const total = totalFor(m.meaningId)
     const saved = input.savedCounts?.[m.meaningId] ?? 0
     const safe = Number.isFinite(saved) ? Math.max(0, Math.floor(saved)) : 0
     wcCounts[m.meaningId] = Math.min(safe, total)
   }
   const wcCompletedOnce =
     word.meanings.length > 0 &&
-    word.meanings.every((m) => (wcCounts[m.meaningId] ?? 0) >= total)
+    word.meanings.every((m) => (wcCounts[m.meaningId] ?? 0) >= totalFor(m.meaningId))
   return {
     word,
     settings,
+    ...(weightedTotals ? { weightedTotals } : {}),
     stage: 'board',
     activeMeaningId: null,
     wcCounts,
@@ -223,12 +257,14 @@ export function openMemory(state: SessionState, random: Random = Math.random): S
 export function tapMemory(state: SessionState, random: Random = Math.random): SessionState {
   if (state.stage !== 'memory' || state.activeMeaningId == null) return state
   const id = state.activeMeaningId
-  const total = totalOf(state)
+  const total = memoryTotalForMeaning(state, id)
   const next = Math.min(countOf(state, id) + 1, total)
   const wcCounts = { ...state.wcCounts, [id]: next }
 
   if (state.settings.mode === 'random') {
-    const unfilled = meaningsOf(state).filter((m) => (wcCounts[m.meaningId] ?? 0) < total)
+    const unfilled = meaningsOf(state).filter(
+      (m) => (wcCounts[m.meaningId] ?? 0) < memoryTotalForMeaning(state, m.meaningId),
+    )
     if (unfilled.length === 0) {
       // 一轮结束：所有 c 计数都 ≥ total → 回注释面（task-22：随机模式不再需要 advanceMemory）
       return {
@@ -256,9 +292,8 @@ export function tapMemory(state: SessionState, random: Random = Math.random): Se
 /** needsAdvance 时切换到下一个未满 c；全部满 → 回注释面。未满时不动作（幂等） */
 export function advanceMemory(state: SessionState, random: Random = Math.random): SessionState {
   if (state.stage !== 'memory' || !state.needsAdvance) return state
-  const total = totalOf(state)
   const meanings = meaningsOf(state)
-  const unfilled = meanings.filter((m) => countOf(state, m.meaningId) < total)
+  const unfilled = meanings.filter((m) => countOf(state, m.meaningId) < memoryTotalForMeaning(state, m.meaningId))
   if (unfilled.length === 0) {
     return {
       ...state,
@@ -277,7 +312,7 @@ export function advanceMemory(state: SessionState, random: Random = Math.random)
     let found: SessionWord['meanings'][number] | undefined
     for (let k = 1; k <= len; k += 1) {
       const cand = meanings[(start + k) % len]
-      if (cand && countOf(state, cand.meaningId) < total) {
+      if (cand && countOf(state, cand.meaningId) < memoryTotalForMeaning(state, cand.meaningId)) {
         found = cand
         break
       }
@@ -312,17 +347,26 @@ export function markMeaning(state: SessionState, meaningId: string): SessionStat
 
 /** 全部含义次数都 ≥ totalRepeats（vacuous truth：没有含义也算完成） */
 export function isMemoryComplete(state: SessionState): boolean {
-  const total = totalOf(state)
-  return meaningsOf(state).every((m) => countOf(state, m.meaningId) >= total)
+  return meaningsOf(state).every(
+    (m) => countOf(state, m.meaningId) >= memoryTotalForMeaning(state, m.meaningId),
+  )
 }
 
 /** 剩余还需点击的总次数（UI 可显示进度） */
 export function remainingMemoryTaps(state: SessionState): number {
-  const total = totalOf(state)
   return meaningsOf(state).reduce(
-    (sum, m) => sum + Math.max(0, total - countOf(state, m.meaningId)),
+    (sum, m) =>
+      sum + Math.max(0, memoryTotalForMeaning(state, m.meaningId) - countOf(state, m.meaningId)),
     0,
   )
+}
+
+/**
+ * 加权记忆推进（语义别名）：与 `advanceMemory` 相同，供 UI 明确区分入口。
+ * 是否加权由创建会话时传入的 `weightedTotals` 决定；普通会话调用等价于普通记忆。
+ */
+export function advanceWeighted(state: SessionState, random: Random = Math.random): SessionState {
+  return advanceMemory(state, random)
 }
 
 /** 生成中断快照（供 data 层写 meta: session:<wordId>；D15） */

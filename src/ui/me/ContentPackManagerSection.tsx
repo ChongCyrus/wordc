@@ -4,7 +4,7 @@
  */
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { dedupePacks, deletePack, ensureDefaultContentPacks, exportPack, listPackItems, listPacks, reapplyPack, resetSemanticsData } from '../../data'
+import { dedupePacks, deletePack, ensureDefaultContentPacks, exportPack, listPackItems, listPacks, mergeDuplicateAiPacks, reapplyPack, resetSemanticsData } from '../../data'
 import { useToast } from '../../app/toast'
 import { ConfirmDialog } from '../components/Dialog'
 import { dateSuffix, saveBlobFile, saveResultMessage } from '../../app/utils/files'
@@ -24,6 +24,8 @@ export interface ContentPackRow {
   kind: string
   items: number
   applied: number
+  /** task-138：跳过/失败条数（unknown/limit 等，UI 显示原因汇总入口） */
+  skipped?: number
   source: string
   createdAt: number
 }
@@ -34,6 +36,11 @@ export function dedupeSummary(removed: number, kept: number): string {
 }
 
 /** 重复内容包检测（task-93）：同名/同 kind/同条目数视为可能重复 */
+/** AI 内容包重复检测（task-138 B2）：同一 deck 的 AI 生成内容应仅一个包 */
+export function countAiPacks(rows: ContentPackRow[]): number {
+  return rows.filter((row) => row.source === 'ai' && row.kind !== 'semantics').length
+}
+
 export function countDuplicatePacks(rows: ContentPackRow[]): number {
   const seen = new Set<string>()
   let duplicates = 0
@@ -75,6 +82,7 @@ export function ContentPackList({
   onResetSemantics?: () => void
   busy?: boolean
 }) {
+  const toast = useToast()
   if (rows.length === 0) {
     return (
       <div className="mm-list">
@@ -99,7 +107,8 @@ export function ContentPackList({
           <span className="mm-row-main">
             <span className="mm-row-title">{row.name || row.id}</span>
             <span className="mm-row-sub">
-              {row.kind} · 已应用 {row.applied} / 总 {row.items} · 来源 {row.source}
+              {row.kind} · 已应用 {row.applied} / 总 {row.items}
+              {(row.skipped ?? 0) > 0 ? `（跳过 ${row.skipped}）` : ''} · 来源 {row.source}
             </span>
           </span>
           <span style={{ display: 'flex', gap: 6 }}>
@@ -143,6 +152,28 @@ export function ContentPackList({
               清理重复内容包
             </button>
           ) : null}
+        </div>
+      ) : null}
+      {countAiPacks(rows) > 1 ? (
+        <div className="mm-caption mm-danger-text">
+          检测到 {countAiPacks(rows)} 个 AI 内容包（多次生成产生）；可合并为 1 个，已应用内容保留。
+          <button
+            type="button"
+            className="mm-btn"
+            style={{ marginLeft: 8 }}
+            onClick={() => {
+              void (async () => {
+                try {
+                  const result = await mergeDuplicateAiPacks()
+                  toast.success(`已合并 AI 内容包：删除 ${result.removed} 个，保留 ${result.kept.length} 个`)
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : '合并 AI 内容包失败')
+                }
+              })()
+            }}
+          >
+            合并 AI 内容包
+          </button>
         </div>
       ) : null}
       <div className="mm-btn-row">
@@ -191,6 +222,7 @@ export function ContentPackManagerSection() {
           kind: pack.kind,
           items: items.length,
           applied: items.filter((item) => item.status === 'applied').length,
+          skipped: items.filter((item) => item.status === 'skipped').length,
           source: packSourceLabel(String(pack.source ?? 'import')),
           createdAt: pack.createdAt,
         }
@@ -224,7 +256,8 @@ export function ContentPackManagerSection() {
           setRecheckMessage(`正在重新应用（${phase}）${done}/${total}…（不要重复点击）`),
       })
       toast.success(
-        `已重新应用「${row.name || row.id}」：应用 ${result.applied} 条，跳过 ${result.skipped} 条`,
+        `已重新应用「${row.name || row.id}」：应用 ${result.applied} 条，跳过 ${result.skipped} 条` +
+          (result.errors?.length ? `，失败批次 ${result.errors.length} 个（可再次重新应用）` : ''),
       )
       return result
     } catch (error) {

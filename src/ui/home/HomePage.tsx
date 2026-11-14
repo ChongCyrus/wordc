@@ -14,6 +14,8 @@ import { useStudyProgress } from '../../app/hooks/useStudyProgress'
 import { useHomeStudy } from '../../app/hooks/useHomeStudy'
 import { resolvePendingNew, resolvePendingReview } from './home-kpi'
 import { readDailyReviewCap } from '../../app/hooks/dailyReviewCap'
+import { useLearningEfficiency } from '../../app/hooks/useLearningEfficiency'
+import { secondsToMinutes } from '../../core'
 
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六']
 
@@ -112,6 +114,13 @@ export default function HomePage() {
     fallbackNewCount: study.newCount,
   })
 
+  const learningEfficiency = useLearningEfficiency({
+    learnedWords: homeTodayReviewed,
+    remainingWords: homePendingReview + homePendingNew,
+  })
+  const avgSeconds = learningEfficiency.averageSecondsPerWord
+  const remainingMinutes = secondsToMinutes(learningEfficiency.estimatedRemainingSeconds)
+
   return (
     <PageShell
       title="今日"
@@ -141,6 +150,12 @@ export default function HomePage() {
               navigate(target === 'study' ? '/study' : target === 'decks' ? '/decks' : '/stats')
             }
           />
+
+          <div className="mm-caption" style={{ paddingTop: 10 }}>
+            学习效率：平均记住一个单词{' '}
+            {avgSeconds == null ? '—' : `${Math.max(1, Math.round(avgSeconds))} 秒`} · 预计还需{' '}
+            {remainingMinutes == null ? '—' : `${Math.max(1, Math.round(remainingMinutes))} 分钟`}
+          </div>
 
           {hasDecks ? (
             <>

@@ -244,6 +244,10 @@ export type SettingsMap = {
   'board.showPhonetic': boolean // 白板面是否显示音标+发音
   // —— 记忆 w-c ——
   'memory.totalRepeats': number // 总次数
+  /** task-137/F2：加权记忆最少/最多次数、强度 k（0–2） */
+  'memory.weightedMin': number
+  'memory.weightedMax': number
+  'memory.weightedK': number
   'memory.mode': 'sequential' | 'random'
   'memory.showPhrases': boolean
   'memory.fontScale': number

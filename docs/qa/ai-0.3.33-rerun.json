@@ -1,0 +1,719 @@
+{
+  "startedAt": "2026-11-12T14:48:20.154Z",
+  "base": "http://127.0.0.1:4173/",
+  "build": "index-C8u3v3Eu.js",
+  "versionText": "v0.3.33",
+  "profile": "/tmp/qa033-profile",
+  "scenarios": {
+    "S2R 续跑同deck单pack复核": {
+      "ok": true,
+      "ms": 147021,
+      "word": {
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "headword": "address",
+        "meaningCount": 12,
+        "meanings": [
+          {
+            "cn": "地址",
+            "pos": "n."
+          },
+          {
+            "cn": "演讲",
+            "pos": "n."
+          },
+          {
+            "cn": "致辞",
+            "pos": "n."
+          },
+          {
+            "cn": "说话的技巧",
+            "pos": "n."
+          },
+          {
+            "cn": "称呼",
+            "pos": "n."
+          },
+          {
+            "cn": "演说",
+            "pos": "vt."
+          },
+          {
+            "cn": "从事",
+            "pos": "vt."
+          },
+          {
+            "cn": "忙于",
+            "pos": "vt."
+          },
+          {
+            "cn": "写姓名地址",
+            "pos": "vt."
+          },
+          {
+            "cn": "向…致辞",
+            "pos": "vt."
+          },
+          {
+            "cn": "与…说话",
+            "pos": "vt."
+          },
+          {
+            "cn": "提出",
+            "pos": "vt."
+          }
+        ]
+      },
+      "target": 2,
+      "packsBefore": [
+        {
+          "id": "pk_1794489322772_l5ecp5",
+          "kind": "mixed",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489322772
+        },
+        {
+          "id": "pk_1794489377479_56k7hv",
+          "kind": "semantics",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489377479
+        },
+        {
+          "id": "pk_1794489414735_r8d9fp",
+          "kind": "mixed",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489414735
+        },
+        {
+          "id": "pk_1794489543957_hhillo",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489543957
+        },
+        {
+          "id": "pk_1794489740506_15089a",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489740506
+        },
+        {
+          "id": "pk_1794489871089_pq1ym8",
+          "kind": "mixed",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489871089
+        },
+        {
+          "id": "pk_1794490035937_urf1az",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794490035937
+        },
+        {
+          "id": "pk_1794490808927_9fgex1",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794490808927
+        },
+        {
+          "id": "pk_1794492047356_hr130u",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794492047356
+        },
+        {
+          "id": "pk_1794492049504_kn2r34",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794492049504
+        },
+        {
+          "id": "pk_1794492497909_d1aa7h",
+          "kind": "mixed",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794492497909
+        },
+        {
+          "id": "pk_1794492935379_kslfsj",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794492935379
+        },
+        {
+          "id": "pk_1794493068866_9m99r8",
+          "kind": "mnemonics",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794493068866
+        },
+        {
+          "id": "pk_1794494605119_mh23c2",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794494605119
+        }
+      ],
+      "first": {
+        "shown": true,
+        "items": 1,
+        "title": "审核生成内容（1）",
+        "text": "审核生成内容（1） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 S2RA example for address c1 — S2RA 例句翻译 c1 ❌ 全不选 保存已选（1） 关闭"
+      },
+      "draftAfterFirst": [
+        {
+          "id": "draft_1794495033835_lg2req",
+          "done": 1,
+          "cursor": 1,
+          "total": 2
+        }
+      ],
+      "resumeVisible": true,
+      "resumed": {
+        "shown": true,
+        "items": 1,
+        "title": "审核生成内容（1）",
+        "text": "审核生成内容（1） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 S2RA example for address c1 — S2RA 例句翻译 c1 ❌ 全不选 保存已选（1） 关闭"
+      },
+      "second": {
+        "shown": true,
+        "items": 2,
+        "title": "审核生成内容（2）",
+        "text": "审核生成内容（2） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 S2RA example for address c1 — S2RA 例句翻译 c1 ❌ address · 例句 S2RA example for address c2 — S2RA 例句翻译 c2 ❌ 全不选 保存已选（2） 关闭",
+        "calls": 1
+      },
+      "save": {
+        "closed": true,
+        "ms": 6098,
+        "packDelta": 0
+      },
+      "packsAfter": [
+        {
+          "id": "pk_1794489322772_l5ecp5",
+          "kind": "mixed",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489322772,
+          "meta": null
+        },
+        {
+          "id": "pk_1794489377479_56k7hv",
+          "kind": "semantics",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489377479,
+          "meta": null
+        },
+        {
+          "id": "pk_1794489414735_r8d9fp",
+          "kind": "mixed",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489414735,
+          "meta": null
+        },
+        {
+          "id": "pk_1794489543957_hhillo",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489543957,
+          "meta": null
+        },
+        {
+          "id": "pk_1794489740506_15089a",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489740506,
+          "meta": null
+        },
+        {
+          "id": "pk_1794489871089_pq1ym8",
+          "kind": "mixed",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794489871089,
+          "meta": null
+        },
+        {
+          "id": "pk_1794490035937_urf1az",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794490035937,
+          "meta": null
+        },
+        {
+          "id": "pk_1794490808927_9fgex1",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794490808927,
+          "meta": null
+        },
+        {
+          "id": "pk_1794492047356_hr130u",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794492047356,
+          "meta": null
+        },
+        {
+          "id": "pk_1794492049504_kn2r34",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794492049504,
+          "meta": null
+        },
+        {
+          "id": "pk_1794492497909_d1aa7h",
+          "kind": "mixed",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794492497909,
+          "meta": null
+        },
+        {
+          "id": "pk_1794492935379_kslfsj",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794492935379,
+          "meta": null
+        },
+        {
+          "id": "pk_1794493068866_9m99r8",
+          "kind": "mnemonics",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794493068866,
+          "meta": null
+        },
+        {
+          "id": "pk_1794494605119_mh23c2",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794494605119,
+          "meta": null
+        },
+        {
+          "id": "pk_1794495043008_ztmyks",
+          "kind": "examples",
+          "status": "applied",
+          "deckId": null,
+          "createdAt": 1794495043008,
+          "meta": null
+        }
+      ],
+      "taggedItems": [],
+      "taggedPacks": [],
+      "taggedPackDetail": [],
+      "deep": {
+        "id": "kaoyan-hongbaoshu-2025:address",
+        "meanings": [
+          {
+            "c": 1,
+            "cn": "地址",
+            "examples": [
+              "Write your address clearly on the envelope.",
+              "Please write your address clearly on the envelope.",
+              "She moved to a new address last month.",
+              "Q32A example for address c1",
+              "Q32R31 example for address c1",
+              "Q33A example for address c1",
+              "S2RA example for address c1"
+            ]
+          },
+          {
+            "c": 2,
+            "cn": "演讲",
+            "examples": [
+              "The president gave a short address to the nation.",
+              "The president delivered an address to the nation.",
+              "His address at the ceremony was short but moving.",
+              "QA1-2 example for address",
+              "Q32A example for address c2",
+              "Q32R31 example for address c2",
+              "Q33A example for address c2",
+              "S2RA example for address c2"
+            ]
+          },
+          {
+            "c": 3,
+            "cn": "致辞",
+            "examples": [
+              "He delivered the opening address at the conference."
+            ]
+          },
+          {
+            "c": 4,
+            "cn": "说话的技巧",
+            "examples": [
+              "Her address in front of the crowd was calm and clear."
+            ]
+          },
+          {
+            "c": 5,
+            "cn": "称呼",
+            "examples": [
+              "In English we use \"Mr\" as a form of address."
+            ]
+          },
+          {
+            "c": 6,
+            "cn": "演说",
+            "examples": [
+              "The mayor addressed the crowd from the steps."
+            ]
+          },
+          {
+            "c": 7,
+            "cn": "从事",
+            "examples": [
+              "The committee must address the problem of waste."
+            ]
+          },
+          {
+            "c": 8,
+            "cn": "忙于",
+            "examples": [
+              "She addressed herself to the pile of letters on her desk."
+            ]
+          },
+          {
+            "c": 9,
+            "cn": "写姓名地址",
+            "examples": [
+              "Please address the parcel to my office."
+            ]
+          },
+          {
+            "c": 10,
+            "cn": "向…致辞",
+            "examples": [
+              "He addressed the guests at the wedding dinner."
+            ]
+          },
+          {
+            "c": 11,
+            "cn": "与…说话",
+            "examples": [
+              "She turned and addressed the stranger politely."
+            ]
+          },
+          {
+            "c": 12,
+            "cn": "提出",
+            "examples": [
+              "They addressed a formal protest to the embassy."
+            ]
+          }
+        ],
+        "examples": [
+          {
+            "en": "address an audience"
+          },
+          {
+            "en": "Please write your address on the envelope clearly."
+          },
+          {
+            "en": "The president delivered a short address to the nation."
+          },
+          {
+            "en": "QA1-1 example for address"
+          },
+          {
+            "en": "QA7-1 example for address"
+          },
+          {
+            "en": "Q32A example for address c-"
+          }
+        ],
+        "phrases": [
+          {
+            "en": "email address"
+          },
+          {
+            "en": "ip address",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M1"
+          },
+          {
+            "en": "address book"
+          },
+          {
+            "en": "home address",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M1"
+          },
+          {
+            "en": "mailing address",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M1"
+          },
+          {
+            "en": "network address",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M1"
+          },
+          {
+            "en": "address space",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M1"
+          },
+          {
+            "en": "address as",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M5"
+          },
+          {
+            "en": "address Q32B up"
+          }
+        ],
+        "mnemonics": [
+          {
+            "type": "联想",
+            "text": "Q32R21 助记 c1",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M1"
+          },
+          {
+            "type": "联想",
+            "text": "Q32R21 助记 c2",
+            "meaningId": "kaoyan-hongbaoshu-2025:address#M2"
+          }
+        ]
+      },
+      "annotation": {
+        "rows": [
+          {
+            "text": "[名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 Write your address clearly on the envelope. 把地址清楚地",
+            "examples": [
+              "Write your address clearly on the envelope. 把地址清楚地写在信封上。",
+              "Please write your address clearly on the envelope. 请把你的地址清楚地写在信封上。",
+              "She moved to a new address last month. 她上个月搬到了一个新地址。",
+              "Q32A example for address c1 Q32A 例句翻译 c1",
+              "Q32R31 example for address c1 Q32R31 例句翻译 c1",
+              "Q33A example for address c1 Q33A 例句翻译 c1",
+              "S2RA example for address c1 S2RA 例句翻译 c1"
+            ],
+            "mnem": [
+              "[联想]Q32R21 助记 c1"
+            ]
+          },
+          {
+            "text": "[名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 The president gave a short address to the nation. 总统向全国作了简短演讲。 T",
+            "examples": [
+              "The president gave a short address to the nation. 总统向全国作了简短演讲。",
+              "The president delivered an address to the nation. 总统向全国发表了演讲。",
+              "His address at the ceremony was short but moving. 他在典礼上的演讲简短却感人。",
+              "QA1-2 example for address QA1 例句 c2",
+              "Q32A example for address c2 Q32A 例句翻译 c2",
+              "Q32R31 example for address c2 Q32R31 例句翻译 c2",
+              "Q33A example for address c2 Q33A 例句翻译 c2",
+              "S2RA example for address c2 S2RA 例句翻译 c2"
+            ],
+            "mnem": [
+              "[联想]Q32R21 助记 c2"
+            ]
+          },
+          {
+            "text": "[名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 He delivered the opening address at the conference. 他在大会上致开幕辞。",
+            "examples": [
+              "He delivered the opening address at the conference. 他在大会上致开幕辞。"
+            ],
+            "mnem": []
+          },
+          {
+            "text": "[名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 Her address in front of the crowd was calm and clear. 她在人群前的说",
+            "examples": [
+              "Her address in front of the crowd was calm and clear. 她在人群前的说话技巧沉稳而清晰。"
+            ],
+            "mnem": []
+          },
+          {
+            "text": "[名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as In English we use \"Mr\" as a form of address. 在英语里我们用“M",
+            "examples": [
+              "In English we use \"Mr\" as a form of address. 在英语里我们用“Mr”作为一种称呼。"
+            ],
+            "mnem": []
+          },
+          {
+            "text": "[动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 The mayor addressed the crowd from the steps. 市长从台阶上向人群演说。",
+            "examples": [
+              "The mayor addressed the crowd from the steps. 市长从台阶上向人群演说。"
+            ],
+            "mnem": []
+          },
+          {
+            "text": "[动]从事 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 The committee must address the problem of waste. 委员会必须着手处理",
+            "examples": [
+              "The committee must address the problem of waste. 委员会必须着手处理浪费问题。"
+            ],
+            "mnem": []
+          },
+          {
+            "text": "[动]忙于 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 She addressed herself to the pile of letters on her desk. ",
+            "examples": [
+              "She addressed herself to the pile of letters on her desk. 她忙于处理桌上那一堆信件。"
+            ],
+            "mnem": []
+          },
+          {
+            "text": "[动]写姓名地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 Please address the parcel to my office. 请把包裹写上我",
+            "examples": [
+              "Please address the parcel to my office. 请把包裹写上我办公室的姓名地址。"
+            ],
+            "mnem": []
+          },
+          {
+            "text": "[动]向…致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 He addressed the guests at the wedding dinner. 他在婚宴上向宾客致辞。",
+            "examples": [
+              "He addressed the guests at the wedding dinner. 他在婚宴上向宾客致辞。"
+            ],
+            "mnem": []
+          },
+          {
+            "text": "[动]与…说话 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 She turned and addressed the stranger politely. 她转过身，礼貌地与陌生人说话",
+            "examples": [
+              "She turned and addressed the stranger politely. 她转过身，礼貌地与陌生人说话。"
+            ],
+            "mnem": []
+          },
+          {
+            "text": "[动]提出 0/1 0% 本义④ 「处理」 → 把心力指向某事 → 着手解决 → 故指从事、处理、提出 They addressed a formal protest to the embassy. 他们向大使馆提出正式",
+            "examples": [
+              "They addressed a formal protest to the embassy. 他们向大使馆提出正式抗议。"
+            ],
+            "mnem": []
+          }
+        ],
+        "examples": [
+          "address an audience 向听众发表讲话",
+          "Please write your address on the envelope clearly. 请把地址清楚地写在信封上。",
+          "The president delivered a short address to the nation. 总统向全国发表了简短讲话。",
+          "QA1-1 example for address QA1 例句 c-",
+          "QA7-1 example for address QA7 例句 1",
+          "Q32A example for address c- Q32A 例句翻译 c-"
+        ],
+        "phrases": [
+          "email address — 电子邮箱信箱",
+          "ip address — 网络地址，IP地址",
+          "address book — 通讯簿；住址名册",
+          "home address — 家庭住址；标识地址；内部地址",
+          "mailing address — 邮寄地址",
+          "network address — 网络地址",
+          "address space — 地址空间",
+          "address as — 称呼",
+          "address Q32B up — Q32B 词组翻译 c-"
+        ],
+        "body": "address 本义1「地址」 住处或通信处，也指写地址 词源：拉丁 ad-向+directus 使直 本义2「演讲」 正式讲话、致辞 词源：同源 addresser 致意、进言 本义3「称呼」 对人使用的称谓 词源：同源 addresser 称谓 本义4「处理」 着手应对、致力于 词源：同源 address 指向、着手 [名]地址 0/1 0% 本义① 「地址」 → ad- 向+directus 直 → 使直指其所 → 故指地址、写地址 Write your address clearly on the envelope. 把地址清楚地写在信封上。 Please write your address clearly on the envelope. 请把你的地址清楚地写在信封上。 She moved to a new address last month. 她上个月搬到了一个新地址。 Q32A example for address c1 Q32A 例句翻译 c1 Q32R31 example for address c1 Q32R31 例句翻译 c1 Q33A example for address c1 Q33A 例句翻译 c1 S2RA example for address c1 S2RA 例句翻译 c1 [联想]Q32R21 助记 c1 [名]演讲 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 The president gave a short address to the nation. 总统向全国作了简短演讲。 The president delivered an address to the nation. 总统向全国发表了演讲。 His address at the ceremony was short but moving. 他在典礼上的演讲简短却感人。 QA1-2 example for address QA1 例句 c2 Q32A example for address c2 Q32A 例句翻译 c2 Q32R31 example for address c2 Q32R31 例句翻译 c2 Q33A example for address c2 Q33A 例句翻译 c2 S2RA example for address c2 S2RA 例句翻译 c2 [联想]Q32R21 助记 c2 [名]致辞 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 He delivered the opening address at the conference. 他在大会上致开幕辞。 [名]说话的技巧 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 Her address in front of the crowd was calm and clear. 她在人群前的说话技巧沉稳而清晰。 [名]称呼 0/1 0% 本义③ 「称呼」 → 以何名相称 → 故指称呼 → to address sb as In English we use \"Mr\" as a form of address. 在英语里我们用“Mr”作为一种称呼。 [动]演说 0/1 0% 本义② 「演讲」 → 向人进言 → 当众陈词 → 故指演讲、致辞 The mayor addressed the crowd from the steps. 市长从台阶上向人群演说。 [动]从事"
+      },
+      "domC1": [
+        "Write your address clearly on the envelope. 把地址清楚地写在信封上。",
+        "Please write your address clearly on the envelope. 请把你的地址清楚地写在信封上。",
+        "She moved to a new address last month. 她上个月搬到了一个新地址。",
+        "Q32A example for address c1 Q32A 例句翻译 c1",
+        "Q32R31 example for address c1 Q32R31 例句翻译 c1",
+        "Q33A example for address c1 Q33A 例句翻译 c1",
+        "S2RA example for address c1 S2RA 例句翻译 c1"
+      ],
+      "domC2": [
+        "The president gave a short address to the nation. 总统向全国作了简短演讲。",
+        "The president delivered an address to the nation. 总统向全国发表了演讲。",
+        "His address at the ceremony was short but moving. 他在典礼上的演讲简短却感人。",
+        "QA1-2 example for address QA1 例句 c2",
+        "Q32A example for address c2 Q32A 例句翻译 c2",
+        "Q32R31 example for address c2 Q32R31 例句翻译 c2",
+        "Q33A example for address c2 Q33A 例句翻译 c2",
+        "S2RA example for address c2 S2RA 例句翻译 c2"
+      ]
+    },
+    "S4R 401隔离复核": {
+      "ok": false,
+      "ms": 182605,
+      "error": "Error: 等待种子首页超时\n    at waitSeededHome (file:///root/workspace/%E8%83%8C%E5%8D%95%E8%AF%8DAPP%E5%BC%80%E5%8F%91/tests/e2e/ai-qa-lib.mjs:243:9)\n    at async file:///root/workspace/%E8%83%8C%E5%8D%95%E8%AF%8DAPP%E5%BC%80%E5%8F%91/tests/e2e/qa033-rerun.mjs:323:3\n    at async run (file:///root/workspace/%E8%83%8C%E5%8D%95%E8%AF%8DAPP%E5%BC%80%E5%8F%91/tests/e2e/qa033-rerun.mjs:239:21)\n    at async file:///root/workspace/%E8%83%8C%E5%8D%95%E8%AF%8DAPP%E5%BC%80%E5%8F%91/tests/e2e/qa033-rerun.mjs:318:1",
+      "word": {
+        "wordId": "kaoyan-hongbaoshu-2025:address",
+        "headword": "address",
+        "meaningCount": 12,
+        "meanings": [
+          {
+            "cn": "地址",
+            "pos": "n."
+          },
+          {
+            "cn": "演讲",
+            "pos": "n."
+          },
+          {
+            "cn": "致辞",
+            "pos": "n."
+          },
+          {
+            "cn": "说话的技巧",
+            "pos": "n."
+          },
+          {
+            "cn": "称呼",
+            "pos": "n."
+          },
+          {
+            "cn": "演说",
+            "pos": "vt."
+          },
+          {
+            "cn": "从事",
+            "pos": "vt."
+          },
+          {
+            "cn": "忙于",
+            "pos": "vt."
+          },
+          {
+            "cn": "写姓名地址",
+            "pos": "vt."
+          },
+          {
+            "cn": "向…致辞",
+            "pos": "vt."
+          },
+          {
+            "cn": "与…说话",
+            "pos": "vt."
+          },
+          {
+            "cn": "提出",
+            "pos": "vt."
+          }
+        ]
+      }
+    }
+  },
+  "findings": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "cost": {
+    "realCalls": 0,
+    "yuan": 0
+  },
+  "notes": [
+    "S2R taggedPacks=[] allPacks=[{\"id\":\"pk_1794489322772_l5ecp5\",\"kind\":\"mixed\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794489322772,\"meta\":null},{\"id\":\"pk_1794489377479_56k7hv\",\"kind\":\"semantics\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794489377479,\"meta\":null},{\"id\":\"pk_1794489414735_r8d9fp\",\"kind\":\"mixed\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794489414735,\"meta\":null},{\"id\":\"pk_1794489543957_hhillo\",\"kind\":\"examples\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794489543957,\"meta\":null},{\"id\":\"pk_1794489740506_15089a\",\"kind\":\"examples\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794489740506,\"meta\":null},{\"id\":\"pk_1794489871089_pq1ym8\",\"kind\":\"mixed\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794489871089,\"meta\":null},{\"id\":\"pk_1794490035937_urf1az\",\"kind\":\"examples\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794490035937,\"meta\":null},{\"id\":\"pk_1794490808927_9fgex1\",\"kind\":\"examples\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794490808927,\"meta\":null},{\"id\":\"pk_1794492047356_hr130u\",\"kind\":\"examples\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794492047356,\"meta\":null},{\"id\":\"pk_1794492049504_kn2r34\",\"kind\":\"examples\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794492049504,\"meta\":null},{\"id\":\"pk_1794492497909_d1aa7h\",\"kind\":\"mixed\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794492497909,\"meta\":null},{\"id\":\"pk_1794492935379_kslfsj\",\"kind\":\"examples\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794492935379,\"meta\":null},{\"id\":\"pk_1794493068866_9m99r8\",\"kind\":\"mnemonics\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794493068866,\"meta\":null},{\"id\":\"pk_1794494605119_mh23c2\",\"kind\":\"examples\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794494605119,\"meta\":null},{\"id\":\"pk_1794495043008_ztmyks\",\"kind\":\"examples\",\"status\":\"applied\",\"deckId\":null,\"createdAt\":1794495043008,\"meta\":null}]",
+    "rerun mock 请求总数 2；真实 API 0 次"
+  ],
+  "settings": {
+    "enabled": true,
+    "provider": "deepseek",
+    "keyStorage": "persistent",
+    "hasKey": true,
+    "maxCost": 3
+  },
+  "finishedAt": "2026-11-12T14:53:56.099Z"
+}

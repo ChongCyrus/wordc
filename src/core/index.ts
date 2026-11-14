@@ -129,6 +129,8 @@ export {
   countsFromSnapshot,
   shouldRecordEncounters,
   normalizeSessionSettings,
+  memoryTotalForMeaning,
+  advanceWeighted,
   DEFAULT_SESSION_SETTINGS,
   TOTAL_REPEATS_MIN,
   TOTAL_REPEATS_MAX,
@@ -138,6 +140,37 @@ export type { SessionWord, SessionSettings, SessionState } from './session'
 // —— 今日计划 / 首页状态（SPEC-v2 §3.4/§6.2）——
 export { deriveHomeState, getCurrentWordId } from './plan'
 export type { HomeStateInput } from './plan'
+
+// —— 加权记忆（F2，0.3.35）——
+export {
+  DEFAULT_WEIGHTED_MEMORY_SETTINGS,
+  MEMORY_TOTAL_MIN,
+  MEMORY_TOTAL_MAX,
+  WEIGHTED_MIN_MIN,
+  WEIGHTED_MIN_MAX,
+  WEIGHTED_MAX_MIN,
+  WEIGHTED_MAX_MAX,
+  WEIGHTED_K_MIN,
+  WEIGHTED_K_MAX,
+  normalizeWeightedMemorySettings,
+  weightedTotal,
+  selectWeightedMemory,
+  weightedMemoryTotals,
+  weightedSettingsFromSettings,
+  isWeightedSameAsBase,
+} from './weighted-memory'
+export type { WeightedMemorySettings, WeightedMemorySettingsSource } from './weighted-memory'
+
+// —— 学习效率 / 剩余时间（F3，0.3.35）——
+export {
+  activeStudyMs,
+  accumulateActiveStudyMs,
+  averageSecondsPerWord,
+  estimateRemainingStudySeconds,
+  computeLearningEfficiency,
+  secondsToMinutes,
+} from './learning-efficiency'
+export type { LearningEfficiency, LearningEfficiencyInput } from './learning-efficiency'
 
 // —— 统计 ——
 export {

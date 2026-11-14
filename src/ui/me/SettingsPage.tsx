@@ -274,6 +274,49 @@ export default function SettingsPage() {
           }
         />
         <SettingRow
+          label="加权记忆最少次数"
+          hint="加权记忆每个 c 至少练几次（1–10）"
+          control={
+            <Stepper
+              ariaLabel="加权记忆最少次数"
+              value={s['memory.weightedMin']}
+              min={1}
+              max={10}
+              onChange={(value) => {
+                const maxValue = Math.max(value, s['memory.weightedMax'])
+                void patch({ 'memory.weightedMin': value, ...(maxValue !== s['memory.weightedMax'] ? { 'memory.weightedMax': maxValue } : {}) })
+              }}
+            />
+          }
+        />
+        <SettingRow
+          label="加权记忆最多次数"
+          hint="加权记忆每个 c 最多练几次（1–20，≥最少次数）"
+          control={
+            <Stepper
+              ariaLabel="加权记忆最多次数"
+              value={Math.max(s['memory.weightedMax'], s['memory.weightedMin'])}
+              min={Math.max(1, s['memory.weightedMin'])}
+              max={20}
+              onChange={(value) => void patch({ 'memory.weightedMax': Math.max(value, s['memory.weightedMin']) })}
+            />
+          }
+        />
+        <SettingRow
+          label="加权强度"
+          hint="不熟悉度放大倍数 k（0–2，默认 1；0=不放大）"
+          control={
+            <Stepper
+              ariaLabel="加权强度"
+              value={s['memory.weightedK']}
+              min={0}
+              max={2}
+              step={0.1}
+              onChange={(value) => void patch({ 'memory.weightedK': Math.round(value * 10) / 10 })}
+            />
+          }
+        />
+        <SettingRow
           label="记忆模式"
           hint="默认按顺序；随机从未满含义中挑"
           control={

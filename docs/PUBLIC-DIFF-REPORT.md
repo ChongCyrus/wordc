@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-12T14:28:24.849Z
+- 生成时间：2026-11-12T15:01:09.180Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**371**；修改 **80**；新增 **5**；私有仓未进入公开树 **1853**
+- 公开文件：**377**；修改 **81**；新增 **5**；私有仓未进入公开树 **1870**
 
 ## 结论
 
@@ -35,6 +35,7 @@
 | `docs/qa/ai-0.3.28-raw.json` | 配置 | JSON 字段变化 |
 | `docs/qa/ai-0.3.28.md` | 配置/文档 | 文本变化 |
 | `docs/qa/ai-regress-0.3.30.md` | 配置/文档 | 文本变化 |
+| `docs/qa/ai-regress-0.3.32.md` | 配置/文档 | 文本变化 |
 | `package.json` | 配置 | JSON 字段变化 |
 | `public/packs/dagang/semantics-v37-v4.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |
 | `public/packs/dagang/wc-content-full.pack.json` | 新增（公开版生成/改写） | 私仓无对应文件 |

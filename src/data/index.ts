@@ -419,3 +419,6 @@ export type {
   GenerationDraftItemInput,
   GenerationDraftMeta,
 } from './generation-draft'
+
+export { absorbAiPack, appendAiPack, mergeDuplicateAiPacks } from './ai-packs'
+export type { AppendAiPackResult } from './ai-packs'

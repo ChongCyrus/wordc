@@ -143,6 +143,22 @@ src/ui/study/
 4. 首词（index 0）时 `<` 隐藏、右滑不触发；记忆 w-c 页内不触发回退。
 6. 退出学习（`×`/菜单）与回退的区别：退出保存进度；回退只是页内移动。
 
+### 3.4.5 w-c 信息增强 + 加权记忆（task-136 F1/F2）
+
+- **F1 w-c 信息区**：当前 c 卡片下方（不触发 +1）显示例句（en+cn，最多 3）、该 c 助记、不熟悉度条+百分比、排名「第 X / N 不熟悉」；无数据不占位。
+- **F2 加权记忆**：注释面「记忆」旁新增「加权记忆」（次级样式）；流程与普通记忆一致，per-c total = `weightedMemoryTotals(base, familiarity, {memory.weightedMin/Max/K})`；计数/点阵/完成按 per-c weighted total（`memoryTotalForMeaning`）。普通「记忆」仍用固定 `memory.totalRepeats`。
+
+### 3.4.6 白板面各 c 词性 + 英文例句（task-136 F4）
+
+- 白板面单词下方按 c 分组显示词性 + 该 c 英文例句（**不显示中文**），最多数量沿用 `board.exampleCount`；无数据不占位。
+- 长文本换行，不泄露中文答案。
+
+### 3.4.7 长文本/裁切修复（task-136 B1/B4/B5）
+
+- B1：注释面/审核框/w-c 助记与内容完整换行，不 clamp/省略（`.mm-review-line`/`.meaning-mnemonic`）。
+- B4：本义链（`.derivation-chain`）完整换行、不裁切。
+- B5：注释面本义区左右 ≥16px 安全内边距，窄屏/大字号不裁字。
+
 ### 3.4.4 注释面本义列表（task-98）
 1. 注释面单词/音标下方、含义列表上方显示「本义1「label」/ 本义2「label」…」（来自 `getEffectiveContent().coreSenses`）；无 coreSenses 不显示区块。
 2. 每个本义三层渲染：`本义N「label」` → gloss/note 小字下一行 → 有 origin 时单独一行「词源：…」；旧 v3 违规 label（>6 字/含 是否/看/检查/源自/语言名/箭头）显示「本义待重新生成」+ 原标签小字灰显。
@@ -223,3 +239,5 @@ src/ui/study/
 8. 三键「下次出现」已接 `core.predictAll`（dev-algo task-26，官方 `Predict{first,days,progress}`）；旧 `previewNext` 仅保留兼容，UI 不再使用。
 9. 「允许模糊完成复习」「预计复习间隔」的**业务语义**在 core/data 侧（队列/评分/预测），UI 只负责设置项读写与展示；本页验收以「设置可改 + 学习页副标题实时变化」为准。
 10. 首页「继续学习」、plan 驱动续学、滑动回退/改判已在 task-30 完成（plan API 由 data task-28/29 提供）；改判为**扩展行为**（官方仅确认可回退查看），UI 文案已提示。
+
+- 0.3.35/F2：注释面「加权记忆」按钮用当前 c 不熟悉度计算 total；设置项 `memory.weightedMin/Max/K` 生效；普通「记忆」不变。

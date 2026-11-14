@@ -19,6 +19,14 @@ export interface MemoryStageProps {
   cardSize: number
   /** 当前 c 的本义→引申链（task-77；无映射不渲染） */
   derivation?: DerivationChainView
+  /** F1：当前 c 例句（en+cn，最多 3） */
+  examples?: Array<{ en: string; cn: string }>
+  /** F1：当前 c 助记 */
+  mnemonics?: Array<{ type: string; text: string }>
+  /** F1：当前 c 不熟悉度 0–1 */
+  familiarity?: number | null
+  /** F1：不熟悉度排名 */
+  unfamiliarityRank?: { rank: number; total: number } | null
   /** 整屏点击 = 记忆一次 */
   onTap: () => void
 }
@@ -44,6 +52,10 @@ export function MemoryStage({
   fontScale,
   cardSize,
   derivation,
+  examples = [],
+  mnemonics = [],
+  familiarity,
+  unfamiliarityRank,
   onTap,
 }: MemoryStageProps) {
   const [touched, setTouched] = useState(false)
@@ -100,6 +112,39 @@ export function MemoryStage({
         </div>
         <div className="wc-cn">{meaningCn}</div>
         {derivation ? <DerivationChain {...derivation} compact /> : null}
+
+      {(examples.length > 0 ||
+        mnemonics.length > 0 ||
+        familiarity != null ||
+        unfamiliarityRank) ? (
+        <div className="wc-info" onClick={(event) => event.stopPropagation()}>
+          {familiarity != null ? (
+            <div className="wc-familiarity">
+              <div className="wc-familiarity-bar">
+                <div
+                  className="wc-familiarity-fill"
+                  style={{ width: `${Math.round(Math.min(1, Math.max(0, familiarity)) * 100)}%` }}
+                />
+              </div>
+              <span className="wc-info-caption">
+                不熟悉度 {Math.round(familiarity * 100)}%
+                {unfamiliarityRank ? ` · 第 ${unfamiliarityRank.rank} / ${unfamiliarityRank.total} 不熟悉` : ''}
+              </span>
+            </div>
+          ) : null}
+          {examples.map((example, index) => (
+            <div className="wc-info-example" key={`${example.en}-${index}`}>
+              <span className="wc-info-en">{example.en}</span>
+              <span className="wc-info-cn">{example.cn}</span>
+            </div>
+          ))}
+          {mnemonics.map((mnemonic, index) => (
+            <div className="wc-info-mnemonic" key={`${mnemonic.type}-${index}`}>
+              <span className="wc-info-caption">[{mnemonic.type}]</span> {mnemonic.text}
+            </div>
+          ))}
+        </div>
+      ) : null}
         <div className="wc-count-row">
           <span className={`wc-count${safeCount > 0 ? ' is-bump' : ''}`} key={safeCount}>
             {safeCount} / {safeTotal}

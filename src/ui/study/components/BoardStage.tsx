@@ -3,6 +3,11 @@ import { WordHead } from './WordHead'
 import { HighlightedText } from './HighlightedText'
 import type { ExampleView } from './types'
 
+export interface BoardMeaningHint {
+  pos?: string
+  examples?: Array<{ en: string; cn: string }>
+}
+
 export interface BoardStageProps {
   headword: string
   phonetic?: string
@@ -13,6 +18,8 @@ export interface BoardStageProps {
   showPhonetic: boolean
   /** 词级英文例句（不含中文）；按 board.exampleCount 截断 */
   examples: ExampleView[]
+  /** F4：每个 c 的词性 + 英文例句（不显示中文） */
+  meanings?: BoardMeaningHint[]
   exampleCount: number
   speaking?: boolean
   onSpeak: () => void
@@ -30,6 +37,7 @@ export function BoardStage({
   phonetic,
   showPhonetic,
   examples,
+  meanings = [],
   exampleCount,
   speaking = false,
   onSpeak,
@@ -67,6 +75,23 @@ export function BoardStage({
           speaking={speaking}
           onSpeak={onSpeak}
         />
+        {meanings.length > 0 ? (
+          <div className="board-meanings">
+            {meanings.map((meaning, index) => (
+              <div className="board-meaning" key={index}>
+                <span className="board-meaning-pos">{meaning.pos ?? ''}</span>
+                {(meaning.examples ?? [])
+                  .slice(0, Math.max(0, Math.min(3, exampleCount)))
+                  .map((example) => (
+                    <span className="board-meaning-en" key={example.en}>
+                      {example.en}
+                    </span>
+                  ))}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         {visibleExamples.length > 0 ? (
           <div className="board-examples">
             {visibleExamples.map((example, index) => (

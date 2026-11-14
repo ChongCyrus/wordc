@@ -25,12 +25,15 @@ beforeEach(async () => {
 
 describe('设置项默认值（SPEC §5，AC4）', () => {
   it('全部设置 key 与其默认值（20 + task-70 AI 10 项 + task-80 jsonMode = 31 项）', async () => {
-    expect(SETTING_KEYS).toHaveLength(31)
+    expect(SETTING_KEYS).toHaveLength(34)
     const settings = await getSettings()
     expect(settings['study.dailyGoal']).toBe(30)
     expect(settings['board.exampleCount']).toBe(2)
     expect(settings['board.showPhonetic']).toBe(true)
     expect(settings['memory.totalRepeats']).toBe(3)
+    expect(settings['memory.weightedMin']).toBe(1)
+    expect(settings['memory.weightedMax']).toBe(10)
+    expect(settings['memory.weightedK']).toBe(1)
     expect(settings['memory.mode']).toBe('sequential')
     expect(settings['memory.showPhrases']).toBe(true) // D47 修订：用户要求默认显示词组
     expect(settings['memory.fontScale']).toBe(1)
@@ -172,4 +175,13 @@ describe('越界值 clamp / 非法值拒绝（AC4）', () => {
     expect(await getSettings()).toEqual(SETTINGS_DEFAULTS)
     expect(await getDb().settings.count()).toBe(0)
   })
+
+  it('task-137：加权记忆设置可保存/校验范围', async () => {
+    await updateSettings({ 'memory.weightedMin': 3, 'memory.weightedMax': 12, 'memory.weightedK': 1.5 })
+    const settings = await getSettings()
+    expect(settings['memory.weightedMin']).toBe(3)
+    expect(settings['memory.weightedMax']).toBe(12)
+    expect(settings['memory.weightedK']).toBe(1.5)
+  })
+
 })

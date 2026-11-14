@@ -4,6 +4,7 @@
  * 必须用公开构建（4174，默认大纲 deck，无受限商业词表）。
  */
 import { execFile } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { mkdir, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +18,8 @@ const BASE = 'http://127.0.0.1:4174/'
 const CHROMIUM = join(HERE, 'tools/e2e/chromium/usr/lib/chromium/chromium')
 const LIB = [join(HERE, 'tools/e2e/chromium/usr/lib/aarch64-linux-gnu'), join(HERE, 'tools/e2e/chromium/usr/lib/chromium')].join(':')
 const W = 390
+const SEMANTICS_PACK = JSON.parse(readFileSync(join(HERE, 'data/packs/dagang/semantics-v37-v4.pack.json'), 'utf8'))
+const SEM_ITEM = SEMANTICS_PACK.items.find((it) => String(it.headword).toLowerCase() === 'admire') ?? null
 const H = 844
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -53,7 +56,7 @@ async function waitHome(page) {
 async function prepare(page) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60_000 })
   await waitHome(page)
-  const chosen = await page.evaluate(async () => {
+  const chosen = await page.evaluate(async (sem) => {
     const open = () => new Promise((resolve, reject) => {
       const req = indexedDB.open('momo-reword')
       req.onsuccess = () => resolve(req.result)
@@ -73,12 +76,12 @@ async function prepare(page) {
       const req = db.transaction('words', 'readonly').objectStore('words').getAll()
       req.onsuccess = () => resolve(req.result)
     })).filter((w) => w.deckId === deckId)
-    const target = words.find((w) => String(w.headword).toLowerCase() === 'abdomen') ?? words[0]
-    const meanings = ['腹部', '下腹', '腹腔'].map((cn, i) => ({ id: `${target.id}#M${i + 1}`, pos: 'n.', cn }))
+    const target = words.find((w) => String(w.headword).toLowerCase() === 'admire') ?? words.find((w) => String(w.headword).toLowerCase() === 'abdomen') ?? words[0]
+    const meanings = ['钦佩', '羡慕', '欣赏'].map((cn, i) => ({ id: `${target.id}#M${i + 1}`, pos: 'vt.', cn }))
     const phrases = [
-      { en: 'lower abdomen', cn: '小腹；下腹部', meaningId: meanings[0].id },
-      { en: 'acute abdomen', cn: '[医]急腹症', meaningId: meanings[0].id },
-      { en: 'abdomen in', cn: '收腹' },
+      { en: 'admire sb for sth', cn: '因某事钦佩某人', meaningId: meanings[0].id },
+      { en: 'admire the view', cn: '欣赏风景', meaningId: meanings[2].id },
+      { en: 'greatly admire', cn: '非常钦佩' },
     ]
     const now = Date.now()
     const d = new Date(now)
@@ -93,11 +96,25 @@ async function prepare(page) {
       sameDayRequeued: 0, todayProgress: 0, meaningStats, createdAt: now, updatedAt: now,
     }
     await new Promise((resolve, reject) => {
-      const tx = db.transaction(['settings', 'plans', 'meta', 'states', 'words'], 'readwrite')
+      const tx = db.transaction(['settings', 'plans', 'meta', 'states', 'words', 'packs', 'packItems'], 'readwrite')
       for (const [key, value] of Object.entries({ 'app.theme': 'dark', 'memory.showPhrases': true })) {
         tx.objectStore('settings').put({ key, value, updatedAt: now })
       }
       tx.objectStore('words').put({ ...target, meanings, phrases })
+      if (sem) {
+        const packId = 'demo-semantics'
+        tx.objectStore('packs').put({
+          id: packId, name: '本义/引申链（演示）', kind: 'semantics', formatVersion: 1, checksum: 'demo',
+          source: 'ai', status: 'applied', counts: { items: 1, pending: 0, approved: 0, applied: 1, rejected: 0, skipped: 0 },
+          createdAt: now, updatedAt: now,
+        })
+        tx.objectStore('packItems').put({
+          id: packId + ':1', packId, seq: 1, headword: target.headword,
+          headwordLower: String(target.headwordLower ?? target.headword).toLowerCase(),
+          wordId: target.id, deckId, payload: { coreSenses: sem.coreSenses, meaningMap: sem.meaningMap },
+          status: 'applied', contentHashes: [], createdAt: now, appliedAt: now,
+        })
+      }
       tx.objectStore('states').put(state)
       tx.objectStore('plans').put({
         id: planId, date: dateKey, deckId, wordIds: Array(12).fill(target.id), index: 0,
@@ -110,10 +127,26 @@ async function prepare(page) {
       tx.onerror = () => reject(tx.error)
     })
     return { headword: target.headword, deckName: decks.find((d) => d.id === deckId)?.name ?? '', meanings: meanings.map((m) => m.cn) }
-  })
+  }, SEM_ITEM)
   await page.reload({ waitUntil: 'domcontentloaded' })
   await waitHome(page)
-  await sleep(500)
+  // 等待内置内容包 seed 完成（本义/例句应用），否则注释面没有本义
+  await page.waitForFunction(async () => {
+    try {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('momo-reword')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const meta = await new Promise((resolve) => {
+        const req = db.transaction('meta', 'readonly').objectStore('meta').getAll()
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => resolve([])
+      })
+      return meta.some((row) => /seeded|packs\./i.test(String(row.key ?? '')))
+    } catch { return false }
+  }, null, { timeout: 180_000 }).catch(() => {})
+  await sleep(1500)
   return chosen
 }
 

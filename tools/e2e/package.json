@@ -1,7 +1,7 @@
 {
   "name": "wordc-e2e",
   "private": true,
-  "version": "0.3.34",
+  "version": "0.3.35",
   "description": "WordC 无头浏览器 E2E（Playwright Chromium），不参与项目构建",
   "type": "module",
   "scripts": {

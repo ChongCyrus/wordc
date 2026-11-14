@@ -29,6 +29,9 @@ import {
   shouldRecordEncounters,
   tapBoard,
   tapMemory,
+  weightedMemoryTotals,
+  weightedSettingsFromSettings,
+  memoryTotalForMeaning,
   type MeaningStat,
   type Rating,
   type SessionSettings,
@@ -142,6 +145,14 @@ export interface StudyViewModel {
   coreSenses: Array<{ label: string; note?: string; origin?: string }>
   /** w-c 当前 c 的本义→引申链（task-77；无映射 undefined） */
   memoryDerivation?: DerivationChainView
+  /** F1：w-c 当前 c 的例句（最多 3） */
+  memoryExamples: Array<{ en: string; cn: string }>
+  /** F1：w-c 当前 c 的助记 */
+  memoryMnemonics: Array<{ type: string; text: string }>
+  /** F1：当前 c 不熟悉度 0–1 */
+  memoryFamiliarity: number | null
+  /** F1：当前 c 的不熟悉度排名（1=最不熟悉） */
+  memoryRank: { rank: number; total: number } | null
   progress: StudyProgress
   memoryProgress: StudyMemoryProgress
   memoryCount: number
@@ -169,6 +180,8 @@ export interface StudyActions {
   boardTap: () => Promise<void>
   markMeaning: (meaningId: string) => Promise<void>
   openMemory: () => void
+  /** 加权记忆：用 dev-algo weightedMemoryTotals 作为 per-c total 开始 w-c（F2） */
+  openWeightedMemory: () => void
   memoryTap: () => void
   exitMemory: () => void
   updateStudySettings: (patch: Partial<SettingsMap>) => Promise<void>
@@ -518,6 +531,30 @@ export function useStudySession(options?: {
    * 点「记忆」：进入未满的 c；若全部含义已记满，core.openMemory 会自动重置 wcCounts
    * 并重开一轮（记忆可反复进行）。按钮永不锁死，也不再用 wcCompletedOnce 拦截。
    */
+  const handleOpenWeightedMemory = useCallback(() => {
+    const current = sessionRef.current
+    if (!current || current.stage !== 'annotation') return
+    const base = current.settings.totalRepeats
+    const familiarityByMeaning: Record<string, number | null> = {}
+    for (const meaning of current.word.meanings) {
+      const stat = normalizeMeaningStat(meaningStats[meaning.meaningId])
+      familiarityByMeaning[meaning.meaningId] = familiarity(stat.clicks, stat.encounters)
+    }
+    const loaded = settingsRef.current
+    const weightedSettings = loaded ? weightedSettingsFromSettings(loaded) : undefined
+    const weightedTotals = weightedMemoryTotals(base, familiarityByMeaning, weightedSettings)
+    const fresh = createSession({
+      word: current.word,
+      settings: current.settings,
+      weightedTotals,
+    })
+    const annotated = tapBoard(fresh)
+    const next = openMemory(annotated)
+    if (next.stage !== 'memory') return
+    applySession(next)
+    scheduleSnapshot()
+  }, [applySession, meaningStats, scheduleSnapshot])
+
   const handleOpenMemory = useCallback(() => {
     const current = sessionRef.current
     if (!current || current.stage !== 'annotation') return
@@ -897,7 +934,12 @@ export function useStudySession(options?: {
 
   const memoryCount =
     session && activeMeaning ? (session.wcCounts[activeMeaning.meaningId] ?? 0) : 0
-  const memoryTotal = session ? session.settings.totalRepeats : 3
+  const memoryTotal =
+    session && session.activeMeaningId
+      ? memoryTotalForMeaning(session, session.activeMeaningId)
+      : session
+        ? session.settings.totalRepeats
+        : 3
   const minutes = Math.max(1, Math.round((Date.now() - studyStartedAtRef.current) / 60_000))
 
   return {
@@ -912,6 +954,33 @@ export function useStudySession(options?: {
     mnemonics,
     memoryPhrases,
     memoryDerivation,
+    memoryExamples: (() => {
+      if (!session?.activeMeaningId || !word) return []
+      const source = word.meanings.find((meaning) => meaning.id === session.activeMeaningId)
+      const examples = (source as unknown as { examples?: Array<{ en: string; cn: string }> })?.examples
+      return (examples ?? []).slice(0, 3)
+    })(),
+    memoryMnemonics: (() => {
+      if (!session?.activeMeaningId || !word) return []
+      return word.mnemonics
+        .filter((mnemonic) => (mnemonic as { meaningId?: string }).meaningId === session.activeMeaningId)
+        .map((mnemonic) => ({ type: mnemonic.type, text: mnemonic.text }))
+    })(),
+    memoryFamiliarity: (() => {
+      if (!session?.activeMeaningId) return null
+      const stat = normalizeMeaningStat(meaningStats[session.activeMeaningId])
+      return familiarity(stat.clicks, stat.encounters)
+    })(),
+    memoryRank: (() => {
+      if (!session?.activeMeaningId || session.word.meanings.length === 0) return null
+      const scored = session.word.meanings.map((meaning, index) => {
+        const stat = normalizeMeaningStat(meaningStats[meaning.meaningId])
+        return { meaningId: meaning.meaningId, score: familiarity(stat.clicks, stat.encounters) ?? 0, index }
+      })
+      const sorted = [...scored].sort((a, b) => b.score - a.score || a.index - b.index)
+      const position = sorted.findIndex((item) => item.meaningId === session.activeMeaningId)
+      return position >= 0 ? { rank: position + 1, total: sorted.length } : null
+    })(),
     coreSenses: (effectiveSemantics?.coreSenses ?? [])
       .filter(
         (sense): sense is { label: string; note?: string; origin?: string } =>
@@ -941,6 +1010,7 @@ export function useStudySession(options?: {
       boardTap,
       markMeaning: handleMarkMeaning,
       openMemory: handleOpenMemory,
+      openWeightedMemory: handleOpenWeightedMemory,
       memoryTap: handleMemoryTap,
       exitMemory: handleExitMemory,
       updateStudySettings: handleUpdateStudySettings,

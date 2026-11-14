@@ -74,7 +74,7 @@
 }
 
 .study-icon-btn:active {
-  background-color: var(--mm-surface-2);
+  background-color: var(--mm-surface-3);
 }
 
 .study-icon-btn:disabled {
@@ -396,7 +396,7 @@
   margin-top: 14px;
   padding: 0 16px;
   border: 0;
-  background-color: var(--mm-surface-2);
+  background-color: var(--mm-surface-3);
   color: var(--mm-text-2);
   font-size: var(--mm-text-label, 12px);
   font-weight: var(--mm-weight-medium, 500);
@@ -685,7 +685,7 @@
   width: min(86%, 420px);
   padding: 12px;
   border-radius: var(--mm-radius-md, 10px);
-  background-color: var(--mm-surface-2);
+  background-color: var(--mm-surface-3);
   color: var(--mm-text-2);
   font-size: 14px;
   line-height: 22px;
@@ -1252,6 +1252,11 @@ html.study-reduce-motion .study-page *::after {
 /* ---------- 本义→引申链（task-77） ---------- */
 .derivation-chain {
   margin-top: 4px;
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  -webkit-line-clamp: unset;
   font-size: 12px;
   line-height: 18px;
   color: var(--mm-text-tertiary);
@@ -1269,6 +1274,9 @@ html.study-reduce-motion .study-page *::after {
 /* ---------- 注释面本义列表（task-98） ---------- */
 .core-senses {
   display: flex;
+  padding-left: 16px;
+  padding-right: 16px;
+  box-sizing: border-box;
   flex-direction: column;
   gap: 2px;
   margin: 6px 0 2px;
@@ -1287,6 +1295,10 @@ html.study-reduce-motion .study-page *::after {
 /* ---------- 注释面按含义显示助记（task-128） ---------- */
 .meaning-mnemonic {
   margin-top: 4px;
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  -webkit-line-clamp: unset;
   font-size: 12px;
   line-height: 18px;
   color: var(--mm-text-2);
@@ -1297,3 +1309,63 @@ html.study-reduce-motion .study-page *::after {
 .meaning-example { margin-top: 4px; font-size: 12px; line-height: 18px; }
 .meaning-example-en { display: block; color: var(--mm-text-2); overflow-wrap: anywhere; }
 .meaning-example-cn { display: block; color: var(--mm-text-3); overflow-wrap: anywhere; }
+
+/* task-136 B1：审核/注解助记与链完整换行，不夹断 */
+.mm-review-line {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  overflow-wrap: anywhere;
+}
+
+/* 记忆 + 加权记忆并排（F2） */
+.memory-row { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; }
+.memory-row .memory-btn { flex: 1 1 auto; max-width: 200px; }
+.memory-btn--weighted {
+  background-color: var(--mm-surface-3);
+  color: var(--mm-text-2);
+  border: 1px solid var(--mm-border);
+  font-size: var(--mm-text-body-sm);
+}
+
+/* F1 w-c 当前 c 信息区（不触发 +1） */
+.wc-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 360px;
+  margin-top: 8px;
+  padding: 0 16px;
+  box-sizing: border-box;
+  cursor: default;
+}
+.wc-familiarity { display: flex; flex-direction: column; gap: 4px; }
+.wc-familiarity-bar {
+  height: 6px;
+  border-radius: 999px;
+  background-color: var(--mm-surface-3);
+  overflow: hidden;
+}
+.wc-familiarity-fill { height: 100%; border-radius: 999px; background-color: var(--mm-primary); }
+.wc-info-caption { font-size: 12px; line-height: 16px; color: var(--mm-text-3); }
+.wc-info-example { font-size: 12px; line-height: 16px; }
+.wc-info-en { display: block; color: var(--mm-text-2); overflow-wrap: anywhere; }
+.wc-info-cn { display: block; color: var(--mm-text-3); overflow-wrap: anywhere; }
+.wc-info-mnemonic { font-size: 12px; line-height: 16px; color: var(--mm-text-2); overflow-wrap: anywhere; white-space: normal; }
+
+/* F4 白板面各 c 词性 + 英文例句（不显示中文） */
+.board-meanings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 420px;
+  margin-top: 12px;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+.board-meaning { display: flex; flex-direction: column; gap: 2px; }
+.board-meaning-pos { font-size: 12px; color: var(--mm-text-3); }
+.board-meaning-en { font-size: 14px; line-height: 20px; color: var(--mm-text-2); overflow-wrap: anywhere; }

@@ -465,6 +465,73 @@ describe('学习页 · 回退框架（task-30）', () => {
     expect(unknown).not.toContain('上次选择')
   })
 
+  it('白板面各 c 词性 + 英文例句，不泄露中文（F4）', () => {
+    const html = render(
+      createElement(BoardStage, {
+        headword: 'bank',
+        phonetic: '',
+        showPhonetic: false,
+        examples: [],
+        exampleCount: 2,
+        meanings: [
+          { pos: 'n.', examples: [{ en: 'the river bank', cn: '河岸' }] },
+          { pos: 'n.', examples: [{ en: 'a bank account', cn: '银行账户' }] },
+        ],
+        onSpeak: () => undefined,
+        onNext: () => undefined,
+      }),
+    )
+    expect(html).toContain('the river bank')
+    expect(html).toContain('a bank account')
+    expect(html).toContain('board-meanings')
+    expect(html).not.toContain('河岸')
+    expect(html).not.toContain('银行账户')
+  })
+
+  it('w-c 当前 c 信息区（F1）：例句/助记/不熟悉度条+排名渲染，点击不触发 onTap 区域标记', () => {
+    const html = render(
+      createElement(MemoryStage, {
+        headword: 'bank',
+        meaningCn: '银行',
+        count: 1,
+        total: 3,
+        phraseLines: [],
+        showPhrases: false,
+        fontScale: 1,
+        cardSize: 1,
+        onTap: () => undefined,
+        examples: [{ en: 'I went to the bank.', cn: '我去了银行。' }],
+        mnemonics: [{ type: '联想', text: 'bank 河岸→银行' }],
+        familiarity: 0.4,
+        unfamiliarityRank: { rank: 2, total: 5 },
+      }),
+    )
+    expect(html).toContain('I went to the bank.')
+    expect(html).toContain('我去了银行。')
+    expect(html).toContain('bank 河岸→银行')
+    expect(html).toContain('不熟悉度 40%')
+    expect(html).toContain('第 2 / 5 不熟悉')
+    expect(html).toContain('wc-info')
+  })
+
+  it('加权记忆按钮（F2）：传入 onWeightedMemory 时与「记忆」并排；缺省不渲染', () => {
+    const withWeighted = render(
+      createElement(ActionBar, {
+        onMemory: () => undefined,
+        onWeightedMemory: () => undefined,
+        onRate: () => undefined,
+      }),
+    )
+    expect(withWeighted).toContain('记忆')
+    expect(withWeighted).toContain('加权记忆')
+    expect(withWeighted).toContain('memory-row')
+
+    const normal = render(
+      createElement(ActionBar, { onMemory: () => undefined, onRate: () => undefined }),
+    )
+    expect(normal).not.toContain('加权记忆')
+  })
+
   it('回退时提示条位于操作区三键上方（ActionBar notice 插槽）；非回退不渲染', () => {
     const browsing = render(
       createElement(ActionBar, {

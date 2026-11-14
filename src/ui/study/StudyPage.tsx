@@ -276,6 +276,10 @@ export default function StudyPage() {
         {stage === 'board' && session ? (
           <BoardStage
             headword={session.word.headword}
+            meanings={study.meanings.map((meaning) => ({
+              pos: meaning.pos,
+              examples: meaning.examples,
+            }))}
             phonetic={session.word.phonetic}
             showPhonetic={session.settings.showPhonetic}
             examples={study.examples}
@@ -307,6 +311,10 @@ export default function StudyPage() {
           <MemoryStage
             headword={session.word.headword}
             derivation={study.memoryDerivation}
+            examples={study.memoryExamples}
+            mnemonics={study.memoryMnemonics}
+            familiarity={study.memoryFamiliarity}
+            unfamiliarityRank={study.memoryRank}
             meaningCn={study.activeMeaningCn ?? ''}
             count={study.memoryCount}
             total={study.memoryTotal}
@@ -322,6 +330,7 @@ export default function StudyPage() {
       {stage === 'annotation' ? (
         <ActionBar
           onMemory={actions.openMemory}
+          onWeightedMemory={stage === 'annotation' ? actions.openWeightedMemory : undefined}
           onRate={handleRate}
           labels={study.ratingLabels}
           nextHints={study.nextHints}

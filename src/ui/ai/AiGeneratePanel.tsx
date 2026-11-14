@@ -36,6 +36,7 @@ import {
   getSettings,
   getWord,
   getWordsPage,
+  absorbAiPack,
   importContentPack,
   pendingGenerationTargetsPage,
   loadAiSettings,
@@ -471,7 +472,7 @@ export function AiReviewDialog({
                   {item.headword} · {item.kindLabel}
                 </span>
                 {item.lines.map((line) => (
-                  <span key={line} className="mm-row-sub" style={{ display: 'block' }}>
+                  <span key={line} className="mm-row-sub mm-review-line" style={{ display: 'block' }}>
                     {line}
                   </span>
                 ))}
@@ -1089,8 +1090,10 @@ export function AiGeneratePanel({
             appliedTotal += replacement.applied
             skippedTotal += replacement.skipped
           } else {
+            // task-138 B2：追加模式合并到同 deck 已有 AI 包（不再每次生成 1/1 新包）
+            const targetPackId = await absorbAiPack(imported.packId)
             const allowOverLimit = entries.some((entry) => entry.mode === 'append')
-            const applied = await applyGeneratedPack(imported.packId, { allowOverLimit })
+            const applied = await applyGeneratedPack(targetPackId, { allowOverLimit })
             appliedTotal += applied.applied
             skippedTotal += applied.skipped
           }

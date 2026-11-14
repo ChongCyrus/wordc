@@ -4,6 +4,8 @@ import type { Rating } from './types'
 export interface ActionBarProps {
   /** 点「记忆」→ 开始/继续/重开一轮 w-c（按钮永远可点） */
   onMemory: () => void
+  /** 加权记忆（F2）：与普通记忆流程一致，per-c total 用加权值；缺省不渲染 */
+  onWeightedMemory?: () => void
   /** 提交评分 → 调度 + 持久化 → 下一词 */
   onRate: (rating: Rating) => void
   /**
@@ -36,6 +38,7 @@ const RATING_BUTTONS: Array<{ rating: Rating; label: string; className: string }
  */
 export function ActionBar({
   onMemory,
+  onWeightedMemory,
   onRate,
   nextHints,
   labels,
@@ -46,9 +49,20 @@ export function ActionBar({
   return (
     <div className="action-bar" role="group" aria-label="学习操作">
       {notice ? <div className="action-bar-notice">{notice}</div> : null}
-      <button type="button" className="memory-btn" onClick={onMemory}>
-        记忆
-      </button>
+      <div className="memory-row">
+        <button type="button" className="memory-btn" onClick={onMemory}>
+          记忆
+        </button>
+        {onWeightedMemory ? (
+          <button
+            type="button"
+            className="memory-btn memory-btn--weighted"
+            onClick={onWeightedMemory}
+          >
+            加权记忆
+          </button>
+        ) : null}
+      </div>
       <div className="rating-row">
         {RATING_BUTTONS.map((button) => {
           const hint = nextHints?.[button.rating]
