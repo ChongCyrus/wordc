@@ -143,6 +143,13 @@ src/ui/study/
 4. 首词（index 0）时 `<` 隐藏、右滑不触发；记忆 w-c 页内不触发回退。
 6. 退出学习（`×`/菜单）与回退的区别：退出保存进度；回退只是页内移动。
 
+### 3.4.16 引申副页分栏拖拽/全屏 + 思维导图手势（task-154 F9）
+
+- 分栏：右页 `width: var(--derivation-panel-width)`（30%–75%，默认 46%，`mm.derivationPanelWidth` 本机记忆）；左栏 wrap 宽度 `100% - 宽度`，`min-width:0; overflow-x:hidden` 真 reflow；两栏间 12px 拖拽把手（pointer 拖动实时调整、方向键 ±2%）；`.study-page`/面板 `overflow-x:hidden`，按钮 `flex:0 0 auto; min-width:max-content` + 行内换行，避免文字截断/文档横向滚动。
+- 全屏：右页「全屏」→ 隐藏左栏、右页占满内容区（topbar 与三键仍可见）；「退出全屏」恢复原宽度。
+- Mermaid：图右上「全屏查看」→ 全屏查看器；双指缩放 0.5–4×、单指平移、双击 1×↔2×、重置/关闭；`touch-action:none` 不误触翻页。
+- 自检（headless 360×800 / 390×844）：`scrollWidth==innerWidth`、左 wrap≈54%、右页≈46%、面板内无 `scrollWidth>clientWidth` 元素；拖拽 46→60/59 且 localStorage 已记；全屏宽度=视口、左栏 `display:none`。截图见 `docs/assets/e2e/f9-split-360.png`、`f9-split-390.png`、`f9-fullscreen-360.png`。
+
 ### 3.4.15 生成元引申「用法」说明（task-151）
 
 - 右页底部新增「用法」按钮，弹层展示完整说明：把统一生成元直接作为含义代入各实际含义例句，体会真实意思/真实指代/如何实例化到具体场景事物。

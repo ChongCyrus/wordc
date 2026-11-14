@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Dialog } from '../../components/Dialog'
 import type { DerivationMapContent } from './types'
 
@@ -14,6 +15,9 @@ export interface DerivationPanelProps {
   aiBusy?: boolean
   aiError?: string | null
   saving?: boolean
+  /** F9：右页全屏态（隐藏左栏） */
+  fullscreen?: boolean
+  onToggleFullscreen?: () => void
 }
 
 /** 文本内容：生成元 → 场景/对象/词性 → 含义，完整换行 */
@@ -27,6 +31,7 @@ let mermaidSeq = 0
 export function MermaidPreview({ source }: { source: string }) {
   const [svg, setSvg] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
   const id = useMemo(() => `mmd-${++mermaidSeq}`, [source])
 
   useEffect(() => {
@@ -70,7 +75,20 @@ export function MermaidPreview({ source }: { source: string }) {
     )
   }
   if (svg) {
-    return <div className="derivation-mermaid" dangerouslySetInnerHTML={{ __html: svg }} />
+    return (
+      <>
+        <div className="derivation-mermaid" dangerouslySetInnerHTML={{ __html: svg }} />
+        <button type="button" className="mm-btn mm-btn--sm" onClick={() => setExpanded(true)}>
+          全屏查看
+        </button>
+        {expanded ? (
+          <MermaidZoomViewer
+            svg={svg}
+            onClose={() => setExpanded(false)}
+          />
+        ) : null}
+      </>
+    )
   }
   return (
     <div className="derivation-mermaid-fallback">
@@ -109,6 +127,126 @@ export function DerivationUsageDialog({
   )
 }
 
+/** F9：缩放范围 0.5–4× */
+export const MERMAID_MIN_SCALE = 0.5
+export const MERMAID_MAX_SCALE = 4
+
+export function clampMermaidScale(value: number): number {
+  if (!Number.isFinite(value)) return 1
+  return Math.min(MERMAID_MAX_SCALE, Math.max(MERMAID_MIN_SCALE, value))
+}
+
+/** 双击缩放：1× ↔ 2×（其他比例先回 1× 再进入 2×） */
+export function nextDoubleTapScale(current: number): number {
+  return Math.abs(current - 1) < 0.05 ? 2 : 1
+}
+
+/** Mermaid 全屏查看器：双指缩放/单指平移/双击 1×↔2×/重置/关闭 */
+export function MermaidZoomViewer({ svg, onClose }: { svg: string; onClose: () => void }) {
+  const [scale, setScale] = useState(1)
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const pointers = useRef(new Map<number, { x: number; y: number }>())
+  const gesture = useRef<
+    | null
+    | { mode: 'pan'; posX: number; posY: number; startX: number; startY: number }
+    | { mode: 'pinch'; scale: number; dist: number }
+  >(null)
+  const live = useRef({ scale: 1, x: 0, y: 0 })
+  live.current = { scale, x: pos.x, y: pos.y }
+
+  const reset = () => {
+    setScale(1)
+    setPos({ x: 0, y: 0 })
+  }
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointers.current.size === 1) {
+      gesture.current = {
+        mode: 'pan',
+        posX: live.current.x,
+        posY: live.current.y,
+        startX: event.clientX,
+        startY: event.clientY,
+      }
+    } else {
+      const [a, b] = [...pointers.current.values()]
+      gesture.current = {
+        mode: 'pinch',
+        scale: live.current.scale,
+        dist: Math.hypot(a!.x - b!.x, a!.y - b!.y) || 1,
+      }
+    }
+  }
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pointers.current.has(event.pointerId)) return
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    const g = gesture.current
+    if (!g) return
+    if (pointers.current.size >= 2 && g.mode === 'pinch') {
+      const [a, b] = [...pointers.current.values()]
+      const dist = Math.hypot(a!.x - b!.x, a!.y - b!.y)
+      if (dist > 0) setScale(clampMermaidScale(g.scale * (dist / g.dist)))
+    } else if (pointers.current.size === 1 && g.mode === 'pan') {
+      setPos({
+        x: g.posX + (event.clientX - g.startX),
+        y: g.posY + (event.clientY - g.startY),
+      })
+    }
+  }
+
+  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    pointers.current.delete(event.pointerId)
+    const first = [...pointers.current.values()][0]
+    if (!first) {
+      gesture.current = null
+    } else {
+      gesture.current = {
+        mode: 'pan',
+        posX: live.current.x,
+        posY: live.current.y,
+        startX: first.x,
+        startY: first.y,
+      }
+    }
+  }
+
+  return (
+    <div className="mermaid-viewer" role="dialog" aria-label="思维导图全屏">
+      <div className="mermaid-viewer-head">
+        <span className="mm-row-title">思维导图</span>
+        <span className="mm-caption">{Math.round(scale * 100)}%</span>
+        <button type="button" className="mm-btn mm-btn--sm" onClick={reset}>
+          重置
+        </button>
+        <button type="button" className="mm-btn mm-btn--sm" onClick={onClose}>
+          关闭
+        </button>
+      </div>
+      <div
+        className="mermaid-viewer-canvas"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onDoubleClick={() => {
+          const next = nextDoubleTapScale(scale)
+          setScale(next)
+          setPos({ x: 0, y: 0 })
+        }}
+      >
+        <div
+          className="mermaid-viewer-content"
+          style={{ transform: `translate(${pos.x}px, ${pos.y}px) scale(${scale})` }}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
+    </div>
+  )
+}
+
 /** F8 注释面右侧副页：文字/Mermaid 渲染 + 编辑 + AI 预览 */
 export function DerivationPanel({
   open,
@@ -120,6 +258,8 @@ export function DerivationPanel({
   aiBusy = false,
   aiError = null,
   saving = false,
+  fullscreen = false,
+  onToggleFullscreen,
 }: DerivationPanelProps) {
   const [mode, setMode] = useState(content.mode)
   const [text, setText] = useState(content.text)
@@ -143,6 +283,11 @@ export function DerivationPanel({
     <aside className="derivation-panel" aria-label={`${headword} 生成元引申`}>
       <div className="derivation-panel-head">
         <span className="mm-row-title">生成元 → 含义</span>
+        {onToggleFullscreen ? (
+          <button type="button" className="mm-btn mm-btn--sm" onClick={onToggleFullscreen}>
+            {fullscreen ? '退出全屏' : '全屏'}
+          </button>
+        ) : null}
         <button type="button" className="mm-btn mm-btn--ghost mm-btn--sm" onClick={onClose}>
           收起
         </button>

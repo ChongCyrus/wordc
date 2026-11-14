@@ -7,7 +7,15 @@ import {
   DerivationUsageDialog,
   DERIVATION_USAGE_TEXT,
   MermaidPreview,
+  MermaidZoomViewer,
+  clampMermaidScale,
+  nextDoubleTapScale,
 } from '../../src/ui/study/components/DerivationPanel'
+import {
+  clampDerivationPanelWidth,
+  derivationWidthFromDrag,
+  readDerivationPanelWidth,
+} from '../../src/ui/study/lib/derivation-width'
 import { sidePanelSwipeAction } from '../../src/ui/study/lib/use-side-panel-swipe'
 
 const noop = () => undefined
@@ -90,6 +98,45 @@ describe('F8 生成元引申副页（task-147）', () => {
       }),
     )
     expect(panel).toContain('用法')
+  })
+
+  it('全屏按钮/Mermaid 全屏查看器（F9）', () => {
+    const panel = renderToStaticMarkup(
+      createElement(DerivationPanel, {
+        open: true,
+        headword: 'bank',
+        content: { mode: 'text' as const, text: 'x', mermaid: '' },
+        onClose: noop,
+        onSave: noop,
+        onToggleFullscreen: noop,
+      }),
+    )
+    expect(panel).toContain('全屏')
+
+    const viewer = renderToStaticMarkup(
+      createElement(MermaidZoomViewer, { svg: '<svg><text>root</text></svg>', onClose: noop }),
+    )
+    expect(viewer).toContain('mermaid-viewer')
+    expect(viewer).toContain('重置')
+    expect(viewer).toContain('关闭')
+    expect(viewer).toContain('100%')
+  })
+
+  it('缩放/双击/宽度拖拽纯函数边界（F9）', () => {
+    expect(clampMermaidScale(0.1)).toBe(0.5)
+    expect(clampMermaidScale(9)).toBe(4)
+    expect(clampMermaidScale(Number.NaN)).toBe(1)
+    expect(nextDoubleTapScale(1)).toBe(2)
+    expect(nextDoubleTapScale(2)).toBe(1)
+    expect(nextDoubleTapScale(0.5)).toBe(1)
+
+    expect(clampDerivationPanelWidth(10)).toBe(30)
+    expect(clampDerivationPanelWidth(90)).toBe(75)
+    expect(clampDerivationPanelWidth(Number.NaN)).toBe(46)
+    // 把手向左拖 100px（视口 500）：右页变宽 20% → 66%
+    expect(derivationWidthFromDrag({ startWidth: 46, dx: -100, viewportWidth: 500 })).toBe(66)
+    expect(derivationWidthFromDrag({ startWidth: 46, dx: 1000, viewportWidth: 500 })).toBe(30)
+    expect(readDerivationPanelWidth(null)).toBe(46)
   })
 
   it('滑动判定：左滑开、右滑收、纵向/小位移不触发', () => {

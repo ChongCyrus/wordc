@@ -35,6 +35,14 @@ import {
 } from '../../app/hooks/boardPhrases'
 import './styles/study.css'
 
+import {
+  DERIVATION_WIDTH_KEY,
+  DERIVATION_WIDTH_MAX,
+  DERIVATION_WIDTH_MIN,
+  derivationWidthFromDrag,
+  readDerivationPanelWidth,
+} from './lib/derivation-width'
+
 /**
  * 学习页（/study，沉浸式全屏，无底部 Tab）。
  * 三态在同一路由内切换：白板面 → 注释面 → 记忆 w-c 页 → 注释面 → 评分 → 下一词。
@@ -70,6 +78,9 @@ export default function StudyPage() {
   const [aiGenerateOpen, setAiGenerateOpen] = useState(false)
   const [confirmUserDelete, setConfirmUserDelete] = useState(false)
   const [derivationPanelOpen, setDerivationPanelOpen] = useState(false)
+  const [derivationPanelFullscreen, setDerivationPanelFullscreen] = useState(false)
+  const [derivationWidth, setDerivationWidth] = useState(() => readDerivationPanelWidth(typeof localStorage === 'undefined' ? null : localStorage))
+  const derivationDragRef = useRef<null | { startX: number; startWidth: number; vw: number }>(null)
   const [derivationContents, setDerivationContents] = useState<
     Record<string, DerivationMapContent>
   >({})
@@ -100,8 +111,17 @@ export default function StudyPage() {
     if (panelWordIdRef.current !== currentWordId) {
       panelWordIdRef.current = currentWordId
       setDerivationPanelOpen(false)
+      setDerivationPanelFullscreen(false)
     }
   }, [currentWordId])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DERIVATION_WIDTH_KEY, String(derivationWidth))
+    } catch {
+      undefined
+    }
+  }, [derivationWidth])
 
   useEffect(() => {
     if (!currentWordId) return
@@ -330,7 +350,8 @@ export default function StudyPage() {
 
   return (
     <div
-      className={`study-page study-page--${stage}${study.browseBack ? ' study-page--browse' : ''}${derivationPanelOpen ? ' study-page--side' : ''}`}
+      className={`study-page study-page--${stage}${study.browseBack ? ' study-page--browse' : ''}${derivationPanelOpen ? ' study-page--side' : ''}${derivationPanelFullscreen ? ' study-page--side-full' : ''}`}
+      style={{ '--derivation-panel-width': `${derivationWidth}%` } as Record<string, string>}
     >
       <StudyTopBar
         title={topTitle}
@@ -386,7 +407,17 @@ export default function StudyPage() {
         ) : null}
 
         {stage === 'annotation' && session ? (
-          <div className={derivationPanelOpen ? 'study-annotation-wrap is-side' : 'study-annotation-wrap'}>
+          <div
+            className={derivationPanelOpen ? 'study-annotation-wrap is-side' : 'study-annotation-wrap'}
+            style={
+              derivationPanelOpen
+                ? {
+                    width: derivationPanelFullscreen ? '0%' : `calc(100% - ${derivationWidth}%)`,
+                    display: derivationPanelFullscreen ? 'none' : undefined,
+                  }
+                : undefined
+            }
+          >
           <AnnotationStage
             headword={session.word.headword}
             coreSenses={study.coreSenses}
@@ -482,8 +513,52 @@ export default function StudyPage() {
               ‹ 引申
             </button>
           ) : null}
+          {derivationPanelOpen && !derivationPanelFullscreen ? (
+            <div
+              className="derivation-resize-handle"
+              role="separator"
+              aria-label="拖动调整引申页宽度"
+              aria-orientation="vertical"
+              aria-valuemin={DERIVATION_WIDTH_MIN}
+              aria-valuemax={DERIVATION_WIDTH_MAX}
+              aria-valuenow={derivationWidth}
+              tabIndex={0}
+              onPointerDown={(event) => {
+                event.preventDefault()
+                event.currentTarget.setPointerCapture?.(event.pointerId)
+                derivationDragRef.current = {
+                  startX: event.clientX,
+                  startWidth: derivationWidth,
+                  vw: window.innerWidth || 1,
+                }
+              }}
+              onPointerMove={(event) => {
+                const drag = derivationDragRef.current
+                if (!drag) return
+                setDerivationWidth(
+                  derivationWidthFromDrag({
+                    startWidth: drag.startWidth,
+                    dx: event.clientX - drag.startX,
+                    viewportWidth: drag.vw,
+                  }),
+                )
+              }}
+              onPointerUp={() => {
+                derivationDragRef.current = null
+              }}
+              onPointerCancel={() => {
+                derivationDragRef.current = null
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft') setDerivationWidth((w) => Math.min(DERIVATION_WIDTH_MAX, w + 2))
+                if (event.key === 'ArrowRight') setDerivationWidth((w) => Math.max(DERIVATION_WIDTH_MIN, w - 2))
+              }}
+            />
+          ) : null}
           <DerivationPanel
             open={derivationPanelOpen}
+            fullscreen={derivationPanelFullscreen}
+            onToggleFullscreen={() => setDerivationPanelFullscreen((value) => !value)}
             headword={session.word.headword}
             content={
               derivationContents[session.word.wordId] ?? {
@@ -498,6 +573,7 @@ export default function StudyPage() {
             }
             onClose={() => {
               setDerivationPanelOpen(false)
+              setDerivationPanelFullscreen(false)
               setDerivationAiError(null)
             }}
             saving={derivationAiBusy}

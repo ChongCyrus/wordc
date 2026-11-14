@@ -1408,18 +1408,8 @@ html.study-reduce-motion .study-page *::after {
   width: 100%;
   box-sizing: border-box;
 }
-.study-annotation-wrap.is-side {
-  width: calc(100% - 46%);
-  padding-right: 8px;
-  overflow-x: hidden;
-  transition: width 180ms var(--mm-ease-out);
-}
-.study-annotation-wrap.is-side .annotation-stage {
-  max-width: 100%;
-  overflow-x: hidden;
-}
 .study-page--side .study-body {
-  overflow-x: hidden;
+  overflow: hidden;
 }
 .derivation-handle {
   position: fixed;
@@ -1437,12 +1427,13 @@ html.study-reduce-motion .study-page *::after {
   min-height: 44px;
 }
 .derivation-panel {
+  /* F9：右页分栏（宽度可拖拽 30–75%，全屏态 100%），位于顶栏与三键之间 */
   position: fixed;
   top: 52px;
   right: 0;
   bottom: 96px;
-  width: 46%;
-  max-width: 300px;
+  width: var(--derivation-panel-width, 46%);
+  max-width: none;
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -1454,13 +1445,121 @@ html.study-reduce-motion .study-page *::after {
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08);
   overflow-y: auto;
   overflow-x: hidden;
-  animation: study-slide-in-right 180ms var(--mm-ease-out) both;
+  animation: study-fade-in 160ms var(--mm-ease-out) both;
 }
-@keyframes study-slide-in-right {
-  from { transform: translateX(100%); opacity: 0.6; }
-  to { transform: translateX(0); opacity: 1; }
+.study-page--side-full .derivation-panel {
+  width: 100%;
+  border-left: 0;
+  box-shadow: none;
+}
+.derivation-panel > *,
+.derivation-panel * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+.derivation-panel .mm-btn {
+  flex: 0 0 auto;
+  min-width: max-content;
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+.study-page { overflow-x: hidden; }
+.study-annotation-wrap.is-side {
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: visible;
+  padding-right: 6px;
+}
+.study-annotation-wrap.is-side .annotation-stage,
+.study-annotation-wrap.is-side .annotation-stage * {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.study-annotation-wrap.is-side .annotation-stage {
+  overflow-x: hidden;
+}
+.derivation-resize-handle {
+  position: fixed;
+  top: 52px;
+  bottom: 96px;
+  left: calc(100% - var(--derivation-panel-width, 46%));
+  transform: translateX(-50%);
+  width: 12px;
+  z-index: 45;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+.derivation-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--mm-border);
+}
+.mermaid-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: var(--mm-surface);
+  display: flex;
+  flex-direction: column;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 10px
+    calc(8px + env(safe-area-inset-bottom, 0px));
+  box-sizing: border-box;
+}
+.mermaid-viewer-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+.mermaid-viewer-head .mm-row-title { margin-right: auto; }
+.mermaid-viewer-canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  background: var(--mm-bg, var(--mm-surface));
+  border: 1px solid var(--mm-border);
+  border-radius: var(--mm-radius-md);
+  user-select: none;
+}
+.mermaid-viewer-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center center;
+  will-change: transform;
+}
+.mermaid-viewer-content > svg {
+  max-width: 100%;
+  max-height: 100%;
+  height: auto;
 }
 .derivation-panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--mm-surface);
+  padding-bottom: 4px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1468,7 +1567,7 @@ html.study-reduce-motion .study-page *::after {
   gap: 6px;
 }
 .derivation-panel-head .mm-row-title {
-  font-size: 13px;
+  font-size: 15px;
   line-height: 18px;
   white-space: normal;
   overflow: visible;
@@ -1480,7 +1579,7 @@ html.study-reduce-motion .study-page *::after {
   flex: 0 0 auto;
   white-space: nowrap;
   min-height: 30px;
-  padding: 3px 8px;
+  padding: 3px 6px;
   font-size: 12px;
 }
 .derivation-panel .mm-btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
