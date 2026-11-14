@@ -71,6 +71,14 @@ describe('页面渲染冒烟（8 条路由）', () => {
     expect(html).toContain('关于')
   })
 
+  it('我的页使用说明：含「从最共性本义出发」引导段（task-145）', () => {
+    const html = renderRoute('/me')
+    expect(html).toContain('使用说明')
+    expect(html).toContain('最共性的本义出发')
+    expect(html).toContain('生成元')
+    expect(html).toContain('按场景/作用对象/词性引申')
+  })
+
   it('设置页：返回 + 加载态', () => {
     const html = renderRoute('/me/settings')
     expect(html).toContain('正在加载设置')

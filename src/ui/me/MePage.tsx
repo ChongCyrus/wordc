@@ -148,6 +148,12 @@ export default function MePage() {
               <strong>记忆 → 回忆 → 标记不认识的 → 加权记忆 → 回忆 → 标记不认识的 → 加权记忆 …</strong>
               循环，直到所有（主要）含义映射都能回忆起来。
             </p>
+            <p
+              className="mm-row-sub"
+              style={{ margin: '0 0 8px', whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.7 }}
+            >
+              每次回忆时，建议从尽可能单个、最共性的本义出发，再按使用场景、作用对象、词性逐个引申出各个实际含义。记忆时同理：先找最共性的、底层的、尽可能统一的「生成元」（本义），再按场景/作用对象/词性引申得到各实际含义。
+            </p>
             <p style={{ margin: '0 0 4px' }}>· 白板面：只看单词/词性/英文例句，先回忆中文含义。</p>
             <p style={{ margin: '0 0 4px' }}>· 注释面：看中文含义/例句/助记；点「记忆」练 w→c，「加权记忆」对不熟悉的 c 多练。</p>
             <p style={{ margin: '0 0 4px' }}>· 三键：认识 / 模糊 / 不认识；模糊/不认识会当天回炉。</p>
