@@ -26,6 +26,8 @@ export interface ContentPackRow {
   applied: number
   /** task-138：跳过/失败条数（unknown/limit 等，UI 显示原因汇总入口） */
   skipped?: number
+  /** task-142：skipped 按原因分类 */
+  skippedByReason?: Record<string, number>
   source: string
   createdAt: number
 }
@@ -38,7 +40,21 @@ export function dedupeSummary(removed: number, kept: number): string {
 /** 重复内容包检测（task-93）：同名/同 kind/同条目数视为可能重复 */
 /** AI 内容包重复检测（task-138 B2）：同一 deck 的 AI 生成内容应仅一个包 */
 export function countAiPacks(rows: ContentPackRow[]): number {
-  return rows.filter((row) => row.source === 'ai' && row.kind !== 'semantics').length
+  // row.source 经过 packSourceLabel 会显示成 'AI'，兼容 'ai'/'AI'（B2 合并按钮不可见根因之一）
+  return rows.filter((row) => (row.source === 'ai' || row.source === 'AI') && row.kind !== 'semantics').length
+}
+
+/** task-142：内容包行跳过原因摘要（unknown-word 明确提示不属于当前词库） */
+export function skipReasonSummary(row: ContentPackRow): string {
+  const reasons = row.skippedByReason ?? {}
+  const parts = Object.entries(reasons)
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `${reason} ${count}`)
+  if (parts.length === 0) return row.skipped ? `跳过 ${row.skipped}（原因未知）` : ''
+  const unknown = reasons['unknown-word'] ?? 0
+  const missing = unknown > 0 ? `；其中 ${unknown} 条词不属于当前词库（需先导入对应词库）` : ''
+  return `跳过 ${row.skipped ?? 0}：${parts.slice(0, 3).join('、')}${parts.length > 3 ? '…' : ''}${missing}`
 }
 
 export function countDuplicatePacks(rows: ContentPackRow[]): number {
@@ -107,8 +123,8 @@ export function ContentPackList({
           <span className="mm-row-main">
             <span className="mm-row-title">{row.name || row.id}</span>
             <span className="mm-row-sub">
-              {row.kind} · 已应用 {row.applied} / 总 {row.items}
-              {(row.skipped ?? 0) > 0 ? `（跳过 ${row.skipped}）` : ''} · 来源 {row.source}
+              {row.kind} · 已应用 {row.applied} / 总 {row.items} · 来源 {row.source}
+              {(row.skipped ?? 0) > 0 ? <span className="mm-caption mm-danger-text"> · {skipReasonSummary(row)}</span> : null}
             </span>
           </span>
           <span style={{ display: 'flex', gap: 6 }}>
@@ -223,6 +239,13 @@ export function ContentPackManagerSection() {
           items: items.length,
           applied: items.filter((item) => item.status === 'applied').length,
           skipped: items.filter((item) => item.status === 'skipped').length,
+          skippedByReason: items
+            .filter((item) => item.status === 'skipped')
+            .reduce<Record<string, number>>((acc, item) => {
+              const reason = item.skipReason ?? 'invalid'
+              acc[reason] = (acc[reason] ?? 0) + 1
+              return acc
+            }, {}),
           source: packSourceLabel(String(pack.source ?? 'import')),
           createdAt: pack.createdAt,
         }

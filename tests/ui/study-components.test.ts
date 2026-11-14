@@ -465,6 +465,31 @@ describe('学习页 · 回退框架（task-30）', () => {
     expect(unknown).not.toContain('上次选择')
   })
 
+  it('白板面各 c 英文词组开关（F7）：开启按 meaningId 过滤且不显示中文；关闭不渲染', () => {
+    const props = {
+      headword: 'bank',
+      phonetic: '',
+      showPhonetic: false,
+      examples: [],
+      exampleCount: 2,
+      meanings: [{ pos: 'n.', examples: [], meaningId: 'w#M1' }],
+      phrases: [
+        { en: 'river bank', meaningId: 'w#M1' },
+        { en: 'bank account', meaningId: 'w#M2' },
+      ],
+      onSpeak: () => undefined,
+      onNext: () => undefined,
+    }
+    const on = render(createElement(BoardStage, { ...props, showMeaningPhrases: true }))
+    expect(on).toContain('river bank')
+    expect(on).not.toContain('bank account')
+    expect(on).not.toContain('河岸')
+    expect(on).toContain('board-meaning-phrase')
+
+    const off = render(createElement(BoardStage, { ...props, showMeaningPhrases: false }))
+    expect(off).not.toContain('river bank')
+  })
+
   it('白板面各 c 词性 + 英文例句，不泄露中文（F4）', () => {
     const html = render(
       createElement(BoardStage, {

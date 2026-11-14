@@ -59,6 +59,7 @@ export {
   listPacks,
   getPack,
   listPackItems,
+  getPackApplyBreakdown,
   getPackStats,
   deletePack,
   deletePacks,
@@ -83,6 +84,7 @@ export {
 } from './packs.repo'
 export type {
   ApplyResult,
+  PackApplyBreakdown,
   DedupePacksResult,
   EffectiveContent,
   EffectiveCoreSense,

@@ -24,12 +24,13 @@ beforeEach(async () => {
 })
 
 describe('设置项默认值（SPEC §5，AC4）', () => {
-  it('全部设置 key 与其默认值（20 + task-70 AI 10 项 + task-80 jsonMode = 31 项）', async () => {
-    expect(SETTING_KEYS).toHaveLength(34)
+  it('全部设置 key 与其默认值（35 项：含 F4/weighted/AI）', async () => {
+    expect(SETTING_KEYS).toHaveLength(35)
     const settings = await getSettings()
     expect(settings['study.dailyGoal']).toBe(30)
     expect(settings['board.exampleCount']).toBe(2)
     expect(settings['board.showPhonetic']).toBe(true)
+    expect(settings['board.showMeaningPhrases']).toBe(false) // F4：保存每个含义的词组显示设置
     expect(settings['memory.totalRepeats']).toBe(3)
     expect(settings['memory.weightedMin']).toBe(1)
     expect(settings['memory.weightedMax']).toBe(10)
@@ -76,6 +77,15 @@ describe('设置项默认值（SPEC §5，AC4）', () => {
 
 describe('越界值 clamp / 非法值拒绝（AC4）', () => {
   it('数字 clamp 到区间并按步长取整（dailyGoal 除外：越界拒绝，见下）', async () => {
+    await updateSettings({
+      'memory.weightedMin': 0,
+      'memory.weightedMax': 99,
+      'memory.weightedK': 5,
+    })
+    const weighted = await getSettings()
+    expect(weighted['memory.weightedMin']).toBe(1)
+    expect(weighted['memory.weightedMax']).toBe(20)
+    expect(weighted['memory.weightedK']).toBe(2)
     await updateSettings({
       'study.dailyGoal': 999,
       'memory.fontScale': 5,

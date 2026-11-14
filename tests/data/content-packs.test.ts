@@ -144,12 +144,13 @@ describe('导入 → 审核 → 应用 (AC2/AC3/AC4/AC5/AC10)', () => {
     ])
     const imported = await importPack(JSON.stringify(file))
     expect(imported.ok).toBe(true)
-    expect(imported.preview.counts.matched).toBe(0)
-    expect(imported.preview.skipped.map((skip) => skip.reason).sort()).toEqual(['unknown-meaning', 'unknown-word'])
-    // task-90：unknown-* 条目现在会落库为 skipped（供 reapplyPack 重试），但仍不写词条
+    // task-142：内容条目 meaningIndex 超范围 → 降级为词级 pending（不再整条 skipped）；
+    // 仅「词不在词库」保留 unknown-word skipped。
+    expect(imported.preview.counts.matched).toBe(1)
+    expect(imported.preview.skipped.map((skip) => skip.reason).sort()).toEqual(['unknown-word'])
     expect(imported.packId).toBeDefined()
     const importedItems = await listPackItems(imported.packId!)
-    expect(importedItems.map((item) => item.status)).toEqual(['skipped', 'skipped'])
+    expect(importedItems.map((item) => item.status).sort()).toEqual(['pending', 'skipped'])
     const word = await getDb().words.get(`${deck.id}:abdomen`)
     expect(word!.examples).toHaveLength(0)
   })

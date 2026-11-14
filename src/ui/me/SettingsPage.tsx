@@ -25,6 +25,11 @@ import {
 } from '../../app/hooks/newWordOrder'
 import { NewWordOrderSetting } from './NewWordOrderSetting'
 import { AiSettingsSection } from './AiSettingsSection'
+import {
+  BOARD_SHOW_MEANING_PHRASES_KEY,
+  hasBoardShowMeaningPhrasesSetting,
+  readBoardShowMeaningPhrases,
+} from '../../app/hooks/boardPhrases'
 import { ContentPackImportSection } from './ContentPackImportSection'
 import { ContentPackManagerSection } from './ContentPackManagerSection'
 import {
@@ -256,6 +261,23 @@ export default function SettingsPage() {
             />
           }
         />
+        {hasBoardShowMeaningPhrasesSetting(s) ? (
+          <SettingRow
+            label="白板面显示各 c 词组"
+            hint="默认关；开启后每个含义下显示对应英文词组（不显示中文）"
+            control={
+              <Switch
+                label="白板面显示各 c 词组"
+                checked={readBoardShowMeaningPhrases(s)}
+                onChange={(checked) =>
+                  void patch({
+                    [BOARD_SHOW_MEANING_PHRASES_KEY]: checked,
+                  } as unknown as Partial<SettingsMap>)
+                }
+              />
+            }
+          />
+        ) : null}
       </div>
 
       <SectionBand title="记忆设置" />

@@ -17,6 +17,11 @@ import { UserContentEditor } from './components/UserContent'
 import type { UserMnemonicType } from './components/types'
 import { useSwipeBack } from './lib/use-swipe-back'
 import { applyDailyGoalChange } from '../../app/hooks/useDailyGoal'
+import { listUserMnemonics, listUserNotes } from '../../data'
+import {
+  hasBoardShowMeaningPhrasesSetting,
+  readBoardShowMeaningPhrases,
+} from '../../app/hooks/boardPhrases'
 import './styles/study.css'
 
 /**
@@ -292,6 +297,15 @@ export default function StudyPage() {
             meanings={study.meanings.map((meaning) => ({
               pos: meaning.pos,
               examples: meaning.examples,
+              meaningId: meaning.meaningId,
+            }))}
+            showMeaningPhrases={
+              hasBoardShowMeaningPhrasesSetting(settings) &&
+              readBoardShowMeaningPhrases(settings)
+            }
+            phrases={(session.word.phrases as unknown as Array<{ en: string; meaningId?: string }>).map((phrase) => ({
+              en: phrase.en,
+              ...(phrase.meaningId ? { meaningId: phrase.meaningId } : {}),
             }))}
             phonetic={session.word.phonetic}
             showPhonetic={session.settings.showPhonetic}
@@ -315,31 +329,36 @@ export default function StudyPage() {
             userNotes={study.userNotes}
             userMnemonics={study.userMnemonics}
             onEditUserNote={(target) => {
-              const existing = study.userNotes.find(
-                (note) => (note.meaningId ?? undefined) === (target.meaningId ?? undefined),
-              )
-              setUserEditor({
-                mode: 'note',
-                targetLabel: target.meaningId ? `c：${target.meaningCn ?? ''}` : session.word.headword,
-                ...(target.meaningId ? { meaningId: target.meaningId } : {}),
-                ...(existing ? { noteId: existing.id } : {}),
-                initialText: existing?.text ?? '',
-                initialType: '联想',
-              })
+              void (async () => {
+                const wordId = session.word.wordId
+                const existing = (
+                  await listUserNotes(wordId, target.meaningId ?? undefined).catch(() => [])
+                )[0]
+                setUserEditor({
+                  mode: 'note',
+                  targetLabel: target.meaningId ? `c：${target.meaningCn ?? ''}` : session.word.headword,
+                  ...(target.meaningId ? { meaningId: target.meaningId } : {}),
+                  ...(existing ? { noteId: existing.id } : {}),
+                  initialText: existing?.text ?? '',
+                  initialType: '联想',
+                })
+              })()
             }}
             onEditUserMnemonic={(target) => {
-              const existing = study.userMnemonics.find(
-                (mnemonic) =>
-                  (mnemonic.meaningId ?? undefined) === (target.meaningId ?? undefined),
-              )
-              setUserEditor({
-                mode: 'mnemonic',
-                targetLabel: target.meaningId ? `c：${target.meaningCn ?? ''}` : session.word.headword,
-                ...(target.meaningId ? { meaningId: target.meaningId } : {}),
-                ...(existing ? { mnemonicId: existing.id } : {}),
-                initialText: existing?.text ?? '',
-                initialType: (existing?.type as UserMnemonicType) ?? '联想',
-              })
+              void (async () => {
+                const wordId = session.word.wordId
+                const existing = (
+                  await listUserMnemonics(wordId, target.meaningId ?? undefined).catch(() => [])
+                )[0]
+                setUserEditor({
+                  mode: 'mnemonic',
+                  targetLabel: target.meaningId ? `c：${target.meaningCn ?? ''}` : session.word.headword,
+                  ...(target.meaningId ? { meaningId: target.meaningId } : {}),
+                  ...(existing ? { mnemonicId: existing.id } : {}),
+                  initialText: existing?.text ?? '',
+                  initialType: (existing?.type as UserMnemonicType) ?? '联想',
+                })
+              })()
             }}
             onEditMnemonic={(target) => {
               setUserEditor({
@@ -435,6 +454,11 @@ export default function StudyPage() {
       ) : null}
 
       <UserContentEditor
+        key={
+          userEditor
+            ? `${userEditor.mode}:${userEditor.meaningId ?? 'w'}:${userEditor.noteId ?? userEditor.mnemonicId ?? 'new'}:${userEditor.aiMnemonic?.text ?? ''}`
+            : 'closed'
+        }
         open={userEditor != null}
         targetLabel={userEditor?.targetLabel ?? ''}
         mode={userEditor?.mode ?? 'note'}

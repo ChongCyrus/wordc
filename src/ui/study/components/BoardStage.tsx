@@ -6,6 +6,7 @@ import type { ExampleView } from './types'
 export interface BoardMeaningHint {
   pos?: string
   examples?: Array<{ en: string; cn: string }>
+  meaningId?: string
 }
 
 export interface BoardStageProps {
@@ -20,6 +21,9 @@ export interface BoardStageProps {
   examples: ExampleView[]
   /** F4：每个 c 的词性 + 英文例句（不显示中文） */
   meanings?: BoardMeaningHint[]
+  /** F7：白板面显示各 c 英文词组（不显示中文） */
+  showMeaningPhrases?: boolean
+  phrases?: Array<{ en: string; meaningId?: string }>
   exampleCount: number
   speaking?: boolean
   onSpeak: () => void
@@ -38,6 +42,8 @@ export function BoardStage({
   showPhonetic,
   examples,
   meanings = [],
+  showMeaningPhrases = false,
+  phrases = [],
   exampleCount,
   speaking = false,
   onSpeak,
@@ -87,6 +93,19 @@ export function BoardStage({
                       {example.en}
                     </span>
                   ))}
+                {showMeaningPhrases
+                  ? phrases
+                      .filter(
+                        (phrase) =>
+                          meaning.meaningId != null && phrase.meaningId === meaning.meaningId,
+                      )
+                      .slice(0, 3)
+                      .map((phrase) => (
+                        <span className="board-meaning-phrase" key={phrase.en}>
+                          {phrase.en}
+                        </span>
+                      ))
+                  : null}
               </div>
             ))}
           </div>

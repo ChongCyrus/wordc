@@ -268,6 +268,7 @@ export type SettingsMap = {
   'study.recallMode': 'en2cn' // v1 固定 en2cn（只做英→中）
   'board.exampleCount': number // 白板面英文例句条数
   'board.showPhonetic': boolean // 白板面是否显示音标+发音
+  'board.showMeaningPhrases': boolean // F7：白板面各 c 英文词组（默认关）
   // —— 记忆 w-c ——
   'memory.totalRepeats': number // 总次数
   /** task-137/F2：加权记忆最少/最多次数、强度 k（0–2） */

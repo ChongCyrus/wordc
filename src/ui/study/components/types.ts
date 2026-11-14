@@ -52,6 +52,8 @@ export interface UserMnemonicView {
 export interface PhraseView {
   en: string
   cn: string
+  /** F7：归属含义 id（缺省=词级） */
+  meaningId?: string
 }
 
 /** 学习页顶部进度 */

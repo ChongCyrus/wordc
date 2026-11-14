@@ -143,7 +143,16 @@ src/ui/study/
 4. 首词（index 0）时 `<` 隐藏、右滑不触发；记忆 w-c 页内不触发回退。
 6. 退出学习（`×`/菜单）与回退的区别：退出保存进度；回退只是页内移动。
 
-### 3.4.8 我的笔记/助记（task-140 F6）
+### 3.4.9 白板面显示各 c 词组（task-143 F7）
+
+- 设置 → 白板面新增开关「白板面显示各 c 词组」（`board.showMeaningPhrases`，默认关，持久化/导出）。
+- 开启后白板面每个 c 的词性/英文例句下方显示该 c 的英文词组（`phrase.meaningId === meaning.id`，不显示中文）；无词组不占位；关闭不显示。
+
+### 3.4.8 我的笔记/助记（task-140 F6 + task-141 修复）
+
+- 编辑弹层按目标（w/cX）+ 类型（note/mnemonic）用 `listUserNotes/listUserMnemonics(wordId, meaningId?)` 精确预填；无内容为空；切换目标/类型重置表单与助记类型（弹层按目标 key 重挂载 + open/initial 变化重置）。
+- 保存/删除后用 `getWord` 即时刷新，不重建会话/不延迟；用户助记展示改用 `listMergedMnemonics`（AI 过滤 hidden、用户副本覆盖同 key、含用户独有条目），词级与对应 c 行立即显示并标「我的」。
+- 白板面 per-c 词性 + 英文例句：session 词含义保留 examples（toSessionWord）+ 词库 Word.meanings 兜底，进入学习即显示，不显示中文。
 
 - 注释面词级「我的笔记/助记」区 + 每个 c 行的「笔记/助记」编辑入口；用户内容标「我的」，AI/内置标「AI」。
 - 编辑弹层：目标（单词/cX 中文）、多行文本、助记类型（联想/谐音/词根/词源/串记/口诀/其他）、保存/删除/取消；保存后立即刷新（reloadCurrentWord），不改学习进度。

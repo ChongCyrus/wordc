@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Dialog } from '../../components/Dialog'
 import type { UserMnemonicType, UserMnemonicView, UserNoteView } from './types'
 
@@ -58,6 +58,12 @@ export function UserContentEditor({
 }: UserContentEditorProps) {
   const [text, setText] = useState(initialText)
   const [type, setType] = useState<UserMnemonicType>(initialType)
+  // 打开/切换目标时重置（避免串目标/串类型）
+  useEffect(() => {
+    if (!open) return
+    setText(initialText)
+    setType(initialType)
+  }, [open, initialText, initialType, targetLabel, mode])
   if (!open) return null
   return (
     <Dialog

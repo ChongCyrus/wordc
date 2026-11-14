@@ -1,9 +1,9 @@
 # 公开树 vs 私有仓 Diff 报告
 
-- 生成时间：2026-11-14T09:51:32.993Z
+- 生成时间：2026-11-14T10:21:07.969Z
 - 私有仓：`/root/workspace/背单词APP开发`
 - 公开树：`/tmp/wordc-public`
-- 公开文件：**390**；修改 **81**；新增 **5**；私有仓未进入公开树 **1877**
+- 公开文件：**404**；修改 **82**；新增 **5**；私有仓未进入公开树 **1868**
 
 ## 结论
 
@@ -80,6 +80,7 @@
 | `tests/data/real-packs.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/algo-independent.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/data-robustness.test.ts` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
+| `tests/e2e/demo-annotation-capture.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/demo-public.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/qa030-inspect2.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
 | `tests/e2e/qa030-inspect3.mjs` | 文案/注释 | 去注释与字符串内容后 token 序列一致 |
@@ -129,7 +130,6 @@
 - `docs/DEMO-STORYBOARD.md`
 - `docs/E2E.md`
 - `docs/EXTERNAL-AI-PIPELINE.md`
-- `docs/FEATURES-2026-11-14.md`
 - `docs/MIRRORS.md`
 - `docs/OFFICIAL-ALIGNMENT.md`
 - `docs/PUBLIC-PLAN.md`
@@ -142,7 +142,6 @@
 - `docs/RUN.md`
 - `docs/SPEC-CONTENT-PACKS.md`
 - `docs/assets`
-- `docs/qa`
 - `docs/research`
 - `logs/ai-proxy-qa.log`
 - `logs/steps-bailian-a.log`
@@ -158,7 +157,6 @@
 - `scripts/deliver.sh`
 - `scripts/logs`
 - `src/data`
-- `tests/core`
 - `tests/data`
 - `tests/e2e`
 - `tests/ui`

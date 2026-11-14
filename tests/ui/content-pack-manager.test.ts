@@ -7,9 +7,11 @@ vi.mock('../../src/app/toast', () => ({
 }))
 import {
   ContentPackList,
+  countAiPacks,
   countDuplicatePacks,
   dedupeSummary,
   packSourceLabel,
+  skipReasonSummary,
   packExportFileName,
   type ContentPackRow,
 } from '../../src/ui/me/ContentPackManagerSection'
@@ -17,6 +19,30 @@ import {
 const rows: ContentPackRow[] = [
   { id: 'p1', name: 'AI 生成', kind: 'examples', items: 12, applied: 10, source: 'ai', createdAt: 1 },
 ]
+
+describe('内容包管理（task-142：AI 包合并 + 跳过原因）', () => {
+  it('countAiPacks 兼容来源展示值 AI/ai（B2 合并按钮可见）', () => {
+    expect(countAiPacks([{ ...rows[0]!, source: 'AI' }, { ...rows[0]!, id: 'p2', source: 'ai' }])).toBe(2)
+    expect(countAiPacks([{ ...rows[0]!, source: 'AI', kind: 'semantics' }])).toBe(0)
+    expect(countAiPacks([{ ...rows[0]!, source: '手工' }])).toBe(0)
+  })
+
+  it('skipReasonSummary 显示分类；unknown-word 明确提示不属于当前词库', () => {
+    expect(
+      skipReasonSummary({
+        ...rows[0]!,
+        skipped: 3,
+        skippedByReason: { 'unknown-word': 2, limit: 1 },
+      }),
+    ).toContain('unknown-word 2')
+    const summary = skipReasonSummary({
+      ...rows[0]!,
+      skipped: 2,
+      skippedByReason: { 'unknown-word': 2 },
+    })
+    expect(summary).toContain('不属于当前词库')
+  })
+})
 
 describe('内容包管理（task-86）', () => {
   it('列表渲染名称/kind/条数/已应用/来源 + 导出/删除/全部', () => {

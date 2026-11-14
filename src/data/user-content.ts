@@ -32,6 +32,12 @@ export function mnemonicKey(meaningId: string | undefined, type: string, text: s
   return `${meaningId ?? ''}|${type}|${text.trim()}`
 }
 
+/** meaningId 空串/null 一律视为 w 级（防 UI 传 '' 导致过滤不到） */
+function contentLevel(meaningId: string | undefined): string | undefined {
+  const level = typeof meaningId === 'string' ? meaningId.trim() : ''
+  return level.length > 0 ? level : undefined
+}
+
 function newId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
@@ -43,11 +49,12 @@ async function getWordOrThrow(wordId: string): Promise<Word> {
 }
 
 function normalizeMeaningId(word: Word, meaningId: string | undefined): string | undefined {
-  if (!meaningId) return undefined
-  if (!word.meanings.some((meaning: Meaning) => meaning.id === meaningId)) {
-    throw new Error(`含义不存在：${meaningId}`)
+  const level = contentLevel(meaningId)
+  if (!level) return undefined
+  if (!word.meanings.some((meaning: Meaning) => meaning.id === level)) {
+    throw new Error(`含义不存在：${level}`)
   }
-  return meaningId
+  return level
 }
 
 async function saveWordFields(word: Word): Promise<void> {
@@ -59,7 +66,8 @@ async function saveWordFields(word: Word): Promise<void> {
 export async function listUserNotes(wordId: string, meaningId?: string): Promise<UserNote[]> {
   const word = await getWordOrThrow(wordId)
   const list = word.userNotes ?? []
-  return meaningId === undefined ? list.filter((note) => !note.meaningId) : list.filter((note) => note.meaningId === meaningId)
+  const level = contentLevel(meaningId)
+  return level === undefined ? list.filter((note) => !note.meaningId) : list.filter((note) => note.meaningId === level)
 }
 
 export async function upsertUserNote(wordId: string, input: UserNoteInput): Promise<UserNote> {
@@ -96,7 +104,8 @@ export async function deleteUserNote(wordId: string, noteId: string): Promise<bo
 export async function listUserMnemonics(wordId: string, meaningId?: string): Promise<UserMnemonic[]> {
   const word = await getWordOrThrow(wordId)
   const list = word.userMnemonics ?? []
-  return meaningId === undefined ? list.filter((item) => !item.meaningId) : list.filter((item) => item.meaningId === meaningId)
+  const level = contentLevel(meaningId)
+  return level === undefined ? list.filter((item) => !item.meaningId) : list.filter((item) => item.meaningId === level)
 }
 
 export async function upsertUserMnemonic(wordId: string, input: UserMnemonicInput): Promise<UserMnemonic> {
@@ -190,7 +199,7 @@ export interface MergedMnemonic extends Mnemonic {
 export async function listMergedMnemonics(wordId: string, meaningId?: string): Promise<MergedMnemonic[]> {
   const word = await getWordOrThrow(wordId)
   const hidden = new Set(word.hiddenMnemonicKeys ?? [])
-  const level = meaningId ?? undefined
+  const level = contentLevel(meaningId)
   const aiList = (word.mnemonics ?? []).filter((item) => (item.meaningId ?? undefined) === level)
   const userList = (word.userMnemonics ?? []).filter((item) => (item.meaningId ?? undefined) === level)
   const userByKey = new Map(userList.map((item) => [mnemonicKey(item.meaningId, item.type, item.text), item]))

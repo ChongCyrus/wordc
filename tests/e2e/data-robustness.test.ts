@@ -7,7 +7,7 @@
  *  - 数据健壮性：空词库、重复单词（DeckFile/CSV）、5000 词大库导入性能、
  *         坏 JSON / 空 CSV / 非法 DeckFile 的拒绝行为。
  *  - AC5 补充：replace 导入时的 isDefault 唯一性、导出包 token 过滤、空迁移包。
- *  - AC4（数据层）：**20 个设置 key**（SPEC-v2 §3.5 + task-47/51：v1 15 项 + study.labelSwitch /
+ *  - AC4（数据层）：**35 个设置 key**（SPEC-v2 §3.5 + task-47/51 + F4/weighted + task-70 AI：v1 15 项 + study.labelSwitch /
  *    memory.showPredictedInterval / study.allowVagueComplete / study.newWordOrder / study.dailyReviewCap）全部持久化 + clamp 边界；
  *    task-47 默认值：showPhrases=true、newWordOrder=random；task-51：dailyReviewCap=0（不限）。
  */
@@ -347,21 +347,25 @@ describe('AC5 补充 · 导出包隐私 / isDefault 唯一性 / 空备份', () =
 
 // ============================================================ AC4 数据层
 
-describe('AC4（数据层）· 20 个设置 key 全量持久化与 clamp 边界', () => {
+describe('AC4（数据层）· 35 个设置 key 全量持久化与 clamp 边界', () => {
   beforeEach(async () => {
     await resetDatabase()
     const deck = await createDeck('设置测试库')
     await updateSettings({ 'data.selectedDeckId': deck.id })
   })
 
-  it('SETTING_KEYS 恰好 20 个；task-47 默认 showPhrases=true / newWordOrder=random；task-51 dailyReviewCap=0', async () => {
+  it('SETTING_KEYS 恰好 35 个；task-47 默认 showPhrases=true / newWordOrder=random；task-51 dailyReviewCap=0', async () => {
     const expected = [
       // —— v1 的 15 项（SPEC §5）——
       'study.dailyGoal',
       'study.recallMode',
       'board.exampleCount',
       'board.showPhonetic',
+      'board.showMeaningPhrases', // F4：白板 per-c 释义显示
       'memory.totalRepeats',
+      'memory.weightedMin',
+      'memory.weightedMax',
+      'memory.weightedK',
       'memory.mode',
       'memory.showPhrases', // task-47：默认 true（默认显示词组，覆盖旧 D47 的 false）
       'memory.fontScale',
@@ -378,9 +382,21 @@ describe('AC4（数据层）· 20 个设置 key 全量持久化与 clamp 边界'
       'memory.showPredictedInterval', // 三键副标题显示「N 天后 / 今日进度%」
       'study.newWordOrder', // task-47：新词顺序 order|random，默认 random（稳定种子乱序）
       'study.dailyReviewCap', // task-51：每日复习上限 0=不限，范围 0–9999
+      // —— task-70/80：AI 内容生成 + jsonMode（默认关）——
+      'ai.enabled',
+      'ai.provider',
+      'ai.baseUrl',
+      'ai.model',
+      'ai.apiKey',
+      'ai.keyStorage',
+      'ai.transport',
+      'ai.batchSize',
+      'ai.maxCostPerRun',
+      'ai.pregenBudget',
+      'ai.jsonMode',
     ]
     expect([...SETTING_KEYS].sort()).toEqual([...expected].sort())
-    expect(Object.keys(SETTINGS_DEFAULTS)).toHaveLength(20)
+    expect(Object.keys(SETTINGS_DEFAULTS)).toHaveLength(35)
     // v2 新增项默认值（SPEC-v2 §3.5）
     expect(SETTINGS_DEFAULTS['study.labelSwitch']).toBe(true)
     expect(SETTINGS_DEFAULTS['study.allowVagueComplete']).toBe(false)
@@ -389,6 +405,12 @@ describe('AC4（数据层）· 20 个设置 key 全量持久化与 clamp 边界'
     expect(SETTINGS_DEFAULTS['memory.showPhrases']).toBe(true) // task-47：默认显示词组
     expect(SETTINGS_DEFAULTS['study.newWordOrder']).toBe('random') // task-47：新词默认乱序
     expect(SETTINGS_DEFAULTS['study.dailyReviewCap']).toBe(0) // task-51：默认不限
+    // F4 / weighted（0.3.35+）
+    expect(SETTINGS_DEFAULTS['board.showMeaningPhrases']).toBe(false)
+    expect(SETTINGS_DEFAULTS['memory.weightedMin']).toBe(1)
+    expect(SETTINGS_DEFAULTS['memory.weightedMax']).toBe(10)
+    expect(SETTINGS_DEFAULTS['memory.weightedK']).toBe(1)
+    expect(SETTINGS_DEFAULTS['ai.enabled']).toBe(false)
     // 枚举 key 非法值兜底：normalize → undefined；settingOrDefault → 默认 random
     expect(normalizeSettingValue('study.newWordOrder', 'bad')).toBeUndefined()
     expect(settingOrDefault('study.newWordOrder', 'bad')).toBe('random')

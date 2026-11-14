@@ -366,6 +366,8 @@ export interface ResolvedItem {
   deckId: string
   meaningId?: string
   item: PackItemV1
+  /** task-142：meaningIndex 超出词库义项数，已降级为词级内容 */
+  fallbackWordLevel?: boolean
 }
 
 export interface PackPreview {

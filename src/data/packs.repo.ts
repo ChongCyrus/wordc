@@ -46,6 +46,7 @@ import type {
   PackRecord,
   PackSource,
   ResolvedItem,
+  SkipReason,
   SkipRecord,
   Target,
   TargetPage,
@@ -216,6 +217,8 @@ interface ResolveOptions {
   /** task-90：pack.meta.deckId —— 有则**优先只在该 deck 解析**，找不到且 resolveAllDecks 才回退 */
   packDeckId?: string
   resolveAllDecks?: boolean
+  /** task-142：内容条目 meaningIndex 超出词库义项数时，降级为词级（不丢弃内容） */
+  fallbackUnknownMeaningToWordLevel?: boolean
   /** 导入进度（解析/写入分批）；供 UI 进度条 */
   onProgress?: (progress: { phase: 'resolve' | 'write'; done: number; total: number }) => void
   /** task-114：内置默认包条目 id（seed 识别/追新版；手工导入不传） */
@@ -324,6 +327,23 @@ function resolveWithIndexes(
     }
   }
   if (item.meaningIndex != null && !word.meanings[item.meaningIndex - 1]) {
+    const hasSemantics = Boolean((item.coreSenses?.length ?? 0) > 0 || (item.meaningMap?.length ?? 0) > 0)
+    const hasContent = Boolean(
+      (item.examples?.length ?? 0) > 0 || (item.phrases?.length ?? 0) > 0 || (item.mnemonics?.length ?? 0) > 0,
+    )
+    // task-142：内容条目义项序号超范围（旧 pack 生成时 c 拆分更细）→ 降级为词级应用，避免整条丢弃
+    if (opts.fallbackUnknownMeaningToWordLevel && hasContent && !hasSemantics) {
+      return {
+        ok: true,
+        resolved: {
+          itemId: `pending:${index}`,
+          wordId: word.id,
+          deckId: word.deckId,
+          item,
+          fallbackWordLevel: true,
+        },
+      }
+    }
     return {
       ok: false,
       skip: {
@@ -347,16 +367,52 @@ function resolveWithIndexes(
   }
 }
 
+/** task-142：拿掉条目/词组/助记的含义归属，作为词级内容应用 */
+function stripMeaningLevel(item: PackItemV1): PackItemV1 {
+  const next: PackItemV1 = { ...item }
+  delete next.meaningIndex
+  if (next.phrases) {
+    next.phrases = next.phrases.map((phrase) => {
+      const copy = { ...phrase }
+      delete copy.meaningIndex
+      return copy
+    })
+  }
+  if (next.mnemonics) {
+    next.mnemonics = next.mnemonics.map((mnemonic) => {
+      const copy = { ...mnemonic }
+      delete copy.meaningId
+      return copy
+    })
+  }
+  return next
+}
+
 /** 单条解析（reapplyPack 等小批量场景；逐条查询） */
 async function resolveItem(
   item: PackItemV1,
   index: number,
   opts: ResolveOptions,
-): Promise<{ ok: true; resolved: ResolvedItem } | { ok: false; skip: SkipRecord }> {
+): Promise<{ ok: true; resolved: ResolvedItem & { fallbackWordLevel?: boolean } } | { ok: false; skip: SkipRecord }> {
   const lower = normalizeHeadword(item.headwordLower || item.headword)
   const settings = await getSettings()
   const wordIndex = await loadWordIndex([lower])
-  return resolveWithIndexes(item, index, opts, wordIndex, settings['data.selectedDeckId'])
+  const hasSemantics = Boolean((item.coreSenses?.length ?? 0) > 0 || (item.meaningMap?.length ?? 0) > 0)
+  const result = resolveWithIndexes(item, index, {
+    ...opts,
+    ...(opts.fallbackUnknownMeaningToWordLevel && !hasSemantics ? {} : { fallbackUnknownMeaningToWordLevel: false }),
+  }, wordIndex, settings['data.selectedDeckId'])
+  if (result.ok && result.resolved.fallbackWordLevel) {
+    return {
+      ok: true,
+      resolved: {
+        ...result.resolved,
+        item: stripMeaningLevel(result.resolved.item),
+        meaningId: undefined,
+      },
+    }
+  }
+  return result
 }
 
 /** 预览：只解析目标（不写库），返回 matched/skipped 报告 */
@@ -453,7 +509,30 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
   const selectedDeckId = settings['data.selectedDeckId']
   const resolvedList: Array<{ index: number; result: ReturnType<typeof resolveWithIndexes> }> = []
   file.items.forEach((item, index) => {
-    resolvedList.push({ index, result: resolveWithIndexes(item, index, resolveOpts, wordIndex, selectedDeckId) })
+    const hasSemantics = Boolean((item.coreSenses?.length ?? 0) > 0 || (item.meaningMap?.length ?? 0) > 0)
+    const result = resolveWithIndexes(
+      item,
+      index,
+      // task-142：内容条目义项超范围降级词级；semantics 仍严格跳过（否则映射不完整）
+      { ...resolveOpts, fallbackUnknownMeaningToWordLevel: !hasSemantics },
+      wordIndex,
+      selectedDeckId,
+    )
+    if (result.ok && result.resolved.fallbackWordLevel) {
+      resolvedList.push({
+        index,
+        result: {
+          ok: true,
+          resolved: {
+            ...result.resolved,
+            item: stripMeaningLevel(result.resolved.item),
+            meaningId: undefined,
+          },
+        },
+      })
+    } else {
+      resolvedList.push({ index, result })
+    }
   })
   opts.onProgress?.({ phase: 'resolve', done: file.items.length, total: file.items.length })
   const skipped: SkipRecord[] = resolvedList.filter((entry) => !entry.result.ok).map((entry) => (entry.result as { ok: false; skip: SkipRecord }).skip)
@@ -669,6 +748,8 @@ export interface ApplyResult {
   skippedDetails: SkipRecord[]
   /** task-138：批次级异常（已回滚，条目仍为 approved，可再次「重新应用」补齐） */
   errors?: string[]
+  /** task-142：最终残留 skipped 按原因分类（unknown-word/unknown-meaning/limit/rejected/duplicate/invalid） */
+  skippedByReason?: Partial<Record<SkipReason, number>>
 }
 
 /** 应用某 pack 的全部 approved 条目（单事务；幂等：已存在内容不重复追加） */
@@ -816,7 +897,82 @@ export async function applyApproved(
     opts.onProgress?.({ phase: 'apply', done: Math.min(offset + batch.length, total), total })
   }
   const pack = await refreshPack(packId, now)
-  return { applied, skipped, packStatus: pack?.status ?? 'empty', skippedDetails, ...(errors.length > 0 ? { errors } : {}) }
+  const skippedByReason: Partial<Record<SkipReason, number>> = {}
+  if (skipped > 0) {
+    const skippedRows = await db.packItems.where('[packId+status]').equals([packId, 'skipped']).toArray()
+    for (const row of skippedRows) {
+      const reason = (row.skipReason ?? 'invalid') as SkipReason
+      skippedByReason[reason] = (skippedByReason[reason] ?? 0) + 1
+    }
+  }
+  return {
+    applied,
+    skipped,
+    packStatus: pack?.status ?? 'empty',
+    skippedDetails,
+    ...(errors.length > 0 ? { errors } : {}),
+    ...(skipped > 0 ? { skippedByReason } : {}),
+  }
+}
+
+/** task-142：内容包应用结果拆解（供内容包行显示「跳过原因」/是否可补齐诊断） */
+export interface PackApplyBreakdown {
+  packId: string
+  items: number
+  pending: number
+  approved: number
+  applied: number
+  rejected: number
+  skipped: number
+  skippedByReason: Partial<Record<SkipReason, number>>
+  /** limit / invalid 可通过重新应用（allowOverLimit/重试）补齐 */
+  retryableSkipped: number
+  /** unknown-word 条目数（pack 内词不在当前词库，需先导入对应词库；重应用无法补齐） */
+  unknownWordItems: number
+  samples: Array<{ reason: SkipReason; headwordLower: string; meaningIndex?: number }>
+}
+
+export async function getPackApplyBreakdown(packId: string): Promise<PackApplyBreakdown | null> {
+  const db = getDb()
+  const pack = await db.packs.get(packId)
+  if (!pack) return null
+  const statuses = ['pending', 'approved', 'applied', 'rejected', 'skipped'] as const
+  const counts: Record<string, number> = {}
+  for (const status of statuses) {
+    counts[status] = await db.packItems.where('[packId+status]').equals([packId, status]).count()
+  }
+  const skippedRows = await db.packItems.where('[packId+status]').equals([packId, 'skipped']).toArray()
+  const skippedByReason: Partial<Record<SkipReason, number>> = {}
+  let unknownWordItems = 0
+  let retryableSkipped = 0
+  const samples: PackApplyBreakdown['samples'] = []
+  for (const row of skippedRows) {
+    const reason = (row.skipReason ?? 'invalid') as SkipReason
+    skippedByReason[reason] = (skippedByReason[reason] ?? 0) + 1
+    if (reason === 'unknown-word') unknownWordItems += 1
+    if (reason === 'limit' || reason === 'invalid') retryableSkipped += 1
+    if (samples.length < 50) {
+      samples.push({
+        reason,
+        headwordLower: row.headwordLower,
+        ...(row.meaningIndex != null ? { meaningIndex: row.meaningIndex } : {}),
+      })
+    }
+  }
+  const items = Object.values(counts).reduce((sum, value) => sum + value, 0)
+  return {
+    packId,
+    items,
+    pending: counts.pending ?? 0,
+    approved: counts.approved ?? 0,
+    applied: counts.applied ?? 0,
+    rejected: counts.rejected ?? 0,
+    skipped: counts.skipped ?? 0,
+    skippedByReason,
+    retryableSkipped,
+    unknownWordItems,
+    samples,
+  }
 }
 
 /**
@@ -869,14 +1025,19 @@ async function reapplyOnePack(
       for (const item of batch) {
         const resolved = await resolveItem(item.payload, item.seq, {
           resolveAllDecks: true,
+          fallbackUnknownMeaningToWordLevel: true,
           ...(targetDeckId ? { packDeckId: targetDeckId } : {}),
         })
         if (!resolved.ok) continue
+        const resolvedFallback = 'fallbackWordLevel' in resolved.resolved && resolved.resolved.fallbackWordLevel
+        const nextPayload = resolvedFallback ? stripMeaningLevel(resolved.resolved.item) : resolved.resolved.item
         updates.push({
           ...item,
+          payload: nextPayload,
+          ...(resolvedFallback ? { meaningIndex: undefined, meaningId: undefined } : {}),
           status: 'approved',
           wordId: resolved.resolved.wordId,
-          ...(resolved.resolved.meaningId ? { meaningId: resolved.resolved.meaningId } : {}),
+          ...(resolved.resolved.meaningId && !resolvedFallback ? { meaningId: resolved.resolved.meaningId } : {}),
           deckId: resolved.resolved.deckId,
           skipReason: undefined,
         })

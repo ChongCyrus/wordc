@@ -155,6 +155,7 @@ export default function HomePage() {
             学习效率：平均记住一个单词{' '}
             {avgSeconds == null ? '—' : `${Math.max(1, Math.round(avgSeconds))} 秒`} · 预计还需{' '}
             {remainingMinutes == null ? '—' : `${Math.max(1, Math.round(remainingMinutes))} 分钟`}
+            {avgSeconds == null && homeTodayReviewed > 0 ? '（今日样本不足，再学 1 个词后显示）' : null}
           </div>
 
           {hasDecks ? (

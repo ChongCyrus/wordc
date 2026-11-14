@@ -71,12 +71,13 @@ import type {
 } from '../components/types'
 import { buildOfficialHints, type NextHints } from '../lib/next-hint'
 import { phrasesForMeaning } from '../lib/memory-phrases'
-import { visibleMnemonics } from '../lib/user-mnemonics'
 import { submitRatingByMode } from '../lib/rate-action'
 import { ratingLabels as labelsOf, type RatingLabels } from '../lib/rating-labels'
 import { readOfficialBool } from '../../../app/hooks/officialSettings'
 import {
   deleteAiMnemonic,
+  listMergedMnemonics,
+  type MergedMnemonic,
   deleteUserMnemonic,
   deleteUserNote,
   hideMnemonic as _hideMnemonic,
@@ -234,6 +235,7 @@ export function useStudySession(options?: {
   const [session, setSessionState] = useState<SessionState | null>(null)
   const [settings, setSettingsState] = useState<AppSettings | null>(null)
   const [word, setWord] = useState<Word | null>(null)
+  const [mergedMnemonics, setMergedMnemonics] = useState<MergedMnemonic[]>([])
   const [meaningStats, setMeaningStats] = useState<Record<string, MeaningStat>>({})
   /** 当前词的完整 WordState（供 core.previewNext 预览三键下一次出现时间） */
   const [wordState, setWordState] = useState<WordState | null>(null)
@@ -362,8 +364,17 @@ export function useStudySession(options?: {
           meaningId: meaning.id,
           pos: meaning.pos,
           cn: meaning.cn,
+          ...((meaning as unknown as { examples?: Array<{ en: string; cn: string }> }).examples?.length
+            ? { examples: (meaning as unknown as { examples: Array<{ en: string; cn: string }> }).examples }
+            : {}),
+        })) as never,
+        phrases: source.phrases.map((phrase) => ({
+          en: phrase.en,
+          cn: phrase.cn,
+          ...((phrase as { meaningId?: string }).meaningId
+            ? { meaningId: (phrase as { meaningId?: string }).meaningId }
+            : {}),
         })),
-        phrases: source.phrases.map((phrase) => ({ en: phrase.en, cn: phrase.cn })),
       }
     },
     [],
@@ -810,14 +821,21 @@ export function useStudySession(options?: {
     await loadWordAt(viewIndexRef.current, plan, loadedSettings, { startAt: 'annotation' })
   }, [loadWordAt])
 
+  const refreshUserContent = useCallback(async () => {
+    const wordId = sessionRef.current?.word.wordId
+    if (!wordId) return
+    const fresh = await getWord(wordId)
+    if (fresh && mountedRef.current) setWord(fresh)
+  }, [])
+
   const saveUserNote = useCallback(
     async (input: UserNoteInput) => {
       const wordId = sessionRef.current?.word.wordId
       if (!wordId) return
       await upsertUserNote(wordId, input)
-      await handleReloadCurrentWord()
+      await refreshUserContent()
     },
-    [handleReloadCurrentWord],
+    [refreshUserContent],
   )
 
   const deleteUserNoteById = useCallback(
@@ -825,9 +843,9 @@ export function useStudySession(options?: {
       const wordId = sessionRef.current?.word.wordId
       if (!wordId) return
       await deleteUserNote(wordId, noteId)
-      await handleReloadCurrentWord()
+      await refreshUserContent()
     },
-    [handleReloadCurrentWord],
+    [refreshUserContent],
   )
 
   const saveUserMnemonic = useCallback(
@@ -835,9 +853,9 @@ export function useStudySession(options?: {
       const wordId = sessionRef.current?.word.wordId
       if (!wordId) return
       await upsertUserMnemonic(wordId, input)
-      await handleReloadCurrentWord()
+      await refreshUserContent()
     },
-    [handleReloadCurrentWord],
+    [refreshUserContent],
   )
 
   const deleteUserMnemonicById = useCallback(
@@ -845,9 +863,9 @@ export function useStudySession(options?: {
       const wordId = sessionRef.current?.word.wordId
       if (!wordId) return
       await deleteUserMnemonic(wordId, mnemonicId)
-      await handleReloadCurrentWord()
+      await refreshUserContent()
     },
-    [handleReloadCurrentWord],
+    [refreshUserContent],
   )
 
   const hideAiMnemonic = useCallback(
@@ -855,9 +873,9 @@ export function useStudySession(options?: {
       const wordId = sessionRef.current?.word.wordId
       if (!wordId) return
       await deleteAiMnemonic(wordId, original)
-      await handleReloadCurrentWord()
+      await refreshUserContent()
     },
-    [handleReloadCurrentWord],
+    [refreshUserContent],
   )
 
   const handleRefreshPlan = useCallback(async () => {
@@ -914,9 +932,12 @@ export function useStudySession(options?: {
         encounters: stat.encounters,
         familiarity: familiarity(stat.clicks, stat.encounters),
         ...(() => {
+          const fromSession = (meaning as unknown as { examples?: Array<{ en: string; cn: string }> })
+            .examples
           const sourceMeaning = word?.meanings.find((item) => item.id === meaning.meaningId)
-          const examples = (sourceMeaning as unknown as { examples?: Array<{ en: string; cn: string }> })
+          const fromWord = (sourceMeaning as unknown as { examples?: Array<{ en: string; cn: string }> })
             ?.examples
+          const examples = fromSession?.length ? fromSession : fromWord
           return examples?.length ? { examples } : {}
         })(),
         derivation: derivationFor(effectiveSemantics, index + 1),
@@ -929,10 +950,33 @@ export function useStudySession(options?: {
     return word.examples.map((example) => ({ en: example.en, cn: example.cn }))
   }, [word])
 
-  const mnemonics = useMemo<MnemonicView[]>(() => {
-    // F6：过滤已隐藏的 AI 原条目，并用用户副本覆盖同 key 条目
-    return visibleMnemonics(word as never)
+  useEffect(() => {
+    const wordId = word?.id
+    if (!wordId) {
+      setMergedMnemonics([])
+      return
+    }
+    let alive = true
+    void listMergedMnemonics(wordId)
+      .then((list) => {
+        if (alive) setMergedMnemonics(list)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
   }, [word])
+
+  const mnemonics = useMemo<MnemonicView[]>(() => {
+    // F6：AI 条目（已过滤 hidden、被用户副本覆盖）
+    return mergedMnemonics
+      .filter((mnemonic) => mnemonic.source === 'ai')
+      .map((mnemonic) => ({
+        type: mnemonic.type,
+        text: mnemonic.text,
+        ...(mnemonic.meaningId ? { meaningId: mnemonic.meaningId } : {}),
+      }))
+  }, [mergedMnemonics])
 
   const activeMeaning = useMemo(() => {
     if (!session || !session.activeMeaningId) return null
@@ -1029,9 +1073,12 @@ export function useStudySession(options?: {
       return (examples ?? []).slice(0, 3)
     })(),
     memoryMnemonics: (() => {
-      if (!session?.activeMeaningId || !word) return []
-      return word.mnemonics
-        .filter((mnemonic) => (mnemonic as { meaningId?: string }).meaningId === session.activeMeaningId)
+      if (!session?.activeMeaningId) return []
+      return mergedMnemonics
+        .filter(
+          (mnemonic) =>
+            mnemonic.source === 'ai' && mnemonic.meaningId === session.activeMeaningId,
+        )
         .map((mnemonic) => ({ type: mnemonic.type, text: mnemonic.text }))
     })(),
     memoryFamiliarity: (() => {
@@ -1040,7 +1087,14 @@ export function useStudySession(options?: {
       return familiarity(stat.clicks, stat.encounters)
     })(),
     userNotes: (word?.userNotes ?? []).map((note) => ({ id: note.id, text: note.text, ...(note.meaningId ? { meaningId: note.meaningId } : {}) })),
-    userMnemonics: (word?.userMnemonics ?? []).map((item) => ({ id: item.id, type: item.type, text: item.text, ...(item.meaningId ? { meaningId: item.meaningId } : {}) })),
+    userMnemonics: mergedMnemonics
+      .filter((item) => item.source === 'user')
+      .map((item) => ({
+        id: item.userMnemonicId ?? item.key,
+        type: item.type,
+        text: item.text,
+        ...(item.meaningId ? { meaningId: item.meaningId } : {}),
+      })),
     memoryUserNotes: (() => {
       if (!session?.activeMeaningId) return []
       return (word?.userNotes ?? [])
@@ -1049,10 +1103,13 @@ export function useStudySession(options?: {
     })(),
     memoryUserMnemonics: (() => {
       if (!session?.activeMeaningId) return []
-      return (word?.userMnemonics ?? [])
-        .filter((mnemonic) => mnemonic.meaningId === session.activeMeaningId)
+      return mergedMnemonics
+        .filter(
+          (mnemonic) =>
+            mnemonic.source === 'user' && mnemonic.meaningId === session.activeMeaningId,
+        )
         .map((mnemonic) => ({
-          id: mnemonic.id,
+          id: mnemonic.userMnemonicId ?? mnemonic.key,
           type: mnemonic.type,
           text: mnemonic.text,
           meaningId: mnemonic.meaningId,

@@ -10,6 +10,7 @@ import {
   appendAiPack,
   applyApproved,
   approveItems,
+  getPackApplyBreakdown,
   importPack,
   listPackItems,
   listPacks,
@@ -102,6 +103,10 @@ describe('task-138 B3 · apply 全量/中断恢复/重应用补齐', () => {
     expect(progress.at(-1)).toBe(800)
     expect(first.applied + first.skipped).toBe(800)
     expect(first.skipped).toBeGreaterThan(0) // phrases 每词上限 8
+    expect((first.skippedByReason?.limit ?? 0)).toBeGreaterThan(0)
+    const beforeRepair = await getPackApplyBreakdown(packId)
+    expect(beforeRepair?.skippedByReason.limit).toBeGreaterThan(0)
+    expect(beforeRepair?.retryableSkipped).toBeGreaterThan(0)
 
     const reapplyProgress: string[] = []
     const repaired = await reapplyPack(packId, {
@@ -117,7 +122,84 @@ describe('task-138 B3 · apply 全量/中断恢复/重应用补齐', () => {
     const pack = await getDb().packs.get(packId)
     expect(pack!.counts.applied).toBe(800)
     expect(pack!.counts.items).toBe(800)
+    const afterRepair = await getPackApplyBreakdown(packId)
+    expect(afterRepair?.skipped).toBe(0)
+    expect(afterRepair?.applied).toBe(800)
   }, 120_000)
+
+  it('旧 pack 的 unknown-meaning（义项序号超范围）：reapply 降级词级补齐', async () => {
+    const deck = await makeDeck(1, 2)
+    const db = getDb()
+    const word = (await db.words.get(`${deck.id}:w0`))!
+    const packId = 'pk_legacy_unknown_meaning'
+    const now = Date.now()
+    await db.packs.put({
+      id: packId,
+      name: '旧 WordC 包（义项超范围）',
+      kind: 'mixed',
+      formatVersion: 1,
+      checksum: 'legacy-checksum',
+      source: 'ai',
+      deckId: deck.id,
+      status: 'partial',
+      counts: { items: 1, pending: 0, approved: 0, applied: 0, rejected: 0, skipped: 1 },
+      createdAt: now,
+      updatedAt: now,
+    })
+    await db.packItems.put({
+      id: `${packId}:1`,
+      packId,
+      seq: 1,
+      headword: 'w0',
+      headwordLower: 'w0',
+      meaningIndex: 3, // 当前词库只有 2 个义项 → 旧版 apply skipped:unknown-meaning
+      payload: {
+        headword: 'w0',
+        headwordLower: 'w0',
+        meaningIndex: 3,
+        examples: [{ en: 'legacy fallback example', cn: '旧包例句' }],
+        phrases: [{ en: 'legacy fallback phrase', cn: '旧包短语', meaningIndex: 3 }],
+      },
+      status: 'skipped',
+      skipReason: 'unknown-meaning',
+      contentHashes: [],
+      createdAt: now,
+    })
+
+    const result = await reapplyPack(packId)
+    expect(result.applied).toBe(1)
+    expect(result.skipped).toBe(0)
+    const afterWord = (await db.words.get(word.id))!
+    expect(afterWord.examples.some((example) => example.en === 'legacy fallback example')).toBe(true)
+    expect(afterWord.phrases.some((phrase) => phrase.en === 'legacy fallback phrase')).toBe(true)
+    const breakdown = await getPackApplyBreakdown(packId)
+    expect(breakdown?.skipped).toBe(0)
+    expect(breakdown?.applied).toBe(1)
+  })
+
+  it('unknown-word（包内词不在当前词库）：breakdown 明确分类，重应用无法补齐', async () => {
+    const deck = await makeDeck(3, 2)
+    const file = await makePack(
+      [
+        { headword: 'w0', headwordLower: 'w0', meaningIndex: 1, examples: [{ en: 'known item', cn: '已知' }] },
+        { headword: 'not-in-deck', headwordLower: 'not-in-deck', meaningIndex: 1, examples: [{ en: 'unknown item', cn: '未知' }] },
+      ],
+      { deckId: deck.id },
+    )
+    const imported = await importPack(JSON.stringify(file))
+    const packId = imported.packId!
+    expect(imported.preview.skipped.some((skip) => skip.reason === 'unknown-word')).toBe(true)
+    const items = await listPackItems(packId)
+    await approveItems(packId, items.filter((item) => item.status === 'pending').map((item) => item.id))
+    const before = await getPackApplyBreakdown(packId)
+    expect(before?.unknownWordItems).toBe(1)
+    expect(before?.skippedByReason['unknown-word']).toBe(1)
+    const reapply = await reapplyPack(packId)
+    expect(reapply.applied).toBeGreaterThanOrEqual(0) // 不能补齐未知词
+    const after = await getPackApplyBreakdown(packId)
+    expect(after?.unknownWordItems).toBe(1) // 明确提示「不属于当前词库」，不误报为可补齐
+    expect(after?.retryableSkipped).toBe(0)
+  })
 
   it('模拟批次中途 DB 异常：返回 errors 且后续批次继续；再次 reapply 补齐全部', async () => {
     const deck = await makeDeck(100, 4)
