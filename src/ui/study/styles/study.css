@@ -120,6 +120,8 @@
 /* ---------- 白板面 ---------- */
 .board-stage {
   flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   min-height: 100%;
@@ -133,10 +135,16 @@
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 36px;
-  padding: 8px 24px 72px;
-  margin-top: -6vh;
+  /* F4/F7：含义多时内容会很长，改为可滚动、从顶部排布，避免被裁在视口外 */
+  justify-content: flex-start;
+  gap: 18px;
+  padding: 20px 24px 96px;
+  margin-top: 0;
+  max-width: 520px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
 }
 
 .board-examples {

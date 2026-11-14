@@ -937,13 +937,13 @@ export function useStudySession(options?: {
           const sourceMeaning = word?.meanings.find((item) => item.id === meaning.meaningId)
           const fromWord = (sourceMeaning as unknown as { examples?: Array<{ en: string; cn: string }> })
             ?.examples
-          const examples = fromSession?.length ? fromSession : fromWord
+          const examples = fromWord?.length ? fromWord : fromSession
           return examples?.length ? { examples } : {}
         })(),
         derivation: derivationFor(effectiveSemantics, index + 1),
       }
     })
-  }, [effectiveSemantics, meaningStats, session])
+  }, [effectiveSemantics, meaningStats, session, word])
 
   const examples = useMemo<ExampleView[]>(() => {
     if (!word) return []

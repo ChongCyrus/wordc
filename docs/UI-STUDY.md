@@ -143,6 +143,11 @@ src/ui/study/
 4. 首词（index 0）时 `<` 隐藏、右滑不触发；记忆 w-c 页内不触发回退。
 6. 退出学习（`×`/菜单）与回退的区别：退出保存进度；回退只是页内移动。
 
+### 3.4.10 白板面 per-c 信息生效修复（task-144）
+
+- `study.meanings` 的 examples 以 `Word.meanings[].examples` 为准并加入 `word` 依赖，词库/AI 更新后白板与注释同时刷新。
+- `.board-stage` 允许纵向滚动、`.board-main` 从顶部排布（去掉 -6vh 居中），含义多/例句多时不再被裁到视口外；F4 词性+英文例句与 F7 英文词组可见。
+
 ### 3.4.9 白板面显示各 c 词组（task-143 F7）
 
 - 设置 → 白板面新增开关「白板面显示各 c 词组」（`board.showMeaningPhrases`，默认关，持久化/导出）。

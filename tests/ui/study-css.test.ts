@@ -23,6 +23,14 @@ describe('学习页长文本/裁切修复（task-136 B1/B4/B5）', () => {
     expect(block).toContain('overflow: visible')
   })
 
+  it('白板面含义多时可滚动、从顶部排布（task-144 F4/F7 布局）', () => {
+    const stage = studyCss.slice(studyCss.indexOf('.board-stage'), studyCss.indexOf('.board-stage') + 260)
+    expect(stage).toContain('overflow-y: auto')
+    const main = studyCss.slice(studyCss.indexOf('.board-main'), studyCss.indexOf('.board-main') + 400)
+    expect(main).toContain('justify-content: flex-start')
+    expect(main).not.toContain('margin-top: -6vh')
+  })
+
   it('本义区左右 ≥16px 防裁字（B5）', () => {
     const block = studyCss.slice(studyCss.indexOf('.core-senses'), studyCss.indexOf('.core-senses') + 220)
     expect(block).toContain('padding-left: 16px')
