@@ -143,6 +143,12 @@ src/ui/study/
 4. 首词（index 0）时 `<` 隐藏、右滑不触发；记忆 w-c 页内不触发回退。
 6. 退出学习（`×`/菜单）与回退的区别：退出保存进度；回退只是页内移动。
 
+### 3.4.14 生成元引申副页布局修复（task-150）
+
+- 展开时包裹层 `study-annotation-wrap.is-side` 宽度 `calc(100% - 46%)` + `overflow-x:hidden`，正文真正 reflow/换行不裁；左栏仍可纵向滚动；右页 fixed 于 topbar 下、评分栏上（top 52 / bottom 96）。
+- 右页宽 46%（≤300），标题允许换行（`white-space:normal; overflow-wrap:anywhere`）、「收起」按钮 `flex-shrink:0` 不截字；面板自身纵向/横向溢出可控。
+- Mermaid：无源显示「尚无 Mermaid 内容：点「编辑」或「AI 生成」」；有源渲染失败回退源码+错误；渲染区可滚动。
+
 ### 3.4.13 生成元引申副页（task-147 F8）
 
 - 注释面左滑（pointer dx ≤ -56）展开右侧副页（约 42% 宽）；左栏 `padding-right` 自动变窄重排，长文本换行不裁切；右滑/「收起」关闭；切词自动收起。右缘「‹ 引申」按钮作为入口。

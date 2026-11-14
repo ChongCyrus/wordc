@@ -61,6 +61,13 @@ export function MermaidPreview({ source }: { source: string }) {
     }
   }, [source, id])
 
+  if (!source.trim()) {
+    return (
+      <div className="mm-caption derivation-mermaid-empty">
+        尚无 Mermaid 内容：点「编辑」或「AI 生成」
+      </div>
+    )
+  }
   if (svg) {
     return <div className="derivation-mermaid" dangerouslySetInnerHTML={{ __html: svg }} />
   }

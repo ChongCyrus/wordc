@@ -23,15 +23,19 @@ describe('学习页长文本/裁切修复（task-136 B1/B4/B5）', () => {
     expect(block).toContain('overflow: visible')
   })
 
-  it('F8 副页宽度/左栏重排/文本换行', () => {
-    expect(studyCss).toContain('.study-page--side .annotation-stage')
-    expect(studyCss).toContain('padding-right: calc(42% + 10px)')
+  it('F8 副页：左栏收窄 reflow + 右页完整布局（task-150）', () => {
+    expect(studyCss).toContain('.study-annotation-wrap.is-side')
+    const wrap = studyCss.slice(studyCss.indexOf('.study-annotation-wrap.is-side'), studyCss.indexOf('.study-annotation-wrap.is-side') + 200)
+    expect(wrap).toContain('width: calc(100% - 46%)')
+    expect(wrap).toContain('overflow-x: hidden')
     const panel = studyCss.slice(studyCss.indexOf('.derivation-panel {'), studyCss.indexOf('.derivation-panel {') + 500)
-    expect(panel).toContain('width: 42%')
+    expect(panel).toContain('width: 46%')
     expect(panel).toContain('overflow-y: auto')
+    const title = studyCss.slice(studyCss.indexOf('.derivation-panel-head .mm-row-title'), studyCss.indexOf('.derivation-panel-head .mm-row-title') + 220)
+    expect(title).toContain('white-space: normal')
+    expect(title).toContain('overflow-wrap: anywhere')
     expect(studyCss).toContain('white-space: pre-wrap')
   })
-
   it('白板面含义多时可滚动、从顶部排布（task-144 F4/F7 布局）', () => {
     const stage = studyCss.slice(studyCss.indexOf('.board-stage'), studyCss.indexOf('.board-stage') + 260)
     expect(stage).toContain('overflow-y: auto')

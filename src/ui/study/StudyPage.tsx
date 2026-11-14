@@ -386,6 +386,7 @@ export default function StudyPage() {
         ) : null}
 
         {stage === 'annotation' && session ? (
+          <div className={derivationPanelOpen ? 'study-annotation-wrap is-side' : 'study-annotation-wrap'}>
           <AnnotationStage
             headword={session.word.headword}
             coreSenses={study.coreSenses}
@@ -444,6 +445,7 @@ export default function StudyPage() {
             onSpeak={handleSpeak}
             onMarkMeaning={(meaningId) => void actions.markMeaning(meaningId)}
           />
+          </div>
         ) : null}
 
         {stage === 'memory' && session ? (
