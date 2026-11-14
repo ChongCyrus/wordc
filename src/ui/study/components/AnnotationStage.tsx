@@ -1,5 +1,7 @@
 import { WordHead } from './WordHead'
 import { DerivationChain } from './DerivationChain'
+import { AiBadge, MineBadge, UserMnemonicLine, UserNoteLine } from './UserContent'
+import type { UserMnemonicView, UserNoteView } from './types'
 import { MeaningRow } from './MeaningRow'
 import { HighlightedText } from './HighlightedText'
 import type { ExampleView, MeaningView, MnemonicView, PhraseView } from './types'
@@ -10,6 +12,19 @@ export interface AnnotationStageProps {
   showPhonetic: boolean
   /** 该词全部本义（task-98/101；来自 getEffectiveContent().coreSenses，无则不渲染） */
   coreSenses?: Array<{ label: string; note?: string; origin?: string }>
+  /** F6：用户笔记/助记（word 级 + c 级） */
+  userNotes?: UserNoteView[]
+  userMnemonics?: UserMnemonicView[]
+  /** F6：打开用户笔记编辑（meaningId 缺省=词级） */
+  onEditUserNote?: (target: { meaningId?: string; meaningCn?: string }) => void
+  /** F6：新增/编辑用户助记（meaningId 缺省=词级） */
+  onEditUserMnemonic?: (target: { meaningId?: string; meaningCn?: string }) => void
+  /** F6 补充：编辑/删除 AI 或内置助记（保存为用户副本并隐藏原条目） */
+  onEditMnemonic?: (target: {
+    meaningId?: string
+    meaningCn?: string
+    mnemonic: { type: string; text: string }
+  }) => void
   meanings: MeaningView[]
   examples: ExampleView[]
   mnemonics: MnemonicView[]
@@ -38,6 +53,11 @@ export function AnnotationStage({
   phonetic,
   showPhonetic,
   coreSenses = [],
+  userNotes = [],
+  userMnemonics = [],
+  onEditUserNote,
+  onEditUserMnemonic,
+  onEditMnemonic,
   meanings,
   examples,
   mnemonics,
@@ -59,6 +79,42 @@ export function AnnotationStage({
           onSpeak={onSpeak}
         />
       </div>
+
+      {onEditUserNote || onEditUserMnemonic ? (
+        <div className="user-content-section">
+          <div className="user-content-head">
+            <span className="mm-caption">我的笔记/助记（词级）</span>
+            <span style={{ display: 'flex', gap: 6 }}>
+              {onEditUserNote ? (
+                <button
+                  type="button"
+                  className="mm-btn mm-btn--ghost mm-btn--sm"
+                  onClick={() => onEditUserNote({})}
+                >
+                  笔记
+                </button>
+              ) : null}
+              {onEditUserMnemonic ? (
+                <button
+                  type="button"
+                  className="mm-btn mm-btn--ghost mm-btn--sm"
+                  onClick={() => onEditUserMnemonic({})}
+                >
+                  助记
+                </button>
+              ) : null}
+            </span>
+          </div>
+          {userNotes.filter((note) => !note.meaningId).map((note) => (
+            <UserNoteLine key={note.id} note={note} />
+          ))}
+          {userMnemonics
+            .filter((mnemonic) => !mnemonic.meaningId)
+            .map((mnemonic) => (
+              <UserMnemonicLine key={mnemonic.id} mnemonic={mnemonic} />
+            ))}
+        </div>
+      ) : null}
 
       {coreSenses.length > 0 ? (
         <div className="core-senses">
@@ -98,10 +154,60 @@ export function AnnotationStage({
                 .filter((mnemonic) => mnemonic.meaningId === meaning.meaningId)
                 .map((mnemonic, index) => (
                   <div className="meaning-mnemonic" key={`${meaning.meaningId}-${index}`}>
+                    <AiBadge />
                     <span className="meaning-mnemonic-type">[{mnemonic.type}]</span>
                     {mnemonic.text}
+                    {onEditMnemonic ? (
+                      <button
+                        type="button"
+                        className="mm-btn mm-btn--ghost mm-btn--sm"
+                        onClick={() =>
+                          onEditMnemonic({
+                            meaningId: meaning.meaningId,
+                            meaningCn: meaning.cn,
+                            mnemonic,
+                          })
+                        }
+                      >
+                        编辑
+                      </button>
+                    ) : null}
                   </div>
                 ))}
+              {userNotes
+                .filter((note) => note.meaningId === meaning.meaningId)
+                .map((note) => (
+                  <UserNoteLine key={note.id} note={note} />
+                ))}
+              {userMnemonics
+                .filter((mnemonic) => mnemonic.meaningId === meaning.meaningId)
+                .map((mnemonic) => (
+                  <UserMnemonicLine key={mnemonic.id} mnemonic={mnemonic} />
+                ))}
+              {onEditUserNote || onEditUserMnemonic ? (
+                <span className="meaning-user-actions">
+                  {onEditUserNote ? (
+                    <button
+                      type="button"
+                      className="mm-btn mm-btn--ghost mm-btn--sm"
+                      aria-label={`编辑含义 ${meaning.cn} 的我的笔记`}
+                      onClick={() => onEditUserNote({ meaningId: meaning.meaningId, meaningCn: meaning.cn })}
+                    >
+                      <MineBadge /> 笔记
+                    </button>
+                  ) : null}
+                  {onEditUserMnemonic ? (
+                    <button
+                      type="button"
+                      className="mm-btn mm-btn--ghost mm-btn--sm"
+                      aria-label={`编辑含义 ${meaning.cn} 的我的助记`}
+                      onClick={() => onEditUserMnemonic({ meaningId: meaning.meaningId, meaningCn: meaning.cn })}
+                    >
+                      <MineBadge /> 助记
+                    </button>
+                  ) : null}
+                </span>
+              ) : null}
             </div>
           ))
         ) : (

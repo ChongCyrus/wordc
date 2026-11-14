@@ -34,6 +34,21 @@ export interface MnemonicView {
   meaningId?: string
 }
 
+export type UserMnemonicType = '联想' | '谐音' | '词根' | '词源' | '串记' | '口诀' | '其他'
+
+/** 用户笔记/助记（F6；meaningId 缺省=词级） */
+export interface UserNoteView {
+  id: string
+  text: string
+  meaningId?: string
+}
+export interface UserMnemonicView {
+  id: string
+  type: UserMnemonicType
+  text: string
+  meaningId?: string
+}
+
 export interface PhraseView {
   en: string
   cn: string

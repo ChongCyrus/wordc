@@ -1,0 +1,146 @@
+{
+  "startedAt": "2026-11-12T15:10:26.703Z",
+  "base": "http://127.0.0.1:4173/",
+  "build": "index-0wc4VVru.js",
+  "versionText": "v0.3.34",
+  "profile": "/tmp/qa034-profile",
+  "scenario": {
+    "word": {
+      "wordId": "kaoyan-hongbaoshu-2025:address",
+      "headword": "address",
+      "meaningCount": 12,
+      "meanings": [
+        {
+          "cn": "地址",
+          "pos": "n."
+        },
+        {
+          "cn": "演讲",
+          "pos": "n."
+        },
+        {
+          "cn": "致辞",
+          "pos": "n."
+        },
+        {
+          "cn": "说话的技巧",
+          "pos": "n."
+        },
+        {
+          "cn": "称呼",
+          "pos": "n."
+        },
+        {
+          "cn": "演说",
+          "pos": "vt."
+        },
+        {
+          "cn": "从事",
+          "pos": "vt."
+        },
+        {
+          "cn": "忙于",
+          "pos": "vt."
+        },
+        {
+          "cn": "写姓名地址",
+          "pos": "vt."
+        },
+        {
+          "cn": "向…致辞",
+          "pos": "vt."
+        },
+        {
+          "cn": "与…说话",
+          "pos": "vt."
+        },
+        {
+          "cn": "提出",
+          "pos": "vt."
+        }
+      ]
+    },
+    "target": 1,
+    "panelBefore": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 开始生成 关闭",
+    "startBefore": {
+      "count": 1,
+      "enabled": true,
+      "target": 1
+    },
+    "errorVisible": true,
+    "panelAfter401": {
+      "text": "AI 扩充内容 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 Key 无效或已过期：请检查 API Key 后重试。（HTTP 401） 开始生成 关闭",
+      "danger": [
+        "Key 无效或已过期：请检查 API Key 后重试。（HTTP 401）"
+      ],
+      "start": {
+        "exists": true,
+        "disabled": false,
+        "visible": true
+      },
+      "draftButtons": []
+    },
+    "draftCount": 0,
+    "mockCalls": 1,
+    "assertions": {
+      "http401InErrorLine": true,
+      "noGeneratedProgress": true,
+      "noBatchLimitText": true,
+      "noDraftSavedText": true,
+      "noDraftBanner": true,
+      "noDraftInDb": true,
+      "startUsableAfterError": true,
+      "onlyErrorLine": true
+    },
+    "retry": {
+      "clickReady": true,
+      "mockCalls": 1,
+      "reviewShown": true,
+      "reviewItems": 1,
+      "reviewText": "审核生成内容（1） ✓ 选中后保存到本地词库；❌ 会记住并排除该目标。 address · 例句 Q34A example for address c- — Q34A 例句翻译 c- ❌ 全不选 保存已选（1） 关闭",
+      "mockTags": [
+        {
+          "tag": "Q34A",
+          "kind": "examples",
+          "targets": 1,
+          "sent": 1
+        }
+      ],
+      "draftsAfter": 1
+    },
+    "panelAfterRetry": {
+      "text": "AI 扩充内容 已生成 1 / 总 1（草稿已保存） 继续 放弃草稿 本次生成上限 50 100 500 全部 范围 今日要学 当前词库 当前词 指定含义 选择词库 自定义选词 生成类型（可多选） ✓ 例句 词组 助记 本义/引申链 生成模式（按类型） 例句 仅缺失 追加更多 覆盖 排除 已有例句 已有词组 已有助记 ✓ 已拒绝 目标：1 个词/含义 · 例句 预计费用按所选类型 × 目标数估算；单次上限 ¥3.00；全量预算 ¥40 预计 ¥0.22 / 单次上限 ¥3.00 完成 1 / 1 条 · 已用 ¥0.00 开始生成 关闭",
+      "danger": [],
+      "start": {
+        "exists": true,
+        "disabled": false,
+        "visible": true
+      },
+      "draftButtons": [
+        "继续",
+        "放弃草稿"
+      ]
+    }
+  },
+  "findings": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "pageErrors": [],
+  "cost": {
+    "realCalls": 0,
+    "yuan": 0
+  },
+  "notes": [
+    "全程 mock /v1/chat/completions；未读取 .secrets，未调用真实 API。"
+  ],
+  "swBlocked": true,
+  "settings": {
+    "enabled": true,
+    "provider": "deepseek",
+    "keyStorage": "persistent",
+    "hasKey": true,
+    "maxCost": 3
+  },
+  "finishedAt": "2026-11-12T15:12:41.490Z"
+}

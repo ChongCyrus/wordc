@@ -68,6 +68,23 @@ export interface Meaning {
   examples?: Example[]
 }
 
+/** 用户自定义笔记（F6/task-139；meaningId 缺省 = w 级） */
+export interface UserNote {
+  id: string
+  text: string
+  /** 缺省 = 词级；指定则为该含义（c 级） */
+  meaningId?: string
+}
+
+/** 用户自定义助记（F6/task-139；meaningId 缺省 = w 级） */
+export interface UserMnemonic {
+  id: string
+  type: '联想' | '谐音' | '词根' | '词源' | '串记' | '口诀' | '其他'
+  text: string
+  /** 缺省 = 词级；指定则为该含义（c 级） */
+  meaningId?: string
+}
+
 export interface Word {
   /** = `${deckId}:${normalizedHeadword}`，见 §1.4 */
   id: string
@@ -104,6 +121,15 @@ export interface Word {
   chapter?: string
   /** MaiMemo voc_id（若从MaiMemo导入过），仅本机参考 */
   maimemoVocId?: string
+  /** F6：用户自定义笔记（词级或含义级；不写入内容包，AI 应用不覆盖） */
+  userNotes?: UserNote[]
+  /** F6：用户自定义助记（词级或含义级；不写入内容包，AI 应用不覆盖） */
+  userMnemonics?: UserMnemonic[]
+  /**
+   * F6：被用户编辑/删除的 AI 助记 key（稳定 key = `${meaningId??''}|${type}|${text}`）。
+   * 展示时过滤这些 key；重新应用 AI 内容包不会清除该列表。
+   */
+  hiddenMnemonicKeys?: string[]
   createdAt: number
 }
 

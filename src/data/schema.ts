@@ -13,6 +13,9 @@
  */
 
 import { z } from 'zod'
+
+/** F6 用户助记类型白名单 */
+const USER_MNEMONIC_TYPES = new Set(['联想', '谐音', '词根', '词源', '串记', '口诀', '其他'])
 import {
   meaningIdOf,
   normalizeHeadword,
@@ -144,6 +147,28 @@ export const rawWordSchema = z.object({
   maimemoVocId: z.string().optional(),
   /** 官方单词难度 1–10（task-25；导入时保留） */
   difficulty: z.number().optional(),
+  /** F6：用户自定义笔记/助记（迁移/词库导出保留；不写入内容包） */
+  userNotes: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        text: z.string(),
+        meaningId: z.string().optional(),
+      }),
+    )
+    .optional(),
+  userMnemonics: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        type: z.string(),
+        text: z.string(),
+        meaningId: z.string().optional(),
+      }),
+    )
+    .optional(),
+  /** F6：被用户编辑/删除的 AI 助记 key 列表 */
+  hiddenMnemonicKeys: z.array(z.string()).optional(),
   createdAt: z.number().optional(),
 })
 
@@ -422,6 +447,32 @@ export function normalizeWordRecord(
   })
   if (opts.preserveIds && providedId) word.headwordLower = normalizeHeadword(headword)
   if (raw.maimemoVocId) word.maimemoVocId = raw.maimemoVocId
+  // F6：用户笔记/助记随迁移/词库导出保留（缺失则省略，避免空数组）
+  if (Array.isArray(raw.userNotes) && raw.userNotes.length > 0) {
+    const notes = raw.userNotes
+      .map((note, index) => ({
+        id: String(note.id ?? `user-note-${word.id}-${index + 1}`),
+        text: String(note.text ?? '').trim(),
+        ...(note.meaningId ? { meaningId: note.meaningId } : {}),
+      }))
+      .filter((note) => note.text.length > 0)
+    if (notes.length > 0) word.userNotes = notes
+  }
+  if (Array.isArray(raw.userMnemonics) && raw.userMnemonics.length > 0) {
+    const mnemonics = raw.userMnemonics
+      .map((mnemonic, index) => ({
+        id: String(mnemonic.id ?? `user-mnemonic-${word.id}-${index + 1}`),
+        type: (USER_MNEMONIC_TYPES.has(mnemonic.type) ? mnemonic.type : '其他') as NonNullable<Word['userMnemonics']>[number]['type'],
+        text: String(mnemonic.text ?? '').trim(),
+        ...(mnemonic.meaningId ? { meaningId: mnemonic.meaningId } : {}),
+      }))
+      .filter((mnemonic) => mnemonic.text.length > 0)
+    if (mnemonics.length > 0) word.userMnemonics = mnemonics
+  }
+  if (Array.isArray(raw.hiddenMnemonicKeys)) {
+    const hidden = [...new Set(raw.hiddenMnemonicKeys.filter((key): key is string => typeof key === 'string' && key.length > 0))]
+    if (hidden.length > 0) word.hiddenMnemonicKeys = hidden
+  }
   if (Number.isFinite(raw.difficulty)) {
     word.difficulty = Math.min(10, Math.max(1, Math.round(raw.difficulty!)))
   }

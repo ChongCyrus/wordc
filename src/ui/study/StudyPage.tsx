@@ -13,6 +13,8 @@ import { ConfirmDialog, ActionSheet } from './components/StudyOverlay'
 import { QuickSettingsSheet } from './components/QuickSettingsSheet'
 import { BackRevertNotice } from './components/BackRevertNotice'
 import { AiGeneratePanel } from '../ai/AiGeneratePanel'
+import { UserContentEditor } from './components/UserContent'
+import type { UserMnemonicType } from './components/types'
 import { useSwipeBack } from './lib/use-swipe-back'
 import { applyDailyGoalChange } from '../../app/hooks/useDailyGoal'
 import './styles/study.css'
@@ -50,6 +52,17 @@ export default function StudyPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false)
   const [aiGenerateOpen, setAiGenerateOpen] = useState(false)
+  const [confirmUserDelete, setConfirmUserDelete] = useState(false)
+  const [userEditor, setUserEditor] = useState<null | {
+    mode: 'note' | 'mnemonic'
+    targetLabel: string
+    meaningId?: string
+    noteId?: string
+    mnemonicId?: string
+    aiMnemonic?: { meaningId?: string; type: string; text: string }
+    initialText: string
+    initialType: UserMnemonicType
+  }>(null)
   const [speaking, setSpeaking] = useState(false)
   const [ratingLocked, setRatingLocked] = useState(false)
   const [rateCooldown, setRateCooldown] = useState(false)
@@ -299,6 +312,45 @@ export default function StudyPage() {
             meanings={study.meanings}
             examples={study.examples}
             mnemonics={study.mnemonics}
+            userNotes={study.userNotes}
+            userMnemonics={study.userMnemonics}
+            onEditUserNote={(target) => {
+              const existing = study.userNotes.find(
+                (note) => (note.meaningId ?? undefined) === (target.meaningId ?? undefined),
+              )
+              setUserEditor({
+                mode: 'note',
+                targetLabel: target.meaningId ? `c：${target.meaningCn ?? ''}` : session.word.headword,
+                ...(target.meaningId ? { meaningId: target.meaningId } : {}),
+                ...(existing ? { noteId: existing.id } : {}),
+                initialText: existing?.text ?? '',
+                initialType: '联想',
+              })
+            }}
+            onEditUserMnemonic={(target) => {
+              const existing = study.userMnemonics.find(
+                (mnemonic) =>
+                  (mnemonic.meaningId ?? undefined) === (target.meaningId ?? undefined),
+              )
+              setUserEditor({
+                mode: 'mnemonic',
+                targetLabel: target.meaningId ? `c：${target.meaningCn ?? ''}` : session.word.headword,
+                ...(target.meaningId ? { meaningId: target.meaningId } : {}),
+                ...(existing ? { mnemonicId: existing.id } : {}),
+                initialText: existing?.text ?? '',
+                initialType: (existing?.type as UserMnemonicType) ?? '联想',
+              })
+            }}
+            onEditMnemonic={(target) => {
+              setUserEditor({
+                mode: 'mnemonic',
+                targetLabel: target.meaningId ? `c：${target.meaningCn ?? ''}` : session.word.headword,
+                ...(target.meaningId ? { meaningId: target.meaningId } : {}),
+                aiMnemonic: target.mnemonic,
+                initialText: target.mnemonic.text,
+                initialType: target.mnemonic.type as UserMnemonicType,
+              })
+            }}
             phrases={session.word.phrases}
             showPhrases
             speaking={speaking}
@@ -315,6 +367,8 @@ export default function StudyPage() {
             mnemonics={study.memoryMnemonics}
             familiarity={study.memoryFamiliarity}
             unfamiliarityRank={study.memoryRank}
+            userNotes={study.memoryUserNotes}
+            userMnemonics={study.memoryUserMnemonics}
             meaningCn={study.activeMeaningCn ?? ''}
             count={study.memoryCount}
             total={study.memoryTotal}
@@ -354,6 +408,73 @@ export default function StudyPage() {
       ) : null}
 
       {menuOpen ? <ActionSheet items={menuItems} onClose={() => setMenuOpen(false)} /> : null}
+
+      {confirmUserDelete ? (
+      <ConfirmDialog
+        title="删除我的内容？"
+        body="将删除这条「我的」笔记/助记（AI 原条目仅隐藏，AI 包数据不删除）。"
+        confirmLabel="删除"
+        danger
+        onCancel={() => setConfirmUserDelete(false)}
+        onConfirm={() => {
+          void (async () => {
+            try {
+              if (userEditor?.noteId) await actions.deleteUserNoteById(userEditor.noteId)
+              else if (userEditor?.mnemonicId)
+                await actions.deleteUserMnemonicById(userEditor.mnemonicId)
+              else if (userEditor?.aiMnemonic) await actions.hideAiMnemonic(userEditor.aiMnemonic)
+              setConfirmUserDelete(false)
+              setUserEditor(null)
+              showToast('已删除')
+            } catch (error) {
+              showToast(error instanceof Error ? error.message : '删除失败')
+            }
+          })()
+        }}
+      />
+      ) : null}
+
+      <UserContentEditor
+        open={userEditor != null}
+        targetLabel={userEditor?.targetLabel ?? ''}
+        mode={userEditor?.mode ?? 'note'}
+        initialText={userEditor?.initialText ?? ''}
+        initialType={userEditor?.initialType ?? '联想'}
+        onClose={() => setUserEditor(null)}
+        onDelete={
+          userEditor && (userEditor.noteId || userEditor.mnemonicId || userEditor.aiMnemonic)
+            ? () => setConfirmUserDelete(true)
+            : undefined
+        }
+        onSave={(input) => {
+          void (async () => {
+            try {
+              if (!userEditor) return
+              if (userEditor.mode === 'note') {
+                await actions.saveUserNote({
+                  ...(userEditor.noteId ? { id: userEditor.noteId } : {}),
+                  text: input.text,
+                  ...(userEditor.meaningId ? { meaningId: userEditor.meaningId } : {}),
+                })
+              } else {
+                await actions.saveUserMnemonic({
+                  ...(userEditor.mnemonicId ? { id: userEditor.mnemonicId } : {}),
+                  type: (input.type ?? userEditor.initialType) as UserMnemonicType,
+                  text: input.text,
+                  ...(userEditor.meaningId ? { meaningId: userEditor.meaningId } : {}),
+                })
+                if (userEditor.aiMnemonic) {
+                  await actions.hideAiMnemonic(userEditor.aiMnemonic)
+                }
+              }
+              setUserEditor(null)
+              showToast('已保存（我的）')
+            } catch (error) {
+              showToast(error instanceof Error ? error.message : '保存失败')
+            }
+          })()
+        }}
+      />
 
       <AiGeneratePanel
         open={aiGenerateOpen}

@@ -62,6 +62,7 @@ import {
   type DailyPlan,
 } from '../../../data'
 import type { DerivationChainView } from '../components/DerivationChain'
+import type { UserMnemonicView, UserNoteView } from '../components/types'
 import type {
   ExampleView,
   MeaningView,
@@ -70,9 +71,20 @@ import type {
 } from '../components/types'
 import { buildOfficialHints, type NextHints } from '../lib/next-hint'
 import { phrasesForMeaning } from '../lib/memory-phrases'
+import { visibleMnemonics } from '../lib/user-mnemonics'
 import { submitRatingByMode } from '../lib/rate-action'
 import { ratingLabels as labelsOf, type RatingLabels } from '../lib/rating-labels'
 import { readOfficialBool } from '../../../app/hooks/officialSettings'
+import {
+  deleteAiMnemonic,
+  deleteUserMnemonic,
+  deleteUserNote,
+  hideMnemonic as _hideMnemonic,
+  upsertUserMnemonic,
+  upsertUserNote,
+  type UserMnemonicInput,
+  type UserNoteInput,
+} from '../../../data'
 
 /** getEffectiveContent 的语义部分（task-75/77；缺字段时安全回退） */
 interface EffectiveSemantics {
@@ -153,6 +165,11 @@ export interface StudyViewModel {
   memoryFamiliarity: number | null
   /** F1：当前 c 的不熟悉度排名（1=最不熟悉） */
   memoryRank: { rank: number; total: number } | null
+  /** F6：用户笔记/助记（词级 + c 级；由 data 层写入 Word，缺省空） */
+  userNotes: UserNoteView[]
+  userMnemonics: UserMnemonicView[]
+  memoryUserNotes: UserNoteView[]
+  memoryUserMnemonics: UserMnemonicView[]
   progress: StudyProgress
   memoryProgress: StudyMemoryProgress
   memoryCount: number
@@ -195,6 +212,13 @@ export interface StudyActions {
   refreshPlan: () => Promise<void>
   /** 重新从 DB 读取当前词（AI 落库后刷新注释面/w-c 内容） */
   reloadCurrentWord: () => Promise<void>
+  /** F6：保存/删除用户笔记与助记（保存后重载当前词，不改学习进度） */
+  saveUserNote: (input: UserNoteInput) => Promise<void>
+  deleteUserNoteById: (noteId: string) => Promise<void>
+  saveUserMnemonic: (input: UserMnemonicInput) => Promise<void>
+  deleteUserMnemonicById: (mnemonicId: string) => Promise<void>
+  /** F6：删除 AI/内置助记（隐藏原 key，不删除 AI 包数据） */
+  hideAiMnemonic: (original: { meaningId?: string; type: string; text: string }) => Promise<void>
 }
 
 export function useStudySession(options?: {
@@ -786,6 +810,56 @@ export function useStudySession(options?: {
     await loadWordAt(viewIndexRef.current, plan, loadedSettings, { startAt: 'annotation' })
   }, [loadWordAt])
 
+  const saveUserNote = useCallback(
+    async (input: UserNoteInput) => {
+      const wordId = sessionRef.current?.word.wordId
+      if (!wordId) return
+      await upsertUserNote(wordId, input)
+      await handleReloadCurrentWord()
+    },
+    [handleReloadCurrentWord],
+  )
+
+  const deleteUserNoteById = useCallback(
+    async (noteId: string) => {
+      const wordId = sessionRef.current?.word.wordId
+      if (!wordId) return
+      await deleteUserNote(wordId, noteId)
+      await handleReloadCurrentWord()
+    },
+    [handleReloadCurrentWord],
+  )
+
+  const saveUserMnemonic = useCallback(
+    async (input: UserMnemonicInput) => {
+      const wordId = sessionRef.current?.word.wordId
+      if (!wordId) return
+      await upsertUserMnemonic(wordId, input)
+      await handleReloadCurrentWord()
+    },
+    [handleReloadCurrentWord],
+  )
+
+  const deleteUserMnemonicById = useCallback(
+    async (mnemonicId: string) => {
+      const wordId = sessionRef.current?.word.wordId
+      if (!wordId) return
+      await deleteUserMnemonic(wordId, mnemonicId)
+      await handleReloadCurrentWord()
+    },
+    [handleReloadCurrentWord],
+  )
+
+  const hideAiMnemonic = useCallback(
+    async (original: { meaningId?: string; type: string; text: string }) => {
+      const wordId = sessionRef.current?.word.wordId
+      if (!wordId) return
+      await deleteAiMnemonic(wordId, original)
+      await handleReloadCurrentWord()
+    },
+    [handleReloadCurrentWord],
+  )
+
   const handleRefreshPlan = useCallback(async () => {
     const currentPlan = planRef.current
     if (!currentPlan) {
@@ -856,14 +930,8 @@ export function useStudySession(options?: {
   }, [word])
 
   const mnemonics = useMemo<MnemonicView[]>(() => {
-    if (!word) return []
-    return word.mnemonics.map((mnemonic) => ({
-      type: mnemonic.type,
-      text: mnemonic.text,
-      ...((mnemonic as { meaningId?: string }).meaningId
-        ? { meaningId: (mnemonic as { meaningId?: string }).meaningId }
-        : {}),
-    }))
+    // F6：过滤已隐藏的 AI 原条目，并用用户副本覆盖同 key 条目
+    return visibleMnemonics(word as never)
   }, [word])
 
   const activeMeaning = useMemo(() => {
@@ -971,6 +1039,25 @@ export function useStudySession(options?: {
       const stat = normalizeMeaningStat(meaningStats[session.activeMeaningId])
       return familiarity(stat.clicks, stat.encounters)
     })(),
+    userNotes: (word?.userNotes ?? []).map((note) => ({ id: note.id, text: note.text, ...(note.meaningId ? { meaningId: note.meaningId } : {}) })),
+    userMnemonics: (word?.userMnemonics ?? []).map((item) => ({ id: item.id, type: item.type, text: item.text, ...(item.meaningId ? { meaningId: item.meaningId } : {}) })),
+    memoryUserNotes: (() => {
+      if (!session?.activeMeaningId) return []
+      return (word?.userNotes ?? [])
+        .filter((note) => note.meaningId === session.activeMeaningId)
+        .map((note) => ({ id: note.id, text: note.text, meaningId: note.meaningId }))
+    })(),
+    memoryUserMnemonics: (() => {
+      if (!session?.activeMeaningId) return []
+      return (word?.userMnemonics ?? [])
+        .filter((mnemonic) => mnemonic.meaningId === session.activeMeaningId)
+        .map((mnemonic) => ({
+          id: mnemonic.id,
+          type: mnemonic.type,
+          text: mnemonic.text,
+          meaningId: mnemonic.meaningId,
+        }))
+    })(),
     memoryRank: (() => {
       if (!session?.activeMeaningId || session.word.meanings.length === 0) return null
       const scored = session.word.meanings.map((meaning, index) => {
@@ -1018,7 +1105,12 @@ export function useStudySession(options?: {
       goBack: handleGoBack,
       continueForward: handleContinueForward,
       refreshPlan: handleRefreshPlan,
-    reloadCurrentWord: handleReloadCurrentWord,
+      reloadCurrentWord: handleReloadCurrentWord,
+      saveUserNote,
+      deleteUserNoteById,
+      saveUserMnemonic,
+      deleteUserMnemonicById,
+      hideAiMnemonic,
     },
   }
 }

@@ -422,3 +422,19 @@ export type {
 
 export { absorbAiPack, appendAiPack, mergeDuplicateAiPacks } from './ai-packs'
 export type { AppendAiPackResult } from './ai-packs'
+
+export {
+  deleteAiMnemonic,
+  deleteUserMnemonic,
+  deleteUserNote,
+  editAiMnemonic,
+  hideMnemonic,
+  listMergedMnemonics,
+  listUserMnemonics,
+  listUserNotes,
+  mnemonicKey,
+  unhideMnemonic,
+  upsertUserMnemonic,
+  upsertUserNote,
+} from './user-content'
+export type { MergedMnemonic, UserMnemonicInput, UserNoteInput } from './user-content'

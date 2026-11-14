@@ -65,6 +65,8 @@ const phraseSchema = z.object({
 const mnemonicSchema = z.object({
   type: z.string().default('其他'),
   text: z.string().min(1),
+  /** task-128/F6：助记归属含义（缺省=词级） */
+  meaningId: z.string().optional(),
 })
 
 /** 本义（core sense）：一个词的多条含义共享的「本义/派生链」节点（task-75） */
@@ -219,7 +221,11 @@ export function normalizePackItem(item: PackItemV1): PackItemV1 | null {
     })
     .filter((phrase) => phrase.en)
   const mnemonics = (item.mnemonics ?? [])
-    .map((mnemonic) => ({ type: normalizeMnemonicType(mnemonic.type), text: String(mnemonic.text ?? '').trim() }))
+    .map((mnemonic) => ({
+      type: normalizeMnemonicType(mnemonic.type),
+      text: String(mnemonic.text ?? '').trim(),
+      ...(mnemonic.meaningId ? { meaningId: mnemonic.meaningId } : {}),
+    }))
     .filter((mnemonic) => mnemonic.text)
   if (examples.length > 0) out.examples = examples
   if (phrases.length > 0) out.phrases = phrases

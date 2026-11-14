@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { DerivationChain, type DerivationChainView } from './DerivationChain'
+import { UserMnemonicLine, UserNoteLine } from './UserContent'
+import type { UserMnemonicView, UserNoteView } from './types'
 import type { PhraseView } from './types'
 
 export interface MemoryStageProps {
@@ -27,6 +29,9 @@ export interface MemoryStageProps {
   familiarity?: number | null
   /** F1：不熟悉度排名 */
   unfamiliarityRank?: { rank: number; total: number } | null
+  /** F6：当前 c 的用户笔记/助记（只读） */
+  userNotes?: UserNoteView[]
+  userMnemonics?: UserMnemonicView[]
   /** 整屏点击 = 记忆一次 */
   onTap: () => void
 }
@@ -56,6 +61,8 @@ export function MemoryStage({
   mnemonics = [],
   familiarity,
   unfamiliarityRank,
+  userNotes = [],
+  userMnemonics = [],
   onTap,
 }: MemoryStageProps) {
   const [touched, setTouched] = useState(false)
@@ -115,6 +122,8 @@ export function MemoryStage({
 
       {(examples.length > 0 ||
         mnemonics.length > 0 ||
+        userNotes.length > 0 ||
+        userMnemonics.length > 0 ||
         familiarity != null ||
         unfamiliarityRank) ? (
         <div className="wc-info" onClick={(event) => event.stopPropagation()}>
@@ -137,6 +146,12 @@ export function MemoryStage({
               <span className="wc-info-en">{example.en}</span>
               <span className="wc-info-cn">{example.cn}</span>
             </div>
+          ))}
+          {userNotes.map((note) => (
+            <UserNoteLine key={note.id} note={note} />
+          ))}
+          {userMnemonics.map((mnemonic) => (
+            <UserMnemonicLine key={mnemonic.id} mnemonic={mnemonic} />
           ))}
           {mnemonics.map((mnemonic, index) => (
             <div className="wc-info-mnemonic" key={`${mnemonic.type}-${index}`}>
