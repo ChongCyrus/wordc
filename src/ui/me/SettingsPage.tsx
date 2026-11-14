@@ -26,6 +26,11 @@ import {
 import { NewWordOrderSetting } from './NewWordOrderSetting'
 import { AiSettingsSection } from './AiSettingsSection'
 import {
+  DERIVATION_MARKDOWN_KEY,
+  hasDerivationMarkdownSetting,
+  readDerivationMarkdown,
+} from '../study/lib/derivation-markdown'
+import {
   BOARD_SHOW_MEANING_PHRASES_KEY,
   hasBoardShowMeaningPhrasesSetting,
   readBoardShowMeaningPhrases,
@@ -472,6 +477,23 @@ export default function SettingsPage() {
             />
           }
         />
+        {hasDerivationMarkdownSetting(s) ? (
+          <SettingRow
+            label="右页文字 Markdown 渲染"
+            hint="默认开；支持标题/加粗/斜体/行内代码/列表，不渲染 HTML"
+            control={
+              <Switch
+                label="右页文字 Markdown 渲染"
+                checked={readDerivationMarkdown(s)}
+                onChange={(checked) =>
+                  void patch({
+                    [DERIVATION_MARKDOWN_KEY]: checked,
+                  } as unknown as Partial<SettingsMap>)
+                }
+              />
+            }
+          />
+        ) : null}
       </div>
 
       <SectionBand title="内容包" />

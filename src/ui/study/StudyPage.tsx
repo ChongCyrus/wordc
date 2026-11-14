@@ -16,6 +16,7 @@ import { AiGeneratePanel } from '../ai/AiGeneratePanel'
 import { UserContentEditor } from './components/UserContent'
 import { DerivationPanel } from './components/DerivationPanel'
 import { useSidePanelSwipe } from './lib/use-side-panel-swipe'
+import { readDerivationMarkdown } from './lib/derivation-markdown'
 import { mergeGeneratedDerivation } from './lib/derivation-map'
 import type { DerivationMapContent } from './components/types'
 import type { UserMnemonicType } from './components/types'
@@ -563,6 +564,7 @@ export default function StudyPage() {
             open={derivationPanelOpen}
             mode={derivationMode}
             onModeChange={setDerivationMode}
+            markdown={readDerivationMarkdown(settings)}
             fullscreen={derivationPanelFullscreen}
             onToggleFullscreen={() => setDerivationPanelFullscreen((value) => !value)}
             headword={session.word.headword}

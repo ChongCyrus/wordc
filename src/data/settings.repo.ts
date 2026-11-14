@@ -32,6 +32,8 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   'board.exampleCount': 2,
   'board.showPhonetic': true,
   'board.showMeaningPhrases': false,
+  // F10：引申图文字支持轻量 Markdown 渲染（默认开）
+  'derivation.markdown': true,
   'memory.totalRepeats': 3,
   'memory.weightedMin': 1,
   'memory.weightedMax': 10,
@@ -133,6 +135,7 @@ const RULES: Record<SettingKey, Rule> = {
   'board.exampleCount': { kind: 'number', min: 0, max: 3, step: 1 },
   'board.showPhonetic': { kind: 'boolean' },
   'board.showMeaningPhrases': { kind: 'boolean' },
+  'derivation.markdown': { kind: 'boolean' },
   'memory.totalRepeats': { kind: 'number', min: 1, max: 10, step: 1 },
   'memory.weightedMin': { kind: 'number', min: 1, max: 10, step: 1 },
   'memory.weightedMax': { kind: 'number', min: 1, max: 20, step: 1 },

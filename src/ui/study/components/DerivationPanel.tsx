@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Dialog } from '../../components/Dialog'
+import { MarkdownText } from './DerivationMarkdown'
 import type { DerivationMapContent } from './types'
 
 export interface DerivationPanelProps {
@@ -21,10 +22,14 @@ export interface DerivationPanelProps {
   /** task-157：受控模式（AI 生成后不自动切换） */
   mode?: 'text' | 'mermaid'
   onModeChange?: (mode: 'text' | 'mermaid') => void
+  /** F10：文字模式 Markdown 渲染（设置 derivation.markdown，默认开） */
+  markdown?: boolean
 }
 
-/** 文本内容：生成元 → 场景/对象/词性 → 含义，完整换行 */
-export function DerivationTextView({ text }: { text: string }) {
+/** 文本内容：生成元 → 场景/对象/词性 → 含义，完整换行；
+ *  markdown=true 时按安全子集渲染，false 回退纯文本 pre-wrap（F10）。 */
+export function DerivationTextView({ text, markdown = false }: { text: string; markdown?: boolean }) {
+  if (markdown) return <MarkdownText text={text} />
   return <pre className="derivation-map-text">{text}</pre>
 }
 
@@ -265,6 +270,7 @@ export function DerivationPanel({
   onToggleFullscreen,
   mode: controlledMode,
   onModeChange,
+  markdown = false,
 }: DerivationPanelProps) {
   const [innerMode, setInnerMode] = useState(content.mode)
   const mode = controlledMode ?? innerMode
@@ -349,7 +355,7 @@ export function DerivationPanel({
       ) : mode === 'mermaid' ? (
         <MermaidPreview source={mermaid} />
       ) : text.trim() ? (
-        <DerivationTextView text={text} />
+        <DerivationTextView text={text} markdown={markdown} />
       ) : (
         <div className="mm-caption derivation-mermaid-empty">
           尚无文字内容：点「编辑」或「AI 生成」

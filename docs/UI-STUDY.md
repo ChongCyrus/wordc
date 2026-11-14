@@ -143,6 +143,12 @@ src/ui/study/
 4. 首词（index 0）时 `<` 隐藏、右滑不触发；记忆 w-c 页内不触发回退。
 6. 退出学习（`×`/菜单）与回退的区别：退出保存进度；回退只是页内移动。
 
+### 3.4.18 右页文字轻量 Markdown（task-162 F10）
+
+- F8 右页「文字」模式支持安全 Markdown 子集：段落/换行、**加粗**、*斜体*、`行内代码`、# 标题(1–3)、-/* 无序列表、1. 有序列表；链接/原始 HTML 一律按纯文本（React 文本节点构造，无 `dangerouslySetInnerHTML`，防 XSS）。
+- 设置 → 外观新增「右页文字 Markdown 渲染」开关（`derivation.markdown`，默认开）；关闭回退纯文本 `pre-wrap`；编辑框始终显示源码，AI/保存/Mermaid 行为不变。
+- 组件：`src/ui/study/components/DerivationMarkdown.tsx`；设置读取 `src/ui/study/lib/derivation-markdown.ts`。
+
 ### 3.4.17 分栏宽度同步/说明长段落/Mermaid 模式保持（task-155/156/157）
 
 - **task-155 宽度同步**：左栏与右页共用同一 CSS 变量（`.study-page` 内联 `--derivation-panel-width`），左栏 `width: calc(100% - var(--derivation-panel-width))`，拖拽 pointermove 同时写变量与 state；75% 时左栏 25% 仍 `scrollWidth<=clientWidth`、无横向文档溢出、右页不覆盖左栏；60/70/75 自检截图 `docs/assets/e2e/f9-width75-360.png`。

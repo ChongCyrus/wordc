@@ -24,13 +24,14 @@ beforeEach(async () => {
 })
 
 describe('设置项默认值（SPEC §5，AC4）', () => {
-  it('全部设置 key 与其默认值（35 项：含 F4/weighted/AI）', async () => {
-    expect(SETTING_KEYS).toHaveLength(35)
+  it('全部设置 key 与其默认值（36 项：含 F4/weighted/AI/F10 markdown）', async () => {
+    expect(SETTING_KEYS).toHaveLength(36)
     const settings = await getSettings()
     expect(settings['study.dailyGoal']).toBe(30)
     expect(settings['board.exampleCount']).toBe(2)
     expect(settings['board.showPhonetic']).toBe(true)
     expect(settings['board.showMeaningPhrases']).toBe(false) // F4：保存每个含义的词组显示设置
+    expect(settings['derivation.markdown']).toBe(true) // F10：引申图 Markdown 渲染默认开
     expect(settings['memory.totalRepeats']).toBe(3)
     expect(settings['memory.weightedMin']).toBe(1)
     expect(settings['memory.weightedMax']).toBe(10)
