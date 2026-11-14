@@ -32,8 +32,8 @@ import { makeIssue, parseDeckFile, parseMigrationFile } from './schema'
 import { applyImportedSettings, getSettings } from './settings.repo'
 import type { RawWordInput } from './word-factory'
 
-export const GENERATOR = 'wordc@0.3.42'
-export const APP_VERSION = '0.3.42'
+export const GENERATOR = 'wordc@0.3.43'
+export const APP_VERSION = '0.3.43'
 
 /** 迁移包导出选项 */
 export interface ExportOptions {

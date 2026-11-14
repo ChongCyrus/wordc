@@ -32,7 +32,7 @@ function providerReturning(text: string): LlmProvider & { calls: unknown[] } {
 
 describe('task-148/F8：AI 生成元→含义引申图', () => {
   it('prompt 版本 + 成功解析 rootLabel/mermaid/text；输入 c 全部进入 user prompt', async () => {
-    expect(PROMPT_VERSION_DERIVATION_MAP).toBe('v1.0-derivation-map')
+    expect(PROMPT_VERSION_DERIVATION_MAP).toBe('v1.1-derivation-map')
     const provider = providerReturning(JSON.stringify({
       rootLabel: '装载',
       mermaid: 'mindmap\n  root((装载))\n    收费\n    充电\n    指控',
@@ -49,7 +49,16 @@ describe('task-148/F8：AI 生成元→含义引申图', () => {
     expect(user).toContain('收费')
     expect(user).toContain('充电')
     expect(user).toContain('指控')
-    expect(body.messages[0]!.content).toContain('生成元')
+    const system = body.messages[0]!.content
+    expect(system).toContain('生成元')
+    expect(system).toContain('club')
+    expect(system).toContain('civil')
+    expect(system).toContain('compose')
+    expect(system).toContain('dismay')
+    expect(system).toContain('作用对象')
+    expect(system).toContain('使用场景')
+    expect(system).toContain('词性不同')
+    expect(system).toContain('抽象层级')
   })
 
   it('非法 JSON/缺 rootLabel/非法 mermaid 抛 AI_FORMAT', async () => {

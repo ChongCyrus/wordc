@@ -472,7 +472,7 @@ export function buildSemanticsRepairPromptV4(previousUserPrompt: string, errorSu
 
 // ============ Prompt F8：生成元 → 含义 引申图（task-148） ============
 
-export const PROMPT_VERSION_DERIVATION_MAP = 'v1.0-derivation-map'
+export const PROMPT_VERSION_DERIVATION_MAP = 'v1.1-derivation-map'
 
 /** F8 输入：word + coreSenses + 全部 c */
 export interface DerivationMapSource {
@@ -485,12 +485,27 @@ export interface DerivationMapSource {
 export function buildDerivationMapSystemPrompt(): string {
   return [
     `你是英语词义结构编辑（prompt ${PROMPT_VERSION_DERIVATION_MAP}）。给定一个单词、它的本义集合（coreSenses）和全部中文含义 c，`,
-    '请归纳一个统一的「生成元」（最共性、最底层的本义），并说明如何按使用场景、作用/修饰对象、词性等引申出各个实际含义。',
+    '请归纳一个统一的「生成元」（最共性、最底层的本义/动作/意象），并说明如何按作用对象、使用场景、词性、抽象层级引申出各个实际含义。',
+    '',
+    '【核心句】本义是一个动作或意象；引申义是它在不同对象、场景、词性、抽象层级上的投影。',
+    '',
+    '【汇总规律（必须应用）】',
+    '1) 作用对象不同：如 club（物：棍棒/一束 → 人：一伙/俱乐部 → 钱：凑钱）；dear（物：昂贵 → 事物：珍贵 → 人：亲爱的/感叹）；',
+    '2) 使用场景不同：如 civil（公民权利 → 民事法律 → 公民教养 → 非军事/文职）；congress（政治代表 → 人际交往）；',
+    '3) 词性不同：如 dismay（动词：使惊慌/使沮丧 → 名词：惊慌/沮丧）；regard（动词：注视 → 名词：关心/方面/问候）；',
+    '4) 抽象层级不同：如 compose（具体：放在一起 → 抽象：构成/创作/使平静）；discourse（具体：来回跑 → 抽象：论述/话语体系）。',
+    '',
+    '【精简示例（推理方式参考，不要照抄词条）】',
+    '- club：生成元=粗棒/一团一束→聚成一团/一伙；对象从物（棍棒、一束头发）→人（俱乐部、夜总会）→钱（凑钱）。',
+    '- civil：生成元=公民/城邦的；场景从公民权利（civil rights）→民事法律（civil case）→公民教养（Be civil）→非军事/文职（civil servant）。',
+    '- compose：生成元=com(一起)+pose(放)=放在一起；抽象层级从具体（组成部分/排版）→文字音符（创作/作曲）→情绪（使平静）。',
+    '- dismay：生成元=dis(去掉)+may(力量)=失去力量、泄气；词性从动词（使惊慌/使沮丧）→名词（惊慌/沮丧/惊愕）。',
+    '',
     '要求：',
     '1) 只输出严格 JSON（不要 Markdown 代码块/解释/前后缀）：{"rootLabel":"string","mermaid":"string?","text":"string?"}；',
-    '2) rootLabel：2–10 字中文，单一最共性本义；',
-    '3) mermaid：优先 Mermaid mindmap 源码（以 `mindmap` 开头），不可用时用 `flowchart LR`；节点文字用中文，必须包含 rootLabel 与每个 c 的引申（可分组：场景/对象/词性）；',
-    '4) text：可选结构化文字版（生成元 → 场景/对象/词性 → 含义），用换行/·分隔，便于无 Mermaid 时阅读；',
+    '2) rootLabel：2–10 字中文，单一最共性生成元（本义/动作/意象）；',
+    '3) mermaid：优先 Mermaid mindmap 源码（以 `mindmap` 开头），不可用时用 `flowchart LR`；根节点=生成元，一级节点=对象/场景/词性/抽象层级分组，二级节点=各 c；',
+    '4) text：可选结构化文字版（生成元 → 对象/场景/词性/抽象层级 → 含义），用换行/·分隔；',
     '5) 不得编造输入之外的含义/词性；每个输入 c 都应能对应到图中；c 与索引必须来自输入；',
     '6) 若确实无法统一，rootLabel 写最接近的共性本义，mermaid 用多个分支说明；不要输出空图。',
   ].join('\n')
