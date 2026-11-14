@@ -18,6 +18,9 @@ export interface DerivationPanelProps {
   /** F9：右页全屏态（隐藏左栏） */
   fullscreen?: boolean
   onToggleFullscreen?: () => void
+  /** task-157：受控模式（AI 生成后不自动切换） */
+  mode?: 'text' | 'mermaid'
+  onModeChange?: (mode: 'text' | 'mermaid') => void
 }
 
 /** 文本内容：生成元 → 场景/对象/词性 → 含义，完整换行 */
@@ -260,8 +263,15 @@ export function DerivationPanel({
   saving = false,
   fullscreen = false,
   onToggleFullscreen,
+  mode: controlledMode,
+  onModeChange,
 }: DerivationPanelProps) {
-  const [mode, setMode] = useState(content.mode)
+  const [innerMode, setInnerMode] = useState(content.mode)
+  const mode = controlledMode ?? innerMode
+  const setMode = (next: 'text' | 'mermaid') => {
+    setInnerMode(next)
+    onModeChange?.(next)
+  }
   const [text, setText] = useState(content.text)
   const [mermaid, setMermaid] = useState(content.mermaid)
   const [editing, setEditing] = useState(false)
@@ -269,12 +279,12 @@ export function DerivationPanel({
   const [usageOpen, setUsageOpen] = useState(false)
 
   useEffect(() => {
-    setMode(content.mode)
+    if (!controlledMode) setInnerMode(content.mode)
     setText(content.text)
     setMermaid(content.mermaid)
     setRootLabel(content.rootLabel ?? '')
     setEditing(false)
-  }, [content.mode, content.text, content.mermaid, content.rootLabel, headword])
+  }, [content.mode, content.text, content.mermaid, content.rootLabel, headword, controlledMode])
 
   if (!open) return null
   const source = mode === 'mermaid' ? mermaid : text
@@ -338,8 +348,12 @@ export function DerivationPanel({
         />
       ) : mode === 'mermaid' ? (
         <MermaidPreview source={mermaid} />
-      ) : (
+      ) : text.trim() ? (
         <DerivationTextView text={text} />
+      ) : (
+        <div className="mm-caption derivation-mermaid-empty">
+          尚无文字内容：点「编辑」或「AI 生成」
+        </div>
       )}
 
       {aiBusy ? <div className="mm-caption">正在生成引申图…</div> : null}

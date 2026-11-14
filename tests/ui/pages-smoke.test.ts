@@ -77,6 +77,12 @@ describe('页面渲染冒烟（8 条路由）', () => {
     expect(html).toContain('最共性的本义出发')
     expect(html).toContain('生成元')
     expect(html).toContain('按场景/作用对象/词性引申')
+    expect(html).toContain('usage-guide-note')
+    const start = html.lastIndexOf('<p', html.indexOf('每次回忆时'))
+    const block = html.slice(start, html.indexOf('</p>', start) + 4)
+    expect(block).toContain('usage-guide-note')
+    expect(block).not.toContain('mm-row-sub')
+    expect(block).toContain('-webkit-line-clamp:unset')
   })
 
   it('设置页：返回 + 加载态', () => {

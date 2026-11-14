@@ -11,6 +11,7 @@ import {
   clampMermaidScale,
   nextDoubleTapScale,
 } from '../../src/ui/study/components/DerivationPanel'
+import { mergeGeneratedDerivation } from '../../src/ui/study/lib/derivation-map'
 import {
   clampDerivationPanelWidth,
   derivationWidthFromDrag,
@@ -132,11 +133,48 @@ describe('F8 生成元引申副页（task-147）', () => {
 
     expect(clampDerivationPanelWidth(10)).toBe(30)
     expect(clampDerivationPanelWidth(90)).toBe(75)
+    expect(clampDerivationPanelWidth(75)).toBe(75)
+    expect(clampDerivationPanelWidth(30)).toBe(30)
     expect(clampDerivationPanelWidth(Number.NaN)).toBe(46)
     // 把手向左拖 100px（视口 500）：右页变宽 20% → 66%
     expect(derivationWidthFromDrag({ startWidth: 46, dx: -100, viewportWidth: 500 })).toBe(66)
     expect(derivationWidthFromDrag({ startWidth: 46, dx: 1000, viewportWidth: 500 })).toBe(30)
+    expect(derivationWidthFromDrag({ startWidth: 46, dx: -145, viewportWidth: 500 })).toBe(75)
     expect(readDerivationPanelWidth(null)).toBe(46)
+  })
+
+  it('AI 生成不切模式（task-157）：文字模式保留文字；空结果给占位', () => {
+    const textMode = mergeGeneratedDerivation({
+      current: { mode: 'text', text: '原文字', mermaid: '' },
+      generated: { rootLabel: '生成元', mermaid: 'mindmap\n  root((x))' },
+    })
+    expect(textMode.mode).toBe('text')
+    expect(textMode.text).toBe('原文字')
+    expect(textMode.mermaid).toContain('mindmap')
+    expect(textMode.source).toBe('ai')
+
+    const mermaidMode = mergeGeneratedDerivation({
+      current: { mode: 'mermaid', text: '旧文字', mermaid: '' },
+      generated: { rootLabel: '生成元', text: 'AI 文字版' },
+    })
+    expect(mermaidMode.mode).toBe('mermaid')
+    expect(mermaidMode.mermaid).toBe('')
+    expect(mermaidMode.source).toBe('ai')
+
+    // 受控模式：文字模式且无文字 → 占位，不显示 Mermaid 图
+    const panel = renderToStaticMarkup(
+      createElement(DerivationPanel, {
+        open: true,
+        headword: 'bank',
+        mode: 'text',
+        onModeChange: noop,
+        content: { mode: 'mermaid', text: '', mermaid: 'mindmap\n  root((x))' },
+        onClose: noop,
+        onSave: noop,
+      }),
+    )
+    expect(panel).toContain('尚无文字内容')
+    expect(panel).not.toContain('Mermaid 渲染失败')
   })
 
   it('滑动判定：左滑开、右滑收、纵向/小位移不触发', () => {

@@ -149,8 +149,17 @@ export default function MePage() {
               循环，直到所有（主要）含义映射都能回忆起来。
             </p>
             <p
-              className="mm-row-sub"
-              style={{ margin: '0 0 8px', whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.7 }}
+              className="mm-caption usage-guide-note"
+              style={{
+                display: 'block',
+                margin: '0 0 8px',
+                whiteSpace: 'normal',
+                overflow: 'visible',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+                WebkitLineClamp: 'unset',
+                lineHeight: 1.7,
+              }}
             >
               每次回忆时，建议从尽可能单个、最共性的本义出发，再按使用场景、作用对象、词性逐个引申出各个实际含义。记忆时同理：先找最共性的、底层的、尽可能统一的「生成元」（本义），再按场景/作用对象/词性引申得到各实际含义。
             </p>

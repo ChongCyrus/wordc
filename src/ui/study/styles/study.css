@@ -1473,10 +1473,47 @@ html.study-reduce-motion .study-page *::after {
 }
 .study-page { overflow-x: hidden; }
 .study-annotation-wrap.is-side {
+  /* F9/task-155：与右页共用同一 CSS 变量（挂在 .study-page 内联 style），左栏只按剩余宽度排版 */
+  width: calc(100% - var(--derivation-panel-width, 46%));
   box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: visible;
   padding-right: 6px;
+}
+.study-annotation-wrap.is-side {
+  min-width: 0;
+}
+.study-annotation-wrap.is-side * {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.study-annotation-wrap.is-side .mm-btn {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+}
+.study-annotation-wrap.is-side .annotation-head,
+.study-annotation-wrap.is-side .meanings,
+.study-annotation-wrap.is-side .word-head,
+.study-annotation-wrap.is-side .user-content-head {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.study-annotation-wrap.is-side .user-content-head .mm-caption {
+  min-width: 0;
+  flex: 1 1 100%;
+}
+.study-annotation-wrap.is-side .meaning-row-main {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.study-annotation-wrap.is-side .meaning-pos {
+  min-width: auto;
+  white-space: nowrap;
 }
 .study-annotation-wrap.is-side .annotation-stage,
 .study-annotation-wrap.is-side .annotation-stage * {

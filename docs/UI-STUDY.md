@@ -143,6 +143,12 @@ src/ui/study/
 4. 首词（index 0）时 `<` 隐藏、右滑不触发；记忆 w-c 页内不触发回退。
 6. 退出学习（`×`/菜单）与回退的区别：退出保存进度；回退只是页内移动。
 
+### 3.4.17 分栏宽度同步/说明长段落/Mermaid 模式保持（task-155/156/157）
+
+- **task-155 宽度同步**：左栏与右页共用同一 CSS 变量（`.study-page` 内联 `--derivation-panel-width`），左栏 `width: calc(100% - var(--derivation-panel-width))`，拖拽 pointermove 同时写变量与 state；75% 时左栏 25% 仍 `scrollWidth<=clientWidth`、无横向文档溢出、右页不覆盖左栏；60/70/75 自检截图 `docs/assets/e2e/f9-width75-360.png`。
+- **task-156 使用说明截断**：引导段去掉 `mm-row-sub` 3 行 clamp，改为 `mm-caption usage-guide-note` + `display:block; white-space:normal; overflow:visible; -webkit-line-clamp:unset`，卡片随内容增高；360/390 与 1.6× 字号下 `scrollHeight==clientHeight`、末句完整（截图 `me-usage-360.png`）。
+- **task-157 AI 不切模式**：右页模式受控于页面状态；`mergeGeneratedDerivation` 只合并 text/mermaid/rootLabel，永不改 `mode`；当前模式无结果时显示「尚无文字内容/Mermaid 内容：点编辑或 AI 生成」占位，重新生成同样保持。
+
 ### 3.4.16 引申副页分栏拖拽/全屏 + 思维导图手势（task-154 F9）
 
 - 分栏：右页 `width: var(--derivation-panel-width)`（30%–75%，默认 46%，`mm.derivationPanelWidth` 本机记忆）；左栏 wrap 宽度 `100% - 宽度`，`min-width:0; overflow-x:hidden` 真 reflow；两栏间 12px 拖拽把手（pointer 拖动实时调整、方向键 ±2%）；`.study-page`/面板 `overflow-x:hidden`，按钮 `flex:0 0 auto; min-width:max-content` + 行内换行，避免文字截断/文档横向滚动。

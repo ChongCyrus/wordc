@@ -16,6 +16,7 @@ import { AiGeneratePanel } from '../ai/AiGeneratePanel'
 import { UserContentEditor } from './components/UserContent'
 import { DerivationPanel } from './components/DerivationPanel'
 import { useSidePanelSwipe } from './lib/use-side-panel-swipe'
+import { mergeGeneratedDerivation } from './lib/derivation-map'
 import type { DerivationMapContent } from './components/types'
 import type { UserMnemonicType } from './components/types'
 import { useSwipeBack } from './lib/use-swipe-back'
@@ -86,6 +87,7 @@ export default function StudyPage() {
   >({})
   const [derivationAiBusy, setDerivationAiBusy] = useState(false)
   const [derivationAiError, setDerivationAiError] = useState<string | null>(null)
+  const [derivationMode, setDerivationMode] = useState<'text' | 'mermaid'>('text')
   const [userEditor, setUserEditor] = useState<null | {
     mode: 'note' | 'mnemonic'
     targetLabel: string
@@ -129,6 +131,7 @@ export default function StudyPage() {
     void getDerivationMap(currentWordId)
       .then((map) => {
         if (!alive || !map) return
+        setDerivationMode(map.mermaid ? 'mermaid' : 'text')
         setDerivationContents((prev) => ({
           ...prev,
           [currentWordId]: {
@@ -410,11 +413,8 @@ export default function StudyPage() {
           <div
             className={derivationPanelOpen ? 'study-annotation-wrap is-side' : 'study-annotation-wrap'}
             style={
-              derivationPanelOpen
-                ? {
-                    width: derivationPanelFullscreen ? '0%' : `calc(100% - ${derivationWidth}%)`,
-                    display: derivationPanelFullscreen ? 'none' : undefined,
-                  }
+              derivationPanelOpen && derivationPanelFullscreen
+                ? { display: 'none' }
                 : undefined
             }
           >
@@ -535,13 +535,17 @@ export default function StudyPage() {
               onPointerMove={(event) => {
                 const drag = derivationDragRef.current
                 if (!drag) return
-                setDerivationWidth(
-                  derivationWidthFromDrag({
-                    startWidth: drag.startWidth,
-                    dx: event.clientX - drag.startX,
-                    viewportWidth: drag.vw,
-                  }),
+                const next = derivationWidthFromDrag({
+                  startWidth: drag.startWidth,
+                  dx: event.clientX - drag.startX,
+                  viewportWidth: drag.vw,
+                })
+                // 同一宽度立即写到根节点 CSS 变量，保证左栏/右页同一帧同步
+                ;(document.querySelector('.study-page') as HTMLElement | null)?.style.setProperty(
+                  '--derivation-panel-width',
+                  `${next}%`,
                 )
+                setDerivationWidth(next)
               }}
               onPointerUp={() => {
                 derivationDragRef.current = null
@@ -557,6 +561,8 @@ export default function StudyPage() {
           ) : null}
           <DerivationPanel
             open={derivationPanelOpen}
+            mode={derivationMode}
+            onModeChange={setDerivationMode}
             fullscreen={derivationPanelFullscreen}
             onToggleFullscreen={() => setDerivationPanelFullscreen((value) => !value)}
             headword={session.word.headword}
@@ -627,16 +633,21 @@ export default function StudyPage() {
                     },
                     config,
                   )
-                  setDerivationContents((prev) => ({
-                    ...prev,
-                    [session.word.wordId]: {
-                      mode: result.mermaid ? 'mermaid' : 'text',
-                      text: result.text ?? '',
-                      mermaid: result.mermaid ?? '',
-                      rootLabel: result.rootLabel,
-                      source: 'ai',
-                    },
-                  }))
+                  setDerivationContents((prev) => {
+                    const current =
+                      prev[session.word.wordId] ?? {
+                        mode: derivationMode,
+                        text: '',
+                        mermaid: '',
+                      }
+                    return {
+                      ...prev,
+                      [session.word.wordId]: mergeGeneratedDerivation({
+                        current: { ...current, mode: derivationMode },
+                        generated: result,
+                      }),
+                    }
+                  })
                   showToast('AI 引申图已生成预览：确认后点「保存」写入')
                 } catch (error) {
                   const code = (error as { code?: string })?.code
