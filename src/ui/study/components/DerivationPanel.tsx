@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Dialog } from '../../components/Dialog'
 import type { DerivationMapContent } from './types'
 
 export interface DerivationPanelProps {
@@ -79,6 +80,35 @@ export function MermaidPreview({ source }: { source: string }) {
   )
 }
 
+export const DERIVATION_USAGE_TEXT =
+  '平时可多去直接把那个统一的生成元直接作为含义代入各个实际含义的例句中，体会仅依靠这个生成元作为该单词的含义来理解和翻译整句话的意思，看看是否能体会出这句话的真实意思、这个生成元的真实指代，体会这个生成元是如何实例化到该场景下的具体指代事物的。'
+
+/** 「用法」弹层：可滚动、可关闭、完整换行 */
+export function DerivationUsageDialog({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
+  return (
+    <Dialog
+      open={open}
+      title="用法：把生成元代入例句"
+      onClose={onClose}
+      actions={
+        <button type="button" className="mm-btn mm-btn--primary" onClick={onClose}>
+          知道了
+        </button>
+      }
+    >
+      <div className="derivation-usage-body">
+        <p className="derivation-usage-text">{DERIVATION_USAGE_TEXT}</p>
+      </div>
+    </Dialog>
+  )
+}
+
 /** F8 注释面右侧副页：文字/Mermaid 渲染 + 编辑 + AI 预览 */
 export function DerivationPanel({
   open,
@@ -96,6 +126,7 @@ export function DerivationPanel({
   const [mermaid, setMermaid] = useState(content.mermaid)
   const [editing, setEditing] = useState(false)
   const [rootLabel, setRootLabel] = useState(content.rootLabel ?? '')
+  const [usageOpen, setUsageOpen] = useState(false)
 
   useEffect(() => {
     setMode(content.mode)
@@ -170,6 +201,9 @@ export function DerivationPanel({
       {aiError ? <div className="mm-caption mm-danger-text">{aiError}</div> : null}
 
       <div className="mm-btn-row derivation-panel-actions">
+        <button type="button" className="mm-btn" onClick={() => setUsageOpen(true)}>
+          用法
+        </button>
         {onAiGenerate ? (
           <button type="button" className="mm-btn" onClick={onAiGenerate} disabled={aiBusy || saving}>
             AI 生成
@@ -193,6 +227,7 @@ export function DerivationPanel({
         </button>
       </div>
       <div className="mm-caption">AI 结果先预览，点保存才写入；失败不会自动保存。</div>
+      <DerivationUsageDialog open={usageOpen} onClose={() => setUsageOpen(false)} />
     </aside>
   )
 }

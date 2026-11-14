@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 import {
   DerivationPanel,
   DerivationTextView,
+  DerivationUsageDialog,
+  DERIVATION_USAGE_TEXT,
   MermaidPreview,
 } from '../../src/ui/study/components/DerivationPanel'
 import { sidePanelSwipeAction } from '../../src/ui/study/lib/use-side-panel-swipe'
@@ -65,6 +67,29 @@ describe('F8 生成元引申副页（task-147）', () => {
       createElement(DerivationPanel, { ...base, onAiGenerate: noop }),
     )
     expect(withAi).toContain('AI 生成')
+  })
+
+  it('「用法」弹层：完整文案、可滚动、可关闭（task-151）', () => {
+    const html = renderToStaticMarkup(
+      createElement(DerivationUsageDialog, { open: true, onClose: noop }),
+    )
+    expect(html).toContain('用法：把生成元代入例句')
+    expect(html).toContain('生成元直接作为含义代入各个实际含义的例句')
+    expect(html).toContain('真实指代')
+    expect(html).toContain('derivation-usage-body')
+    expect(html).toContain('知道了')
+    expect(DERIVATION_USAGE_TEXT).toContain('实例化到该场景下的具体指代事物')
+    // 面板底部有「用法」按钮
+    const panel = renderToStaticMarkup(
+      createElement(DerivationPanel, {
+        open: true,
+        headword: 'bank',
+        content: { mode: 'text' as const, text: 'x', mermaid: '' },
+        onClose: noop,
+        onSave: noop,
+      }),
+    )
+    expect(panel).toContain('用法')
   })
 
   it('滑动判定：左滑开、右滑收、纵向/小位移不触发', () => {

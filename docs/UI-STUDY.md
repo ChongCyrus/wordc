@@ -143,6 +143,11 @@ src/ui/study/
 4. 首词（index 0）时 `<` 隐藏、右滑不触发；记忆 w-c 页内不触发回退。
 6. 退出学习（`×`/菜单）与回退的区别：退出保存进度；回退只是页内移动。
 
+### 3.4.15 生成元引申「用法」说明（task-151）
+
+- 右页底部新增「用法」按钮，弹层展示完整说明：把统一生成元直接作为含义代入各实际含义例句，体会真实意思/真实指代/如何实例化到具体场景事物。
+- 弹层正文 `max-height:60vh; overflow-y:auto`、完整换行（`white-space:normal; overflow-wrap:anywhere`）；「知道了」/遮罩/Esc 关闭；不影响右页内容与保存。
+
 ### 3.4.14 生成元引申副页布局修复（task-150）
 
 - 展开时包裹层 `study-annotation-wrap.is-side` 宽度 `calc(100% - 46%)` + `overflow-x:hidden`，正文真正 reflow/换行不裁；左栏仍可纵向滚动；右页 fixed 于 topbar 下、评分栏上（top 52 / bottom 96）。

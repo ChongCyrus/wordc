@@ -1500,3 +1500,18 @@ html.study-reduce-motion .study-page *::after {
 .derivation-mermaid-fallback { display: flex; flex-direction: column; gap: 4px; }
 .derivation-mermaid-empty { padding: 8px 0; }
 .derivation-panel-actions { margin-top: auto; }
+
+/* F8 「用法」弹层（task-151） */
+.derivation-usage-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.derivation-usage-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--mm-text-2);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
