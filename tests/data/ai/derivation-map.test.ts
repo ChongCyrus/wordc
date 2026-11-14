@@ -14,7 +14,6 @@ const CFG = {
 
 const SOURCE = {
   word: 'charge',
-  coreSenses: [{ label: '装载', note: '把东西装到载体上' }],
   meanings: [
     { index: 1, cn: '收费', pos: 'v.' },
     { index: 2, cn: '充电', pos: 'v.' },
@@ -32,7 +31,7 @@ function providerReturning(text: string): LlmProvider & { calls: unknown[] } {
 
 describe('task-148/F8：AI 生成元→含义引申图', () => {
   it('prompt 版本 + 成功解析 rootLabel/mermaid/text；输入 c 全部进入 user prompt', async () => {
-    expect(PROMPT_VERSION_DERIVATION_MAP).toBe('v1.1-derivation-map')
+    expect(PROMPT_VERSION_DERIVATION_MAP).toBe('v1.2-derivation-map')
     const provider = providerReturning(JSON.stringify({
       rootLabel: '装载',
       mermaid: 'mindmap\n  root((装载))\n    收费\n    充电\n    指控',
@@ -46,19 +45,32 @@ describe('task-148/F8：AI 生成元→含义引申图', () => {
     const body = provider.calls[0] as { messages: Array<{ content: string }> }
     const user = body.messages[1]!.content
     expect(user).toContain('charge')
+    expect(user).not.toContain('coreSenses')
+    expect(user).not.toContain('本义集合')
     expect(user).toContain('收费')
     expect(user).toContain('充电')
     expect(user).toContain('指控')
     const system = body.messages[0]!.content
     expect(system).toContain('生成元')
-    expect(system).toContain('club')
-    expect(system).toContain('civil')
-    expect(system).toContain('compose')
-    expect(system).toContain('dismay')
-    expect(system).toContain('作用对象')
-    expect(system).toContain('使用场景')
-    expect(system).toContain('词性不同')
-    expect(system).toContain('抽象层级')
+    for (const word of ['compose','cunning','club','civil','dear','congress','decoration','decree','discourse','dismay','regard']) {
+      expect(system).toContain(`## 示例`) // 示例区块
+      expect(system).toContain(word)
+    }
+    expect(system).toContain('格式仿照')
+    expect(system).toContain('本义/核心义')
+    expect(system).toContain('逻辑：')
+    expect(system).toContain('不要为它硬凑引申')
+    expect(system).toContain('根据这些信息归纳')
+    expect(system).toContain('归纳性解释')
+    expect(system).toContain('不要求唯一标准答案')
+    expect(system).toContain('不确定不要编造')
+    expect(system).not.toContain('用户已标注')
+    expect(system).not.toContain('更一般/更共性')
+    for (const forbidden of ['预置', '本义清单', '本义链', 'coreSenses']) {
+      expect(system).not.toContain(forbidden)
+    }
+    expect(system).not.toContain('coreSenses')
+    expect(system).not.toContain('本义集合')
   })
 
   it('非法 JSON/缺 rootLabel/非法 mermaid 抛 AI_FORMAT', async () => {

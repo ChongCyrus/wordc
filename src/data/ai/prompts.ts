@@ -470,55 +470,148 @@ export function buildSemanticsRepairPromptV4(previousUserPrompt: string, errorSu
 }
 
 
-// ============ Prompt F8：生成元 → 含义 引申图（task-148） ============
+// ============ Prompt F8：生成元 → 含义 引申图（task-148/159） ============
 
-export const PROMPT_VERSION_DERIVATION_MAP = 'v1.1-derivation-map'
+export const PROMPT_VERSION_DERIVATION_MAP = 'v1.2-derivation-map'
 
-/** F8 输入：word + coreSenses + 全部 c */
+/** F8 输入：word + 全部 c（task-159：不再发送 coreSenses/本义集合） */
 export interface DerivationMapSource {
   word: string
-  coreSenses: Array<{ label: string; note?: string }>
   meanings: Array<{ index: number; cn: string; pos?: string }>
 }
 
-/** F8 system prompt：统一生成元 + 场景/对象/词性引申 + Mermaid mindmap */
+/**
+ * 用户提供的 11 个示例原文（task-159：全部放入 prompt，不精简）。
+ * 来源 docs/prompts/derivation-map-examples.md；修改示例时同步本常量与 v1.2 文档。
+ */
+export const DERIVATION_MAP_EXAMPLES = `## 示例格式
+
+- 先写「本义/核心义」= 生成元（构词/词源/意象）
+- 再按分组列出实际含义，每组注明引申依据（作用对象 / 使用场景 / 词性 / 抽象程度）
+- 可附「逻辑」一句话总结；例句可选
+- Mermaid 输出时：根节点 = 生成元；一级节点 = 分组依据；二级节点 = 中文含义（可带英文搭配）
+
+## 示例 1：compose
+本义/核心义：com-（一起）+ pose（放置）= 放在一起
+- 部分组成整体 → 组成、构成（be composed of）
+- 文字/音符放在一起 → 创作、作曲、写作
+- 情绪/表情整理归位 → 使平静、镇定（compose oneself）
+- 铅字放在一起 → 排版、排字
+逻辑：同一个「放在一起」，对象不同：部分、文字音符、情绪表情、字模。
+
+## 示例 2：cunning
+本义/核心义：古英语 cunnan（知道、懂得）→ 会来事、有本事
+- 聪明用在技艺/做事 → 巧妙的、精巧的
+- 聪明用在算计人/谋利 → 狡猾的、狡诈的
+- 名词 → 狡猾、狡诈
+逻辑：同一个「精明会来事」，语境决定褒贬。
+
+## 示例 3：club
+本义/核心义：粗棒/一团、一束 → 聚成一团/一伙
+- 物理粗棒 → 棍棒、球杆
+- 一束/一团 → 一束（头发）
+- 人聚成一伙 → 俱乐部、社团
+- 人聚在一起玩的场所 → 夜总会
+- 钱聚到一起 → 凑钱、集资（club together）
+逻辑：核心「聚成一团/一束/一伙」，分别落到物、人、钱。
+
+## 示例 4：civil
+本义/核心义：拉丁 civis（公民）/ civilis（城邦的）
+- 属于公民/城邦 → 公民的、国民的（civil rights / civil war）
+- 与刑事相对 → 民事的（civil case）
+- 公民之间应有的样子 → 有礼貌的、文明的（Be civil.）
+- 属于公民社会、非军事 → 文职的、民用的（civil servant / civil aviation）
+逻辑：核心「公民/城邦的」，分别落到权利、法律、教养、非军事领域。
+
+## 示例 5：dear
+本义/核心义：古英语 dēore = 珍贵的、值钱的、被珍视的
+- 东西珍贵/值钱 → 昂贵的（too dear）
+- 事物宝贵 → 珍贵的（dear to sb）
+- 人被珍视 → 亲爱的、心爱的（Dear Sir / my dear friend）
+- 感叹词 → 哎呀（Oh dear!）
+逻辑：同一个「珍贵」，分别用在物、事物、人上。
+
+## 示例 6：congress
+本义/核心义：con-（一起）+ gress（走）= 走到一起、聚到一起
+- 代表们聚在一起 → 代表大会、国会、议会
+- 人们走到一起交往 → 交往、接触（旧义/书面义）
+逻辑：核心「聚到一起」，分别落到政治代表和人际交往。
+
+## 示例 7：decoration
+本义/核心义：拉丁 decorare（装饰、使美观）/ decus（体面、光荣）→ 使体面、增光
+- 使环境好看体面 → 装饰、装潢（Christmas decorations）
+- 给荣誉/身份增光的佩戴物 → 奖章、勋章（award a decoration）
+逻辑：同一个「使体面、增光」，分别落到环境和荣誉身份。
+
+## 示例 8：decree
+本义/核心义：拉丁 decernere（分辨清楚后作出决定）→ 权威地决定/裁定
+- 人/法院/国王作出决定 → 法令、命令、裁定（royal decree / court decreed）
+- 命运/上帝作出决定 → 注定、天命（fate decreed that...）
+逻辑：核心「权威决定」，作用对象从人/机构扩展到命运/神。
+
+## 示例 9：discourse
+本义/核心义：dis-（来回）+ currere（跑）= 来回跑
+- 思路来回推演 → 论述、推理
+- 人与人之间来回说 → 话语、言谈、交谈（spoken discourse）
+- 正式展开讲 → 论述、演讲、文章（a discourse on ethics）
+- 学术语境 → 话语、话语体系（discourse analysis）
+逻辑：核心「来回跑」，分别落到思维、言语、文章、学术话语。
+
+## 示例 10：dismay
+本义/核心义：dis-（去掉）+ may/might（力量）→ 失去力量、泄气
+- 突然受威胁而失胆 → 惊慌、胆寒（be dismayed at）
+- 力量被抽走后的低落 → 沮丧、灰心（in dismay）
+- 名词 → 惊慌、沮丧、惊愕（to one's dismay）
+逻辑：同一个「泄气/失胆」，程度和语境偏惊慌或偏沮丧。
+
+## 示例 11：regard
+本义/核心义：re-（加强）+ garder（看守、注意）= 留意地看、注视
+- 把目光投向人 → 关心、重视、尊重（regard as important / hold in high regard）
+- 把目光投向某点 → 方面、关于（in this regard / with regard to）
+- 把目光投向某人表示致意 → 问候（regards）
+逻辑：核心「看/把目光投向」，分别落到人（关心/尊重/问候）和事（方面/关于）。
+
+## 汇总规律（必须体现在生成中）
+
+1. 作用对象不同：club（物→人→钱）、dear（物→人）、decoration（环境→荣誉）
+2. 使用场景不同：civil（公民权利→民事法律→公民教养→非军事）、congress（政治→人际）、decree（人/机构→命运）
+3. 词性不同：dismay（动词→名词）、regard（动词→名词）、cunning（形容词→名词）
+4. 抽象程度不同：compose（具体→抽象）、discourse（具体→抽象）、regard（具体→抽象）
+核心：本义是一个动作或意象；引申义是它在不同对象、场景、词性、抽象层级上的投影。`
+
+/** F8 system prompt：仿照示例，从单词+全部 c 归纳生成元，按对象/场景/词性/抽象层级引申 */
 export function buildDerivationMapSystemPrompt(): string {
   return [
-    `你是英语词义结构编辑（prompt ${PROMPT_VERSION_DERIVATION_MAP}）。给定一个单词、它的本义集合（coreSenses）和全部中文含义 c，`,
-    '请归纳一个统一的「生成元」（最共性、最底层的本义/动作/意象），并说明如何按作用对象、使用场景、词性、抽象层级引申出各个实际含义。',
+    `你是英语词义结构编辑（prompt ${PROMPT_VERSION_DERIVATION_MAP}）。给定一个单词和它的全部中文含义 c，`,
+    '请根据这些信息归纳一个最能统一解释它们的「生成元」（最共性、最底层的本义/动作/意象），并说明如何按作用对象、使用场景、词性、抽象层级引申出各个实际含义。',
     '',
     '【核心句】本义是一个动作或意象；引申义是它在不同对象、场景、词性、抽象层级上的投影。',
     '',
-    '【汇总规律（必须应用）】',
-    '1) 作用对象不同：如 club（物：棍棒/一束 → 人：一伙/俱乐部 → 钱：凑钱）；dear（物：昂贵 → 事物：珍贵 → 人：亲爱的/感叹）；',
-    '2) 使用场景不同：如 civil（公民权利 → 民事法律 → 公民教养 → 非军事/文职）；congress（政治代表 → 人际交往）；',
-    '3) 词性不同：如 dismay（动词：使惊慌/使沮丧 → 名词：惊慌/沮丧）；regard（动词：注视 → 名词：关心/方面/问候）；',
-    '4) 抽象层级不同：如 compose（具体：放在一起 → 抽象：构成/创作/使平静）；discourse（具体：来回跑 → 抽象：论述/话语体系）。',
+    '【硬性要求】',
+    '1) 生成元是归纳性解释，不要求唯一标准答案；有可靠词源时可参考词源，但不要声称官方定义；不确定不要编造。',
+    '2) 若发现某个 c 不是该 w 的正确含义（例如词库错误、把短语/派生词的含义挂错），**不要为它硬凑引申**：直接从 text/mermaid 中省略该 c，不要编造；也不必覆盖输入的全部 c。',
+    '3) text 必须**仿照下方示例格式**：先写「本义/核心义：生成元」，再按分组列出实际含义（每组注明引申依据：作用对象/使用场景/词性/抽象程度），最后写「逻辑：…」一句总结。',
+    '4) mermaid 必须**镜像 text 的层级**：根节点=生成元；一级节点=对象/场景/词性/抽象层级分组；二级节点=中文含义（可带英文搭配）。不要把所有 c 平铺成无分组的一层。',
     '',
-    '【精简示例（推理方式参考，不要照抄词条）】',
-    '- club：生成元=粗棒/一团一束→聚成一团/一伙；对象从物（棍棒、一束头发）→人（俱乐部、夜总会）→钱（凑钱）。',
-    '- civil：生成元=公民/城邦的；场景从公民权利（civil rights）→民事法律（civil case）→公民教养（Be civil）→非军事/文职（civil servant）。',
-    '- compose：生成元=com(一起)+pose(放)=放在一起；抽象层级从具体（组成部分/排版）→文字音符（创作/作曲）→情绪（使平静）。',
-    '- dismay：生成元=dis(去掉)+may(力量)=失去力量、泄气；词性从动词（使惊慌/使沮丧）→名词（惊慌/沮丧/惊愕）。',
+    '【示例（格式仿照这些示例；覆盖 11 个词，全部保留原文）】',
+    DERIVATION_MAP_EXAMPLES,
     '',
-    '要求：',
+    '【输出要求（不变）】',
     '1) 只输出严格 JSON（不要 Markdown 代码块/解释/前后缀）：{"rootLabel":"string","mermaid":"string?","text":"string?"}；',
-    '2) rootLabel：2–10 字中文，单一最共性生成元（本义/动作/意象）；',
-    '3) mermaid：优先 Mermaid mindmap 源码（以 `mindmap` 开头），不可用时用 `flowchart LR`；根节点=生成元，一级节点=对象/场景/词性/抽象层级分组，二级节点=各 c；',
-    '4) text：可选结构化文字版（生成元 → 对象/场景/词性/抽象层级 → 含义），用换行/·分隔；',
-    '5) 不得编造输入之外的含义/词性；每个输入 c 都应能对应到图中；c 与索引必须来自输入；',
-    '6) 若确实无法统一，rootLabel 写最接近的共性本义，mermaid 用多个分支说明；不要输出空图。',
+    '2) rootLabel：2–10 字中文，单一最共性生成元；',
+    '3) mermaid：优先 Mermaid mindmap（以 `mindmap` 开头），不可用时用 `flowchart LR`；',
+    '4) text：按示例格式（本义/核心义 + 分组 → 含义 + 逻辑）；',
+    '5) 不得编造输入之外的含义/词性；错误 c 省略不引申；',
+    '6) 若无法统一，rootLabel 写最接近的共性生成元，mermaid 用多个分支说明；不要输出空图。',
   ].join('\n')
 }
 
-/** F8 user prompt：列出 word/coreSenses/meanings */
+/** F8 user prompt：只发 word + meanings（不发送本义集合） */
 export function buildDerivationMapUserPrompt(source: DerivationMapSource): string {
   return [
     `word = ${source.word}`,
-    'coreSenses（本义集合）：',
-    JSON.stringify(source.coreSenses.map((sense) => ({ label: sense.label, ...(sense.note ? { note: sense.note } : {}) }))),
-    'meanings（全部 c；index 从 1 起）：',
+    'meanings（全部 c；index 从 1 起；若发现某个 c 不属于该词，可省略不引申）：',
     JSON.stringify(source.meanings.map((meaning) => ({ index: meaning.index, cn: meaning.cn, ...(meaning.pos ? { pos: meaning.pos } : {}) }))),
-    '请输出 {rootLabel,mermaid?,text?}；mermaid 用 mindmap 或 flowchart LR。',
+    '请仿照系统提示中的示例格式，输出 {rootLabel,mermaid?,text?}；mermaid 用 mindmap 或 flowchart LR，并镜像 text 的层级。',
   ].join('\n')
 }

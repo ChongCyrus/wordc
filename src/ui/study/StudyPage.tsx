@@ -625,10 +625,6 @@ export default function StudyPage() {
                   const result = await generateDerivationMap(
                     {
                       word: session.word.headword,
-                      coreSenses: study.coreSenses.map((sense) => ({
-                        label: sense.label,
-                        ...(sense.note ? { note: sense.note } : {}),
-                      })),
                       meanings,
                     },
                     config,

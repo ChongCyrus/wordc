@@ -1,4 +1,4 @@
-# F8 · 生成元 → 含义 引申图 prompt（v1.0；已被 v1.1 取代，见 derivation-map-v1.1.md）
+# F8 · 生成元 → 含义 引申图 prompt（v1.0；已被 v1.2 取代，见 derivation-map-v1.2.md）
 
 > 与 `src/data/ai/prompts.ts` 的 `buildDerivationMapSystemPrompt/buildDerivationMapUserPrompt` 同步（测试可守护）。
 
