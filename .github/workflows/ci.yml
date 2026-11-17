@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      full:
+        description: '运行全量测试（默认只跑 tsc + 受影响测试 + build）'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10'
+  TZ: Asia/Shanghai
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # 单 job 完成 install/tsc/测试/build：避免 4 个 job 重复 pnpm install；产物 pwa-dist 供 apk/e2e 复用。
+  build-test:
+    name: build-test (install once)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      full: ${{ steps.mode.outputs.full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Restore pnpm store / Vite cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/pnpm/store
+            node_modules/.vite
+          key: deps-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            deps-vite-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+      - name: Install（仅一次）
+        run: |
+          start=$(date +%s)
+          pnpm install --no-frozen-lockfile
+          echo "install=$(( $(date +%s) - start ))s"
+      - name: Mode（push=quick / tag 或 dispatch full=全量）
+        id: mode
+        run: |
+          full=false
+          if [[ "${GITHUB_REF}" == refs/tags/* ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full }}" == "true" ]]; then full=true; fi
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "mode full=$full"
+      - name: Typecheck
+        run: |
+          start=$(date +%s)
+          npx tsc --noEmit
+          echo "tsc=$(( $(date +%s) - start ))s"
+      - name: 选择受影响测试（quick）或全量（release）
+        id: tests
+        run: |
+          if [[ "${{ steps.mode.outputs.full }}" == "true" ]]; then
+            echo "dirs=tests/core tests/data tests/ui tests/scheduling.test.ts" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          if [[ -z "$BEFORE" || "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+            echo "dirs=tests/core tests/data tests/ui tests/scheduling.test.ts" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "$BEFORE" "${{ github.sha }}" > changed.txt || true
+          dirs=""
+          if grep -qE '^src/core/|^tests/core/|^tests/scheduling' changed.txt; then dirs="$dirs tests/core tests/scheduling.test.ts"; fi
+          if grep -qE '^src/data/|^tests/data/' changed.txt; then dirs="$dirs tests/data"; fi
+          if grep -qE '^src/ui/|^src/app/|^tests/ui/|^package.json|^vite.config|^tsconfig' changed.txt; then dirs="$dirs tests/ui"; fi
+          if [[ -z "$dirs" ]]; then dirs="tests/ui/pages-smoke.test.ts"; fi
+          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
+          echo "affected=$dirs"
+      - name: 单测（selected；全量 release）
+        env:
+          REAL_PACKS_TEST: '1'
+        run: |
+          set -o pipefail
+          mkdir -p ci-logs
+          start=$(date +%s)
+          npx vitest run ${{ steps.tests.outputs.dirs }} --pool=forks --poolOptions.forks.maxForks=1 2>&1 | tee ci-logs/tests.log
+          echo "tests=$(( $(date +%s) - start ))s"
+      - name: Build（私仓带 packs / 公开树普通 build）
+        run: |
+          set -o pipefail
+          start=$(date +%s)
+          if [ -d data/packs/dagang ] && [ -f scripts/build-private.sh ]; then
+            bash scripts/build-private.sh 2>&1 | tee ci-logs/build.log
+          else
+            pnpm build 2>&1 | tee ci-logs/build.log
+          fi
+          echo "build=$(( $(date +%s) - start ))s"
+      - name: Upload dist（供 apk/e2e 复用）
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwa-dist
+          path: dist
+          retention-days: 7
+      - name: Upload logs（always）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: ci-logs
+          if-no-files-found: ignore
+          retention-days: 7
+
