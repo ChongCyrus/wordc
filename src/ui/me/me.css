@@ -1,0 +1,13 @@
+/* task-228：本义助记导出/导入 */
+.core-io-dialog { display: flex; flex-direction: column; gap: 8px; }
+.core-io-counts { font-size: 12px; line-height: 18px; }
+.core-io-strategy {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 12px; line-height: 18px; color: var(--mm-text-2);
+  text-align: left;
+}
+.core-io-strategy input { flex: 0 0 auto; margin-top: 2px; }
+.core-io-strategy span { flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.core-io-warning { color: var(--mm-danger); }
+.core-io-issues { font-size: 12px; line-height: 18px; color: var(--mm-text-3); max-height: 160px; overflow-y: auto; }
+.core-io-issues ul { margin: 6px 0 0; padding-left: 18px; }
