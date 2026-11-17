@@ -1,0 +1,15 @@
+import { launch, newContext, BASE, waitSeededHome, setupAi, prepareClean, prepareWord, openAiPanel, makeMockState, installRouter, sleep, panelTarget, panelText } from './ai-qa-lib.mjs'
+const browser=await launch(); const {context,page}=await newContext(browser); page.setDefaultTimeout(15000)
+const state=makeMockState(); await installRouter(page,state)
+await prepareClean(page); await setupAi(page); await prepareWord(page,{headword:'address'})
+const gen=await openAiPanel(page); await sleep(800)
+await gen.getByLabel('例句生成模式').selectOption('append'); await sleep(800)
+console.log('word append target', await panelTarget(page))
+await gen.getByRole('button',{name:'选择词库',exact:true}).click(); await sleep(500)
+const btns=gen.locator('button.mm-row'); const labels=[]; for(let i=0;i<await btns.count();i++) labels.push((await btns.nth(i).innerText()).replace(/\s+/g,' ').trim())
+console.log('decks', labels)
+const t0=Date.now()
+await btns.first().click()
+for(let i=0;i<30;i++){ await sleep(500); console.log('deck sample', Date.now()-t0, 'ms target', await panelTarget(page), 'text?', (await panelText(page)).match(/已选|已截断/)?.[0]) }
+console.log('after16s target', await panelTarget(page), 'text', (await panelText(page)).slice(0,400))
+await context.close(); await browser.close()

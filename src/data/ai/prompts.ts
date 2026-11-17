@@ -1,0 +1,763 @@
+/**
+ * Prompt 模板 v1（task-70）—— **纯函数、无浏览器/Dexie 依赖**。
+ *
+ * 与 arch 的批量 CLI（task-73）共用同一契约：CLI 直接 import 本文件拼 prompt，
+ * 保证「手动试水」与「App 内生成」输出风格/校验一致。
+ * 证据/规格：docs/ARCH-CONTENT-PACKS.md §6、docs/SPEC-CONTENT-PACKS.md §2。
+ */
+
+import type {
+  ContentKind,
+  GenerateTarget,
+  PackExample,
+  PackMnemonic,
+  PackPhrase,
+  SingleContentKind,
+} from './types'
+
+/** prompt 版本号（写进 momo-pack meta.promptVersion） */
+export const PROMPT_VERSION = 'v1'
+
+/** 每类内容每个目标最多生成多少条（合并上限另由数据层限制） */
+export const CONTENT_LIMITS: Record<SingleContentKind, number> = {
+  examples: 2,
+  phrases: 3,
+  mnemonics: 1,
+}
+
+/** 允许的助记类型（模型输出用的英文代号；与 ARCH prompt 一致） */
+export const MNEMONIC_TYPES = ['root', 'assoc', 'story'] as const
+
+/**
+ * AI 英文助记类型 → core `Mnemonic.type`（中文）映射。
+ * packs/schema 的 Mnemonic.type 只接受 core 的中文类型，UI/落库前用本表转换。
+ */
+export const AI_MNEMONIC_TYPE_MAP: Record<(typeof MNEMONIC_TYPES)[number], '联想' | '谐音' | '词根' | '词源' | '串记' | '口诀' | '其他'> = {
+  root: '词根',
+  assoc: '联想',
+  story: '联想',
+}
+
+/** 把 AI 产出的助记类型规范成 core Mnemonic.type（未知值回退「其他」） */
+export function toCoreMnemonicType(type: string): '联想' | '谐音' | '词根' | '词源' | '串记' | '口诀' | '其他' {
+  return (AI_MNEMONIC_TYPE_MAP as Record<string, '联想' | '谐音' | '词根' | '词源' | '串记' | '口诀' | '其他'>)[type] ?? '其他'
+}
+
+/** 生成结果 JSON schema（给模型看的文本版，保持与 zod 校验一致） */
+export const PACK_ITEMS_JSON_SCHEMA = `{
+  "items": [
+    {
+      "headword": "string（原拼写，必须与输入 target 一致）",
+      "meaningIndex": "number?（1 起；仅当输入 target 带 meaningIndex 时填写）",
+      "examples": [{"en": "string", "cn": "string"}],
+      "phrases": [{"en": "string", "cn": "string", "meaningIndex": "number?"}],
+      "mnemonics": [{"type": "root|assoc|story", "text": "string（≤60 字中文）"}]
+    }
+  ]
+}`
+
+/** system prompt（固定，版本化；CLI 与 App 共用） */
+export function buildSystemPrompt(): string {
+  return [
+    `你是英语学习内容编辑（prompt ${PROMPT_VERSION}）。给定一批单词/含义，生成【例句/词组/助记】。`,
+    '要求：',
+    '1) 只输出严格 JSON（不要 Markdown 代码块/解释/前后缀），schema 见下；',
+    '2) 例句：英文自然、必须包含目标词原形或其变形，附准确中文翻译；每个目标 1–2 条；',
+    '3) 词组：英文短语 + 中文释义；若给定 meaningIndex，词组必须表达该含义；否则给常用义；',
+    '4) 助记：type ∈ {"root","assoc","story"}，text 简洁（≤60 字中文）；',
+    '5) 不得编造生僻义/错误翻译；不得输出已有内容（会提供 existing 计数，尽量换个角度）；',
+    '6) 每个目标最多 limit 条；无合适内容则输出空数组；',
+    '7) headword 必须与输入 target 的 headword 一致（大小写可不同）；不得输出输入之外的词。',
+    'JSON schema:',
+    PACK_ITEMS_JSON_SCHEMA,
+  ].join('\n')
+}
+
+/** task-128：助记 prompt 版本 */
+export const PROMPT_VERSION_MNEMONIC = 'v3.0-mnemonic-c'
+
+/** 助记 system prompt：帮助记住「单词 w → 具体含义 c」的映射（docs/AI-CONTENT-SPEC §3.1） */
+export function buildSystemPromptMnemonic(): string {
+  return [
+    `你是英语词汇助记编辑（prompt ${PROMPT_VERSION_MNEMONIC}）。给定一批「单词 + 指定含义 c（含 meaningIndex/词性/中文）」，为每个 c 生成 1 条助记。`,
+    '目标：帮助学习者记住「这个单词 w → 这个具体含义 c」的映射，不是只解释词根。',
+    '要求：',
+    '1) 只输出严格 JSON（不要 Markdown/解释/前后缀），schema 见下；',
+    '2) 每条助记必须同时锚定「单词拼写/发音/构词」+「该 c 的中文含义」：读完能由 w 想起 c；',
+    '3) 允许形式（贴合该词即可，可混合）：①词根/构词拆解 + 一句话桥接到中文含义（如 ad(向)+dress(引导) → 把话引向某人 → 致辞）；②自然谐音/近音；③形象/场景故事（把拼写片段与含义绑定）；④与易混词/同词其它 c 对比；',
+    '4) 禁止：只写词源/词根解释而没有「→ 该 c 中文含义」的桥接；只重复中文释义；与目标 c 无关的通用助记；编造词源；',
+    '5) 每个输入 target 必须原样返回 headword 与 meaningIndex（1 起，与输入一致），不得串到同词其它 c；',
+    '6) 长度：1–2 句、≤60 字，中文为主，可含英文词根/单词；每个 target 仅 1 条；',
+    '7) 输出 mnemonics type ∈ {"root","assoc","story"}。',
+    'JSON schema:',
+    PACK_ITEMS_JSON_SCHEMA,
+  ].join('\n')
+}
+
+/** 助记 user prompt：逐条列出 (headword, meaningIndex, pos, cn) */
+export function buildUserPromptMnemonic(targets: GenerateTarget[]): string {
+  const payload = targets.map((target) => ({
+    headword: target.headword,
+    meaningIndex: target.meaningIndex,
+    meaning: target.meaningIndex != null ? target.meanings[target.meaningIndex - 1] : undefined,
+  }))
+  return [
+    'kind = mnemonics（每个 target 对应一个具体含义 c；必须返回 headword+meaningIndex，并为该 c 生成 1 条助记）',
+    'targets（逐条返回，headword+meaningIndex 必须一致）：',
+    JSON.stringify(payload),
+  ].join('\n')
+}
+
+/** 某批次里每个目标的输入摘要（避免把 Word 全量塞进 prompt） */
+function targetPayload(target: GenerateTarget): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    headword: target.headword,
+    meanings: target.meanings.map((m) => ({ pos: m.pos, cn: m.cn })),
+    existing: target.existing,
+  }
+  if (target.meaningIndex != null) payload.meaningIndex = target.meaningIndex
+  return payload
+}
+
+export interface BuildUserPromptOptions {
+  kind: SingleContentKind
+  targets: GenerateTarget[]
+  /** 每目标条数上限；缺省 CONTENT_LIMITS[kind] */
+  limit?: number
+}
+
+/** user prompt（动态；严格 JSON 输入摘要） */
+export function buildUserPrompt(opts: BuildUserPromptOptions): string {
+  const limit = Math.max(1, Math.floor(opts.limit ?? CONTENT_LIMITS[opts.kind]))
+  return [
+    `kind = ${opts.kind}`,
+    `limit = ${limit}（每个目标最多 ${limit} 条）`,
+    `targets = ${JSON.stringify(opts.targets.map(targetPayload))}`,
+    '请只输出 JSON 对象 {"items":[...]}，items 顺序与 targets 一致。',
+  ].join('\n')
+}
+
+/** 解析失败后的修复提示（追加到原 user prompt） */
+export function buildRepairPrompt(previousUserPrompt: string, errorSummary: string): string {
+  const safe = errorSummary.replace(/\s+/g, ' ').slice(0, 300)
+  return [
+    previousUserPrompt,
+    `你的输出不是合法 JSON（错误：${safe}）。`,
+    '请严格只输出符合 schema 的 JSON 对象 {"items":[...]}，不要 Markdown、不要解释、不要额外文字。',
+  ].join('\n')
+}
+
+/** 把模型条目里的 kind 内容折叠成 momo-pack 条目（校验通过后由 generate 使用） */
+export interface RawPackItem {
+  headword: string
+  headwordLower?: string
+  meaningIndex?: number
+  examples?: PackExample[]
+  phrases?: PackPhrase[]
+  mnemonics?: PackMnemonic[]
+}
+
+export type { ContentKind }
+
+
+// ============================================================================
+// prompt v2（w-c 级：每个含义独立内容）—— task-73/74 追加，v1 保持不变
+// ============================================================================
+
+/** v2 版本号（写进 pack meta.promptVersion='v2'） */
+export const PROMPT_VERSION_V2 = 'v2.1'
+
+/** w-c 级：每个含义最多生成多少条 */
+export const WC_CONTENT_LIMITS: Record<SingleContentKind, number> = {
+  examples: 2,
+  phrases: 3,
+  mnemonics: 1,
+}
+
+/** w-c 级生成目标：一个词的每个含义分别作为目标（meaningIndex 1 起） */
+export interface WcMeaningTarget {
+  headword: string
+  headwordLower: string
+  meaningIndex: number
+  meaning: { pos?: string; cn: string }
+}
+
+/** v2 输出 JSON schema（给模型看的文本版） */
+export const PACK_ITEMS_JSON_SCHEMA_V2 = `{
+  "items": [
+    {
+      "headword": "string（原拼写，必须与输入 target 一致）",
+      "meaningIndex": "number（1 起，必须等于输入该含义的序号）",
+      "skipped": "boolean?（无法与该词其它 c 区分时 true，此时内容数组留空）",
+      "examples": [{"en": "string", "cn": "string"}],
+      "phrases": [{"en": "string", "cn": "string"}],
+      "mnemonics": [{"type": "root|assoc|story", "text": "string（≤60 字中文）"}]
+    }
+  ]
+}`
+
+/** system prompt v2：按「含义」生成，不得串到别的 c */
+export function buildSystemPromptV2(): string {
+  return [
+    `你是英语学习内容编辑（prompt ${PROMPT_VERSION_V2}）。给定一批「单词的某个具体含义」，为每个含义生成例句/词组/助记。`,
+    '要求：',
+    '1) 只输出严格 JSON（不要 Markdown/解释/前后缀），schema 见下；',
+    '2) 每个输入 target 都对应一个「含义」，必须原样输出其 headword 与 meaningIndex（1 起，与输入一致）；',
+    '3) **中文含义原文是强约束**：生成内容必须准确表达输入里的 meaning.cn，不得偏离/扩大/换成该词的其他义项，不得串到同词其它 c；',
+    '4) **每条例句/词组都必须出现目标词本身**（原形或变形）；**近义/近重复 c 必须区分**：如果一个词的两个 c 含义接近（如 sheet 的“（一）张/纸”、take 的“拿走/携带”），必须让内容体现差异；若确实无法区分，输出该 c 的 `"skipped": true` 且内容数组留空，**不要编造重复内容**；',
+    '5) examples：1–2 条英文例句 + 中文翻译；phrases：2–3 条英文短语 + 中文释义；mnemonics：1 条助记（type ∈ root/assoc/story，≤60 字中文）；例句/词组必须包含该词原形/变形，且**同一词不同 c 之间不得重复同一英文内容**；',
+    '6) 不得编造生僻义/错误翻译；只输出输入里出现的 (headword, meaningIndex)，不得输出额外目标。',
+    'JSON schema:',
+    PACK_ITEMS_JSON_SCHEMA_V2,
+  ].join('\n')
+}
+
+/** user prompt v2：每批列出 (headword, meaningIndex, pos, cn) */
+export function buildUserPromptV2(targets: WcMeaningTarget[], limit: Record<SingleContentKind, number> = WC_CONTENT_LIMITS): string {
+  const payload = targets.map((t) => ({
+    headword: t.headword,
+    meaningIndex: t.meaningIndex,
+    meaning: { ...(t.meaning.pos ? { pos: t.meaning.pos } : {}), cn: t.meaning.cn },
+  }))
+  return [
+    `kind = mixed（每含义：例句+词组+助记；中文含义原文见 target.meaning.cn，必须严格对应）`,
+    `limit = ${JSON.stringify(limit)}`,
+    'targets（必须逐条返回，headword+meaningIndex 一致）：',
+    JSON.stringify(payload),
+  ].join('\n')
+}
+
+// ============ Prompt v3：本义 / 引申链（semantics，task-76） ============
+
+/**
+ * prompt 版本（v3 semantics）；与 arch CLI task-78 共用同一契约。
+ * 输出统一为 `{items:[{headword, coreSenses, meaningMap}]}`（便于批量/CLI 复用）。
+ */
+export const PROMPT_VERSION_V3 = 'v3.7-semantics'
+
+/** semantics prompt 的输入目标（CLI/App 通用；meaningIndex 缺省按数组下标 1 起） */
+export interface SemanticsPromptTarget {
+  headword: string
+  headwordLower?: string
+  meanings: Array<{ meaningIndex?: number; pos?: string; cn: string }>
+}
+
+/** v3.4 输出 JSON schema 文本（给模型看）：**每个含义一条 coreSenseLabel** */
+export const SEMANTICS_JSON_SCHEMA = `{
+  "items": [
+    {
+      "headword": "string（原拼写，与输入一致）",
+      "meanings": [
+        {
+          "meaningIndex": "number（1 起，每个含义必须且只能出现一次）",
+          "coreSenseLabel": "string（2–6 字中文规范化本义标签；同一本义的所有 c 必须逐字完全相同；不同本义必须不同）",
+          "coreSenseNote": "string?（≤40 字，解释该本义/标注理由）",
+          "origin": "string?（≤20 字，词源/词根本义等）",
+          "confidence": "high|medium|low",
+          "steps": ["string?（可选，2–4 步、每步 ≤20 字，顺序从本义到该 c）"]
+        }
+      ]
+    }
+  ]
+}`
+
+/** v3.4 system prompt：先读全部 c，再由模型自行拆合，用**相同 label** 表示同一本义 */
+export function buildSystemPromptV3(): string {
+  return [
+    `你是英语词义结构标注编辑（prompt ${PROMPT_VERSION_V3}）。给定一个英文单词及其中文释义列表（含义下标从 1 起），`,
+    '为**每个含义**标注它来源的「本义」，只输出严格 JSON（不要 Markdown/解释/前后缀）：',
+    '0) **核心理解（最重要）：「本义」是一个集合/多值映射，不是唯一值。** 一个单词完全可能同时拥有 2–3 个（最多 4 个）不同的本义；不要把「本义」误解成「全词只有一个本义」。',
+    '1) 必须分两步做：',
+    '   第一步【先识别本义集合】：通读该词**全部含义**，先列出该词共有哪些**不同的本义**（1–4 个；很多词有 2–3 个，例如一词多义、名动同形、具体义与抽象义、不同词源并存时）；',
+    '   第二步【再映射】把每个 c 映射到上一步的其中一个本义：同一本义用**逐字相同** label，不同本义用**不同** label。',
+    '1.1) 反例约束（必须避免）：',
+    '   - ❌ 不要因为「本义」这个词，就把全词所有 c 硬塞进同一个 label——只要 c 之间是不同词性、具体↔抽象、不同语义场或不同词源，就应分属**不同本义**；',
+    '   - ❌ 也不要为了多拆而把**同一个本义**拆成多个 label（同源/直接近义引申必须合并）。',
+    '1.2) 大本义再拆规则（重要，针对 charge/abstract 这类多义大词）：',
+    '   - 若某个 coreSenseLabel 覆盖 **≥6 个 c**，必须检查能否拆成 2–4 个更细的本义；',
+    '   - 出现以下任一情况**必须拆**：c 之间词性不同（名/动/形…）、具体↔抽象、不同语义域、或引申路径明显不同（如「收费/充电/控告/负责」这类本义已分裂）；',
+    '   - 拆分后**每个 c 重新标注 coreSenseLabel**，同一新本义仍逐字一致、不同新本义不同 label；',
+    '   - 若检查后确认无法干净拆分（各 c 共享同一底层本义、只是语用差异），允许保留宽泛本义，但必须在 `coreSenseNote` 写明「多义共享本义：<理由>」，不得静默保留大组。',
+    '   - 真实反例（必须避免）：charge 的 12 个 c 不能全部归「装载」，至少区分「收费 / 充电 / 控告 / 负责」等 2–4 个细本义；abstract 的 11 个 c 不能全部归「抽离提取」，应区分「提取动作 / 抽象概念 / 摘要」；',
+    '   - 正例：advance 的 12 个 c 拆成「向前推进」与「提前支付」两个本义（不同词性/语义域），是合格粒度。',
+    '   - steps 必须体现细分差异：不同细本义的 steps 不得完全复用同一串路径（否则说明只是换了 label、没有真正拆开）；同一细本义内的 c 可共享路径起点。',
+    '1.3) 跨词性大类必拆（针对 abstract 这类「词源同源、但名词/形容词/动词混合」的大词）：',
+    '   - 若同一 label 覆盖 **≥8 个 c**，且这些 c 横跨不同词性大类（名词实体 / 形容词 / 动词动作 / 副词等）或明显不同语义角色，**即使词源同源也必须至少拆 2 个细本义**，按词性/语义角色重新标 label；',
+    '   - 示例（必须拆）：abstract 的 c 至少拆出「提取动作（动词：提取/抽象化/转移）」「抽象概念（名词/形容词：抽象/抽象概念/抽象的/深奥）」「摘要（名词实体：摘要/做摘要/写梗概）」中的 ≥2 类；charge 拆 6 个细本义是正例；',
+    '   - 反例（不要拆碎）：同一词性、同一语义角色内部（如多个具体名词义）仍应合并，不要为凑数量拆；但「词源同源」不能作为跨词性合并的理由。',
+    '2) 每个含义输出一条：{meaningIndex, coreSenseLabel(2–6 个中文字的规范化本义标签), coreSenseNote?(≤40字解释), origin?(≤20字，词源/词根本义), confidence(high|medium|low), steps?(可选 2–4 步、每步≤20字，从本义到该 c)}。',
+    '3) **标签一致性（最重要）**：同一个本义的所有 c 必须使用**逐字完全相同**的 coreSenseLabel；不同本义必须使用不同 label。同义不同写法（如「同食同伴」vs「共同进食者」）视为错误。',
+    '4) label 用中文概括本义：例：多个 c 都源于「一起吃饭的人」→ 统一写「同食同伴」；不要写整句、不要带标点/编号、不要复述释义原文。',
+    '5) 每个 meaningIndex 必须且只能出现一次；不得添加输入之外的词/含义；无法可靠判断时 confidence=low 并在 coreSenseNote 说明。',
+    '6) 只输出 JSON：{"items":[{"headword":"...","meanings":[{"meaningIndex":1,"coreSenseLabel":"同食同伴","coreSenseNote":"...","origin":"...","confidence":"high","steps":["...","..."]}]}]}',
+    'JSON schema:',
+    SEMANTICS_JSON_SCHEMA,
+  ].join('\n')
+}
+
+function semanticsTargetPayload(t: SemanticsPromptTarget): Record<string, unknown> {
+  return {
+    headword: t.headword,
+    meanings: t.meanings.map((m, i) => ({
+      meaningIndex: m.meaningIndex ?? i + 1,
+      ...(m.pos ? { pos: m.pos } : {}),
+      cn: m.cn,
+    })),
+  }
+}
+
+/**
+ * v3 user prompt（两种调用方式，App 批量 / CLI 单词均可用）：
+ * - `buildUserPromptV3(targets)`：批量（targets 数组）；
+ * - `buildUserPromptV3(word, meanings)`：单词语义（meanings 按数组顺序 1 起）。
+ * 输出统一为 `{"items":[...]}` 包装，便于批量解析（task-78 CLI 同契约）。
+ */
+export function buildUserPromptV3(targets: readonly SemanticsPromptTarget[]): string
+export function buildUserPromptV3(
+  word: string,
+  meanings: ReadonlyArray<{ cn: string; pos?: string; meaningIndex?: number }>,
+): string
+export function buildUserPromptV3(
+  input: readonly SemanticsPromptTarget[] | string,
+  meanings?: ReadonlyArray<{ cn: string; pos?: string; meaningIndex?: number }>,
+): string {
+  const targets: SemanticsPromptTarget[] =
+    typeof input === 'string'
+      ? [{ headword: input, meanings: (meanings ?? []).map((m) => ({ ...m })) }]
+      : [...input]
+  return [
+    `targets = ${JSON.stringify(targets.map(semanticsTargetPayload))}`,
+    '请先通读每个 headword 的全部含义，再逐条输出 JSON 对象 {"items":[...]}；meanings 必须覆盖该词全部 meaningIndex，同一本义用完全相同的 coreSenseLabel。',
+  ].join('\n')
+}
+
+/** v3 修复提示（输出不合法 JSON / 映射缺失时追加） */
+export function buildSemanticsRepairPromptV3(previousUserPrompt: string, errorSummary: string): string {
+  const safe = errorSummary.replace(/\s+/g, ' ').slice(0, 300)
+  return [
+    previousUserPrompt,
+    `你的输出不符合要求（错误：${safe}）。`,
+    '请严格只输出符合 schema 的 JSON 对象 {"items":[...]}：每个含义一条、meaningIndex 覆盖且不重复、confidence 必填；',
+    '同一本义的所有 c 必须使用逐字相同的 coreSenseLabel（不同本义必须不同）；不要 Markdown/解释。',
+  ].join('\n')
+}
+
+// ============ Prompt v4：本义 / 引申链（grouped semantics，task-96） ============
+
+/**
+ * prompt 版本（v4 semantics，grouped 输出）。
+ *
+ * 与 v3 的关键差异：**模型直接输出分组结构**——
+ * `{items:[{headword, coreSenses:[{index,label,gloss,origin?,confidence}], meaningMap:[{meaningIndex,coreSenseIndex,steps?}]}]}`。
+ * label 只在 coreSenses 出现一次，c 通过 coreSenseIndex 引用 → **结构上保证同本义 label 逐字一致**
+ * （v3 是每个 c 各写一次 coreSenseLabel，靠模型自觉，实测会出现「看是否指图纸」这类非本义 label）。
+ *
+ * 规格与校验规则：docs/SEMANTICS-FORMAT.md（含 plan/base/abstract 期望输出）。
+ * 兼容：v3 的 buildSystemPromptV3/buildUserPromptV3/buildSemanticsRepairPromptV3 **保留不动**，
+ * 由 dev-engine 在 generate.ts / CLI 切到 v4 后旧版才可删除。
+ */
+export const PROMPT_VERSION_V4 = 'v4.0-semantics-grouped'
+
+/** v4 输出 JSON schema 文本（给模型看）：**每词一份 coreSenses + 映射表** */
+export const SEMANTICS_JSON_SCHEMA_V4 = `{
+  "items": [
+    {
+      "headword": "string（原拼写，与输入一致）",
+      "coreSenses": [
+        {
+          "index": "number（1 起，词内连续不重复）",
+          "label": "string（2–6 个汉字，必须是「含义/义项」，如：基础、图纸、计划；不得是检查步骤或词源）",
+          "gloss": "string（≤40 字，解释这个本义是什么）",
+          "origin": "string?（≤20 字且必须解释含义，如「拉丁 basis=基础」；没有把握就省略整个字段）",
+          "confidence": "high|medium|low"
+        }
+      ],
+      "meaningMap": [
+        {
+          "meaningIndex": "number（1 起，覆盖输入每个含义且只能出现一次）",
+          "coreSenseIndex": "number（指向上面 coreSenses[].index）",
+          "steps": ["string?（可选，2–4 步、每步≤20 字，只写「本义→该含义」的语义演变）"]
+        }
+      ]
+    }
+  ]
+}`
+
+/** v4 system prompt：先归纳本义集合，再映射 c；标签只写一次（结构保证一致） */
+export function buildSystemPromptV4(): string {
+  return [
+    `你是英语词义结构标注编辑（prompt ${PROMPT_VERSION_V4}）。给定一个英文单词及其中文释义列表（含义下标从 1 起），`,
+    '输出该词的「本义（core sense）」分组，以及每个含义到本义的映射。只输出严格 JSON（不要 Markdown/解释/前后缀）：',
+    '',
+    '0) **输出结构（v4 核心改动，必须遵守）**：每个 headword 只输出一份 `coreSenses`（本义清单，每项含 index/label/gloss/origin?/confidence）',
+    '   和 `meaningMap`（每个含义一条，用 `coreSenseIndex` 指向本义 index）。**label 只出现在 coreSenses 里一次**，',
+    '   同本义的多条含义共享同一个 coreSenseIndex，因此不需要、也不允许在每个含义里重复写 label。',
+    '',
+    '1) **label 必须是「含义」**：2–6 个汉字，能独立回答「这个词的这一个本义是什么意思」（名词/动词/形容词性短语均可）。',
+    '   1.1 正例：基础、底部、基地、图纸、计划、设计、抽取、摘要、抽象概念、向前推进、提前支付。',
+    '   1.2 反例（出现即不合格）：',
+    '        ❌ 「看是否指图纸」（这是检查步骤，不是含义）',
+    '        ❌ 「源自希腊 basis」（这是词源，不是含义）',
+    '        ❌ 「是否指基础」「检查是否为平面图」「可能是…」（检查/揣测口吻）',
+    '        ❌ 「拉丁文」「英语词」「词根义」（语言/词源说明）',
+    '        ❌ 「本义→引申义」「第一步含义」（箭头/步骤连接词）',
+    '   1.3 禁止包含以下字样：是否、看、检查、源自、源古、来自、出自、词源、词根、希腊、拉丁、英语、法语、德语、→、->、推导、判断、确认、核对；',
+    '       禁止以「的」堆叠（如「…的…的」），禁止标点/编号/引号。label 应是「基础」「图纸」这样的纯中文短词，不是整句。',
+    '',
+    '2) **gloss（本义解释）**：≤40 字，用一句中文说明这个本义是什么（可含「指…」「即…」），不要复述某个具体释义原文、不要写检查过程。',
+    '3) **origin（词源，可选，宁缺毋滥）**：≤20 字，且**必须带含义解释**，格式如「拉丁 basis=基础」「古英语 plan=平面」「法语 suite=跟随」。',
+    '   只写「源自希腊 basis」「希腊语」这类**没有解释含义的写法一律不允许**；没把握就省略 origin 整个字段。',
+    '4) **steps（引申链，可选）**：2–4 步、每步≤20 字，只描述「本义 → 该含义」的语义演变（如「图纸」→「按图施工的方案」→「计划」）。',
+    '   禁止写是否/检查/来源/词源内容；也禁止元推理词（通读、义项、定名、归并、其中、综上、判断、可见、分类、统计、归纳、标注、映射、判定、推断、总结、首先、其次、然后、释义、归为、归入、判为、分为、区分、其余、归类、拆分、划为）。steps 是给学习者看的意义链，不是推理日志。同一 coreSense 下的不同含义可以共用起点，但不要照抄检查过程或标注步骤。',
+    '',
+    '5) **拆合规则**（沿用 v3 的经验，但 v4 用结构表达）：',
+    '   5.1 一个词 1–4 个本义；同一本义的不同含义只能映射到同一个 coreSenseIndex，不同本义必须用不同 coreSense 项。',
+    '   5.2 若某本义覆盖 ≥6 个含义，检查是否需要拆成 2–4 个更细本义：含义跨词性（名/动/形）、具体↔抽象、语义域明显不同、引申路径不同 → 必须拆；',
+    '   5.3 同一词性、同一语义角色内的近义含义（如多个具体名词义）不要拆碎；同义/直接近义的 label 必须合并（如「同食同伴」与「共同进食者」只保留一个）。',
+    '   5.4 典型正例：abstract → 抽取 / 抽象概念 / 摘要；charge → 收费 / 充电 / 控告 / 负责；plan → 图纸 / 计划（必要时 设计）。',
+    '',
+    '6) **完整性与一致性不变量（违反即不合格）**：',
+    '   - coreSenses 1–4 项，index 从 1 起连续不重复；label 词内唯一（逐字不同），不得近义重复；',
+    '   - meaningMap 必须覆盖输入的每个 meaningIndex **恰好一次**；coreSenseIndex 必须指向存在的 coreSense；',
+    '   - 每个 coreSense 至少被 1 个含义引用（不得出现没人用的本义）；不得添加输入之外的词/含义；',
+    '   - 无法可靠判断时 confidence=low，并在 gloss 里写明「暂按…归并」；不要编造词源。',
+    '',
+    '7) 只输出 JSON：{"items":[{"headword":"...","coreSenses":[{"index":1,"label":"基础","gloss":"事物的根本或起点","origin":"拉丁 basis=基础","confidence":"high"}],"meaningMap":[{"meaningIndex":1,"coreSenseIndex":1,"steps":["基础","作为支撑的部分"]}]}]}',
+    'JSON schema:',
+    SEMANTICS_JSON_SCHEMA_V4,
+  ].join('\n')
+}
+
+/**
+ * v4 user prompt（两种调用方式，App 批量 / CLI 单词均可用）：
+ * - `buildUserPromptV4(targets)`：批量（targets 数组）；
+ * - `buildUserPromptV4(word, meanings)`：单词语义（meanings 按数组顺序 1 起）。
+ * 输出统一 `{items:[...]}`；引导模型「先归纳 coreSenses，再逐条映射」。
+ */
+export function buildUserPromptV4(targets: readonly SemanticsPromptTarget[]): string
+export function buildUserPromptV4(
+  word: string,
+  meanings: ReadonlyArray<{ cn: string; pos?: string; meaningIndex?: number }>,
+): string
+export function buildUserPromptV4(
+  input: readonly SemanticsPromptTarget[] | string,
+  meanings?: ReadonlyArray<{ cn: string; pos?: string; meaningIndex?: number }>,
+): string {
+  const targets: SemanticsPromptTarget[] =
+    typeof input === 'string'
+      ? [{ headword: input, meanings: (meanings ?? []).map((m) => ({ ...m })) }]
+      : [...input]
+  return [
+    `targets = ${JSON.stringify(targets.map(semanticsTargetPayload))}`,
+    '对每个 headword：先通读全部含义，归纳 1–4 个「本义」（coreSenses：index/label/gloss/origin?/confidence；label 必须是 2–6 字含义，禁止写成检查步骤或词源），',
+    '再把每个含义映射到 coreSenseIndex（覆盖全部 meaningIndex 且不重复；需要时给 steps 2–4 步含义演变）。',
+    '只输出 {"items":[...]}；label 只在 coreSenses 出现一次，不要在每个含义里重复 label。',
+  ].join('\n')
+}
+
+/** v4 修复提示（输出不合法 JSON / 映射缺失 / label 违规时追加） */
+export function buildSemanticsRepairPromptV4(previousUserPrompt: string, errorSummary: string): string {
+  const safe = errorSummary.replace(/\s+/g, ' ').slice(0, 300)
+  return [
+    previousUserPrompt,
+    `你的输出不符合 v4 要求（错误：${safe}）。`,
+    '请严格只输出符合 schema 的 JSON 对象 {"items":[...]}，并逐条自检：',
+    '① coreSenses 1–4 项、index 从 1 起连续、label 2–6 个汉字且是「含义」（不得含 是否/看/检查/源自/希腊/拉丁/箭头 等字样，不得是词源）；',
+    '② meaningMap 覆盖每个 meaningIndex 恰好一次，coreSenseIndex 均有效；③ 每个 coreSense 至少被引用一次；',
+    '④ origin 若有则 ≤20 字且必须解释含义（如「拉丁 basis=基础」），否则省略；⑤ steps 若有则 2–4 步、每步≤20 字、只写含义演变。',
+    '不要 Markdown/解释。',
+  ].join('\n')
+}
+
+
+// ============ Prompt F8：生成元 → 含义 引申图（task-148/159） ============
+
+export const PROMPT_VERSION_DERIVATION_MAP = 'v1.3-derivation-map'
+
+/** F8 输入：word + 全部 c（task-159：不再发送 coreSenses/本义集合） */
+export interface DerivationMapSource {
+  word: string
+  meanings: Array<{ index: number; cn: string; pos?: string }>
+}
+
+/**
+ * 用户提供的 11 个示例原文（task-159：全部放入 prompt，不精简）。
+ * 来源 docs/prompts/derivation-map-examples.md；修改示例时同步本常量与 v1.2 文档。
+ */
+export const DERIVATION_MAP_EXAMPLES = `## 示例格式
+
+- 先写「本义/核心义」= 生成元（构词/词源/意象）
+- 再按分组列出实际含义，每组注明引申依据（作用对象 / 使用场景 / 词性 / 抽象程度）
+- 可附「逻辑」一句话总结；例句可选
+- Mermaid 输出时：根节点 = 生成元；一级节点 = 分组依据；二级节点 = 中文含义（可带英文搭配）
+
+## 示例 1：compose
+本义/核心义：com-（一起）+ pose（放置）= 放在一起
+- 部分组成整体 → 组成、构成（be composed of）
+- 文字/音符放在一起 → 创作、作曲、写作
+- 情绪/表情整理归位 → 使平静、镇定（compose oneself）
+- 铅字放在一起 → 排版、排字
+逻辑：同一个「放在一起」，对象不同：部分、文字音符、情绪表情、字模。
+
+## 示例 2：cunning
+本义/核心义：古英语 cunnan（知道、懂得）→ 会来事、有本事
+- 聪明用在技艺/做事 → 巧妙的、精巧的
+- 聪明用在算计人/谋利 → 狡猾的、狡诈的
+- 名词 → 狡猾、狡诈
+逻辑：同一个「精明会来事」，语境决定褒贬。
+
+## 示例 3：club
+本义/核心义：粗棒/一团、一束 → 聚成一团/一伙
+- 物理粗棒 → 棍棒、球杆
+- 一束/一团 → 一束（头发）
+- 人聚成一伙 → 俱乐部、社团
+- 人聚在一起玩的场所 → 夜总会
+- 钱聚到一起 → 凑钱、集资（club together）
+逻辑：核心「聚成一团/一束/一伙」，分别落到物、人、钱。
+
+## 示例 4：civil
+本义/核心义：拉丁 civis（公民）/ civilis（城邦的）
+- 属于公民/城邦 → 公民的、国民的（civil rights / civil war）
+- 与刑事相对 → 民事的（civil case）
+- 公民之间应有的样子 → 有礼貌的、文明的（Be civil.）
+- 属于公民社会、非军事 → 文职的、民用的（civil servant / civil aviation）
+逻辑：核心「公民/城邦的」，分别落到权利、法律、教养、非军事领域。
+
+## 示例 5：dear
+本义/核心义：古英语 dēore = 珍贵的、值钱的、被珍视的
+- 东西珍贵/值钱 → 昂贵的（too dear）
+- 事物宝贵 → 珍贵的（dear to sb）
+- 人被珍视 → 亲爱的、心爱的（Dear Sir / my dear friend）
+- 感叹词 → 哎呀（Oh dear!）
+逻辑：同一个「珍贵」，分别用在物、事物、人上。
+
+## 示例 6：congress
+本义/核心义：con-（一起）+ gress（走）= 走到一起、聚到一起
+- 代表们聚在一起 → 代表大会、国会、议会
+- 人们走到一起交往 → 交往、接触（旧义/书面义）
+逻辑：核心「聚到一起」，分别落到政治代表和人际交往。
+
+## 示例 7：decoration
+本义/核心义：拉丁 decorare（装饰、使美观）/ decus（体面、光荣）→ 使体面、增光
+- 使环境好看体面 → 装饰、装潢（Christmas decorations）
+- 给荣誉/身份增光的佩戴物 → 奖章、勋章（award a decoration）
+逻辑：同一个「使体面、增光」，分别落到环境和荣誉身份。
+
+## 示例 8：decree
+本义/核心义：拉丁 decernere（分辨清楚后作出决定）→ 权威地决定/裁定
+- 人/法院/国王作出决定 → 法令、命令、裁定（royal decree / court decreed）
+- 命运/上帝作出决定 → 注定、天命（fate decreed that...）
+逻辑：核心「权威决定」，作用对象从人/机构扩展到命运/神。
+
+## 示例 9：discourse
+本义/核心义：dis-（来回）+ currere（跑）= 来回跑
+- 思路来回推演 → 论述、推理
+- 人与人之间来回说 → 话语、言谈、交谈（spoken discourse）
+- 正式展开讲 → 论述、演讲、文章（a discourse on ethics）
+- 学术语境 → 话语、话语体系（discourse analysis）
+逻辑：核心「来回跑」，分别落到思维、言语、文章、学术话语。
+
+## 示例 10：dismay
+本义/核心义：dis-（去掉）+ may/might（力量）→ 失去力量、泄气
+- 突然受威胁而失胆 → 惊慌、胆寒（be dismayed at）
+- 力量被抽走后的低落 → 沮丧、灰心（in dismay）
+- 名词 → 惊慌、沮丧、惊愕（to one's dismay）
+逻辑：同一个「泄气/失胆」，程度和语境偏惊慌或偏沮丧。
+
+## 示例 11：regard
+本义/核心义：re-（加强）+ garder（看守、注意）= 留意地看、注视
+- 把目光投向人 → 关心、重视、尊重（regard as important / hold in high regard）
+- 把目光投向某点 → 方面、关于（in this regard / with regard to）
+- 把目光投向某人表示致意 → 问候（regards）
+逻辑：核心「看/把目光投向」，分别落到人（关心/尊重/问候）和事（方面/关于）。
+
+## 汇总规律（必须体现在生成中）
+
+1. 作用对象不同：club（物→人→钱）、dear（物→人）、decoration（环境→荣誉）
+2. 使用场景不同：civil（公民权利→民事法律→公民教养→非军事）、congress（政治→人际）、decree（人/机构→命运）
+3. 词性不同：dismay（动词→名词）、regard（动词→名词）、cunning（形容词→名词）
+4. 抽象程度不同：compose（具体→抽象）、discourse（具体→抽象）、regard（具体→抽象）
+核心：本义是一个动作或意象；引申义是它在不同对象、场景、词性、抽象层级上的投影。`
+
+/** F8 system prompt：仿照示例，从单词+全部 c 归纳生成元，按对象/场景/词性/抽象层级引申 */
+export function buildDerivationMapSystemPrompt(): string {
+  return [
+    `你是英语词义结构编辑（prompt ${PROMPT_VERSION_DERIVATION_MAP}）。给定一个单词和它的全部中文含义 c，`,
+    '请根据这些信息归纳一个最能统一解释它们的「生成元」（最共性、最底层的本义/动作/意象），并说明如何按作用对象、使用场景、词性、抽象层级引申出各个实际含义。',
+    '',
+    '【核心句】本义是一个动作或意象；引申义是它在不同对象、场景、词性、抽象层级上的投影。',
+    '',
+    '【硬性要求】',
+    '1) 生成元是归纳性解释，不要求唯一标准答案；有可靠词源时可参考词源，但不要声称官方定义；不确定不要编造。',
+    '2) 若发现某个 c 不是该 w 的正确含义（例如词库错误、把短语/派生词的含义挂错），**不要为它硬凑引申**：直接从 text/mermaid 中省略该 c，不要编造；也不必覆盖输入的全部 c。',
+    '3) text 必须**仿照下方示例格式**：先写「本义/核心义：生成元」，再按分组列出实际含义（每组注明引申依据：作用对象/使用场景/词性/抽象程度），最后写「逻辑：…」一句总结。',
+    '4) mermaid 必须**镜像 text 的层级**：根节点=生成元；一级节点=对象/场景/词性/抽象层级分组；二级节点=中文含义（可带英文搭配）。不要把所有 c 平铺成无分组的一层。',
+    '',
+    '【示例（格式仿照这些示例；覆盖 11 个词，全部保留原文）】',
+    DERIVATION_MAP_EXAMPLES,
+    '',
+    '【输出要求（不变）】',
+    '1) 只输出严格 JSON（不要 Markdown 代码块/解释/前后缀）：{"rootLabel":"string","mermaid":"string?","text":"string?","lines":[{"text":"string","meaningIndexes":[number]}]}；',
+    '2) rootLabel：2–10 字中文，单一最共性生成元；',
+    '3) mermaid：优先 Mermaid mindmap（以 `mindmap` 开头），不可用时用 `flowchart LR`；',
+    '4) text：按示例格式（本义/核心义 + 分组 → 含义 + 逻辑）；text 中每个以「- 」开头的行都必须有唯一对应的 lines 条目；',
+    '5) lines：数组，每条 {text:string, meaningIndexes:number[]}；text 必须与该 `- ` 行内容一致（可省略开头的「- 」）；meaningIndexes 只能取输入 c 的 index，不得编造；错误 c 从 text 与 lines 一起省略；',
+    '6) 不得编造输入之外的含义/词性；错误 c 省略不引申；',
+    '7) 若无法统一，rootLabel 写最接近的共性生成元，mermaid 用多个分支说明；不要输出空图。',
+  ].join('\n')
+}
+
+/** F8 user prompt：只发 word + meanings（不发送本义集合） */
+export function buildDerivationMapUserPrompt(source: DerivationMapSource): string {
+  return [
+    `word = ${source.word}`,
+    'meanings（全部 c；index 从 1 起；若发现某个 c 不属于该词，可省略不引申）：',
+    JSON.stringify(source.meanings.map((meaning) => ({ index: meaning.index, cn: meaning.cn, ...(meaning.pos ? { pos: meaning.pos } : {}) }))),
+    '请仿照系统提示中的示例格式，输出 {rootLabel,mermaid?,text?,lines?}；lines 为 text 中每个「- 」行给出 {text,meaningIndexes}（索引来自上面 meanings）；mermaid 用 mindmap 或 flowchart LR，并镜像 text 的层级。',
+  ].join('\n')
+}
+
+// ============ 0.3.61：w→生成元 映射助记 / 不常考含义标记 ============
+
+export const PROMPT_VERSION_ROOT_MNEMONIC = 'v1.0-root-mnemonic'
+
+export interface RootMnemonicPromptSource {
+  word: string
+  rootLabel: string
+  /** 右页生成元文字第一段（可为空） */
+  firstParagraph?: string
+}
+
+/** 生成「单词 w → 生成元」的映射助记（1–3 条中文） */
+export function buildRootMnemonicSystemPrompt(): string {
+  return [
+    `你是英语词汇记忆助手（prompt ${PROMPT_VERSION_ROOT_MNEMONIC}）。`,
+    '用户会给一个单词 w、它的「生成元」（最共性核心义/本义），以及生成元说明的第一段。',
+    '请生成 1–3 条中文助记，帮助用户把「单词 w」与「生成元」建立牢固映射。',
+    '',
+    '【要求】',
+    '1) 每条助记 10–60 字，中文；可结合词根词缀、谐音、联想、画面、词源（仅在有把握时），但必须指向该生成元，不要编造无关故事。',
+    '2) 不要写成字典解释/例句翻译；不要重复生成元定义；优先“怎么记住 w=生成元”的钩子。',
+    '3) 宁少勿滥：1–2 条足够；不要为凑数写重复内容。',
+    '4) 只输出严格 JSON（不要 Markdown/代码块/解释）：{"mnemonics":[{"text":"string"}]}；数组长度 1–3。',
+    '',
+    '示例（仅示意格式）：',
+    '{"mnemonics":[{"text":"marginal：margin（边缘）+ al，记成“在边缘的”"},{"text":"把 marginal 想成“页边 margin 写的批注”——边缘的、次要的"}]}',
+  ].join('\n')
+}
+
+export function buildRootMnemonicUserPrompt(source: RootMnemonicPromptSource): string {
+  return [
+    `word = ${source.word}`,
+    `生成元 = ${source.rootLabel}`,
+    ...(source.firstParagraph ? [`生成元说明第一段 = ${source.firstParagraph}`] : []),
+    '请输出 {"mnemonics":[{"text":"..."}]}（1–3 条中文映射助记）。',
+  ].join('\n')
+}
+
+export const PROMPT_VERSION_RARE_MEANINGS = 'v1.0-rare-meanings'
+export const PROMPT_VERSION_RARE_MEANINGS_CORE = 'v1.1-rare-meanings-core'
+
+export interface RareMeaningsPromptSource {
+  word: string
+  /** 可选：调用方用于把批量结果映射回词（prompt 不使用） */
+  wordId?: string
+  meanings: Array<{ index: number; cn: string; pos?: string }>
+  /** task-208：全部本义（开关开启时传入，供模型同时标不常考本义） */
+  coreSenses?: Array<{ index: number; label: string; note?: string; origin?: string }>
+}
+
+/** 标记「考研基本不考/不正式/不常用」的含义；没把握就不标 */
+export function buildRareMeaningsSystemPrompt(includeCoreSenses = false): string {
+  if (includeCoreSenses) {
+    return [
+      `你是考研英语词义编辑（prompt ${PROMPT_VERSION_RARE_MEANINGS_CORE}）。`,
+      '给定 word 的全部中文含义 c（index/cn/pos）与它的本义集合 coreSenses（index/label/note/origin），',
+      '请分别标出：①属于「考研基本不考 / 不正式 / 不常用」的**实际含义 c**；②属于同类不常考范围的**本义**。',
+      '',
+      '【判定原则（两者相同）】',
+      '1) **没有就不标，不要为标而标**；全部常用/正式/教材常考 → 对应数组输出空。',
+      '2) 不要标：考研常见义、正式书面义、常用派生义、教材常考本义。',
+      '3) 可标：明显生僻/废弃义、粗俗或极口语义、极窄专业义、词库噪声/错误挂靠。',
+      '4) 只输出严格 JSON（不要 Markdown/代码块/解释）：',
+      '{"rareMeaningIndexes":[number],"rareCoreSenseIndexes":[number]}；index 必须来自输入，不得编造；没有就输出空数组。',
+    ].join('\n')
+  }
+  return [
+    `你是考研英语词义编辑（prompt ${PROMPT_VERSION_RARE_MEANINGS}）。`,
+    '给定 word 的全部中文含义 c（index/cn/pos），请标出其中属于「考研基本不考 / 不正式（俚语/口语化过头）/ 不常用（生僻、废弃或仅专业小众）」的含义。',
+    '',
+    '【判定原则】',
+    '1) **没有就不标，不要为标而标**；全部常用/常用正式义 → 输出空数组。',
+    '2) 不要标：考研常见义、正式书面义、常用派生义、虽然少见但教材常考的义。',
+    '3) 可标：明显生僻/废弃义、粗俗或极口语义、极窄专业义、明显词库噪声/错误挂靠义。',
+    '4) 只输出严格 JSON（不要 Markdown/代码块/解释）：{"rareMeaningIndexes":[number]}；index 必须来自输入 c，不得编造；没有则输出 {"rareMeaningIndexes":[]}。',
+  ].join('\n')
+}
+
+export function buildRareMeaningsUserPrompt(source: RareMeaningsPromptSource, includeCoreSenses = false): string {
+  const parts = [
+    `word = ${source.word}`,
+    'meanings（全部 c；index 从 1 起）：',
+    JSON.stringify(source.meanings.map((meaning) => ({ index: meaning.index, cn: meaning.cn, ...(meaning.pos ? { pos: meaning.pos } : {}) }))),
+  ]
+  if (includeCoreSenses) {
+    parts.push(
+      'coreSenses（全部本义；index 从 1 起）：',
+      JSON.stringify(
+        (source.coreSenses ?? []).map((sense) => ({
+          index: sense.index,
+          label: sense.label,
+          ...(sense.note ? { note: sense.note } : {}),
+          ...(sense.origin ? { origin: sense.origin } : {}),
+        })),
+      ),
+      '请输出 {"rareMeaningIndexes":[number],"rareCoreSenseIndexes":[number]}；没有不常考含义/本义就对应空数组，不要为标而标。',
+    )
+  } else {
+    parts.push('请输出 {"rareMeaningIndexes":[number]}；没有不常考含义就输出空数组，不要为标而标。')
+  }
+  return parts.join('\n')
+}
+
+// ============ 0.3.65：本义助记（w → 该本义） ============
+
+export const PROMPT_VERSION_SENSE_MNEMONIC = 'v1.0-core-sense-mnemonic'
+
+export interface SenseMnemonicPromptSource {
+  word: string
+  /** 当前本义 label（2–6 字） */
+  label: string
+  /** 本义说明（coreSenses.note，可选） */
+  gloss?: string
+  /** 词源/来源（可选） */
+  origin?: string
+  /** 全部实际含义 c（帮助对齐与理解） */
+  meanings: Array<{ index: number; cn: string; pos?: string }>
+}
+
+export function buildSenseMnemonicSystemPrompt(): string {
+  return [
+    `你是英语词汇记忆教练（prompt ${PROMPT_VERSION_SENSE_MNEMONIC}）。`,
+    '给定一个单词 w、它的一个「本义/核心义」（label，可能带说明/词源），以及该词的全部实际含义 c，',
+    '请为「单词 w → 该本义」生成 1 条简短、可长期记忆的中文助记。',
+    '',
+    '【方法（可单用/组合）】拆分（前缀/词根/后缀）、词根词缀、谐音、联想、画面、奇技淫巧等；',
+    '必须帮助把 w 与这个本义绑定，不要只是翻译或抄释义；1–2 句、尽量 ≤80 字；可含英文拆解。',
+    '若词源不可靠不要编造；宁可给谐音/画面联想。',
+    '',
+    '只输出严格 JSON（不要 Markdown/代码块/解释）：{"mnemonic":"string"}',
+  ].join('\n')
+}
+
+export function buildSenseMnemonicUserPrompt(source: SenseMnemonicPromptSource): string {
+  return [
+    `word = ${source.word}`,
+    `本义 label = ${source.label}`,
+    ...(source.gloss ? [`本义说明 = ${source.gloss}`] : []),
+    ...(source.origin ? [`词源/来源 = ${source.origin}`] : []),
+    '全部实际含义 c（index/cn/pos）：',
+    JSON.stringify(source.meanings.map((meaning) => ({ index: meaning.index, cn: meaning.cn, ...(meaning.pos ? { pos: meaning.pos } : {}) }))),
+    '请输出 {"mnemonic":"..."}：为「单词 → 该本义」生成 1 条简短中文助记（1–2 句，可用拆分/谐音/联想）。',
+  ].join('\n')
+}
