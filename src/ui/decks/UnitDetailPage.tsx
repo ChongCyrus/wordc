@@ -1,0 +1,181 @@
+import { useEffect, useState } from 'react'
+import { useParams } from 'react-router-dom'
+import { appendWordsToTodayPlan, getChapterWordIds, getWordsByChapter } from '../../data'
+import type { WordWithFamiliarity, WordListSort } from '../../data'
+import { useToast } from '../../app/toast'
+import { PageShell } from '../components/PageShell'
+import { Dialog } from '../components/Dialog'
+import { BulkSelectToolbar } from '../components/BulkSelectToolbar'
+import { EmptyState } from '../components/EmptyState'
+
+const PAGE_SIZE = 50
+type Filter = 'all' | 'learned' | 'new'
+
+export default function UnitDetailPage() {
+  const { deckId = '', chapter = '' } = useParams()
+  const chapterName = decodeURIComponent(chapter)
+  const toast = useToast()
+  const [filter, setFilter] = useState<Filter>('all')
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<WordListSort>('order')
+  const [page, setPage] = useState(1)
+  const [rows, setRows] = useState<WordWithFamiliarity[]>([])
+  const [total, setTotal] = useState(0)
+  const [selected, setSelected] = useState<string[]>([])
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    void getWordsByChapter({ deckId, chapter: chapterName, filter, query, sort, page, pageSize: PAGE_SIZE }).then(
+      (result) => {
+        if (!alive) return
+        setRows(result.words)
+        setTotal(result.total)
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [deckId, chapterName, filter, query, sort, page])
+
+  const selectAll = async () => {
+    const ids = await getChapterWordIds({
+      deckId,
+      chapter: chapterName,
+      filter,
+      query,
+      sort,
+      max: 999,
+    })
+    setSelected(ids)
+    if (total > 999) toast.error('最多批量选择 999 个词')
+  }
+
+  const invert = async () => {
+    const ids = await getChapterWordIds({ deckId, chapter: chapterName, filter, query, sort, max: 999 })
+    setSelected(ids.filter((id) => !selected.includes(id)))
+  }
+
+  const toggle = (id: string) =>
+    setSelected((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]))
+
+  const append = async () => {
+    setBusy(true)
+    try {
+      const result = await appendWordsToTodayPlan({ wordIds: selected, source: 'manual' })
+      toast.success(`已追加 ${result.added} 个词到今日计划${result.plan.index >= result.plan.wordIds.length ? '，可继续学习' : ''}`)
+      setSelected([])
+      setConfirmOpen(false)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '追加失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <PageShell title={chapterName} backTo={`/decks/${deckId}/units`}>
+      <BulkSelectToolbar
+        query={query}
+        onQueryChange={(value) => {
+          setQuery(value)
+          setPage(1)
+        }}
+        searchLabel="搜索单元单词"
+        sort={sort}
+        sortOptions={[
+          { value: 'order', label: '词库顺序' },
+          { value: 'alpha', label: '字母 A-Z' },
+          { value: 'familiarity', label: '不熟悉度' },
+          { value: 'due', label: '到期时间' },
+        ]}
+        onSortChange={(value) => {
+          setSort(value)
+          setPage(1)
+        }}
+        filter={filter}
+        filterOptions={[
+          { value: 'all', label: '全部' },
+          { value: 'learned', label: '已学' },
+          { value: 'new', label: '未学' },
+        ]}
+        onFilterChange={(value) => {
+          setFilter(value as Filter)
+          setPage(1)
+        }}
+        selectedCount={selected.length}
+        total={total}
+        onSelectAll={() => void selectAll()}
+        onInvert={() => void invert()}
+        onClear={() => setSelected([])}
+      />
+      {rows.length === 0 ? (
+        <EmptyState title="没有单词" description="换个筛选或搜索词试试。" />
+      ) : (
+        <div className="mm-list">
+          {rows.map(({ word, state, familiarity }) => (
+            <label className="mm-row" key={word.id}>
+              <span className="mm-row-main">
+                <span className="mm-row-title">{word.headword}</span>
+                <span className="mm-row-sub">
+                  {word.meanings.map((meaning) => meaning.cn).slice(0, 3).join('；')}
+                </span>
+              </span>
+              <span className="mm-caption">
+                {state && state.phase !== 'new' ? '已学' : '未学'}
+                {familiarity != null ? ` · ${Math.round(familiarity * 100)}%` : ''}
+              </span>
+              <input
+                type="checkbox"
+                aria-label={`选择 ${word.headword}`}
+                checked={selected.includes(word.id)}
+                onChange={() => toggle(word.id)}
+              />
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="mm-btn-row unit-pager">
+        <button type="button" className="mm-btn mm-btn--sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>
+          上一页
+        </button>
+        <span className="mm-caption">
+          {page}/{Math.max(1, Math.ceil(total / PAGE_SIZE))}
+        </span>
+        <button
+          type="button"
+          className="mm-btn mm-btn--sm"
+          disabled={page >= Math.ceil(total / PAGE_SIZE)}
+          onClick={() => setPage((value) => value + 1)}
+        >
+          下一页
+        </button>
+      </div>
+      {selected.length > 0 ? (
+        <div className="unit-pick-bar">
+          <button type="button" className="mm-btn mm-btn--primary" onClick={() => setConfirmOpen(true)}>
+            抽这些词复习（{selected.length}）
+          </button>
+        </div>
+      ) : null}
+      <Dialog
+        open={confirmOpen}
+        title="抽这些词复习？"
+        onClose={() => setConfirmOpen(false)}
+        actions={
+          <>
+            <button type="button" className="mm-btn" disabled={busy} onClick={() => setConfirmOpen(false)}>
+              取消
+            </button>
+            <button type="button" className="mm-btn mm-btn--primary" disabled={busy} onClick={() => void append()}>
+              {busy ? '追加中…' : `追加 ${selected.length} 词`}
+            </button>
+          </>
+        }
+      >
+        <div className="mm-caption">将把所选 {selected.length} 个词追加到今日计划末尾，不改每日学习量。</div>
+      </Dialog>
+    </PageShell>
+  )
+}
