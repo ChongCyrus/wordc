@@ -1,0 +1,48 @@
+/* task-228：本义助记导出/导入 */
+.core-io-dialog { display: flex; flex-direction: column; gap: 8px; }
+.core-io-counts { font-size: 12px; line-height: 18px; }
+.core-io-strategy {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 12px; line-height: 18px; color: var(--mm-text-2);
+  text-align: left;
+}
+.core-io-strategy input { flex: 0 0 auto; margin-top: 2px; }
+.core-io-strategy span { flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.core-io-warning { color: var(--mm-danger); }
+.core-io-issues { font-size: 12px; line-height: 18px; color: var(--mm-text-3); max-height: 160px; overflow-y: auto; }
+.core-io-issues ul { margin: 6px 0 0; padding-left: 18px; }
+/* task-231：导入读取/校验/导入进度（无 onProgress 时 indeterminate） */
+.mm-progress--indeterminate .mm-progress-fill { width: 35%; animation: mm-indeterminate 1s ease-in-out infinite; }
+@keyframes mm-indeterminate { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+/* task-256：存储诊断文本 */
+.storage-diagnostic-text {
+  max-height: 320px; overflow: auto; margin: 0;
+  padding: 8px 10px; border-radius: var(--mm-radius-md);
+  background: var(--mm-surface-3); color: var(--mm-text-2);
+  font-size: 11px; line-height: 16px; white-space: pre-wrap;
+  overflow-wrap: anywhere; -webkit-user-select: text; user-select: text;
+}
+/* task-258：存储诊断弹层不透明、正文可滚动、设置列表不透露 */
+.mm-mask.mm-mask--storage-diagnostic {
+  z-index: 65;
+  background: rgba(0, 0, 0, 0.72);
+}
+.mm-mask.mm-mask--storage-diagnostic .mm-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: min(82vh, 720px);
+  background: var(--mm-surface);
+  opacity: 1;
+  overflow: hidden;
+}
+.mm-mask.mm-mask--storage-diagnostic .mm-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.mm-mask.mm-mask--storage-diagnostic .mm-dialog-actions {
+  flex: 0 0 auto;
+  padding-top: 8px;
+  background: var(--mm-surface);
+}
+.storage-diagnostic-text { max-height: min(56vh, 420px); }
