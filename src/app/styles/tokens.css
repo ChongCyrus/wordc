@@ -1,0 +1,200 @@
+/* MaiMemo风 PWA 设计 Token —— 由 docs/research/03-ui.md §6 抽取
+ * 用法: <html data-theme="light|dark"> 切换；跟随系统时由 JS 解析成具体值。
+ * 生成时间: 2026-11-10 (research-ui)
+ */
+:root {
+  /* 全局字号倍数（设置 app.fontScale 0.9–1.2；由 src/app/theme.tsx 写到 <html> 行内样式） */
+  --mm-font-scale: 1;
+
+  /* ===== 品牌 / 主色 ===== */
+  --mm-primary: #36B59D;
+  --mm-primary-strong: #2A9C87;
+  --mm-primary-text: #1F7A66;
+  --mm-primary-soft: #E8F6F2;
+  --mm-primary-soft-border: #C9E9DF;
+  --mm-highlight: #1F7A66;
+  --mm-highlight-bg: #E8F6F2;
+
+  /* ===== 语义 / 评分 ===== */
+  --mm-rating-know: #2E9E86;
+  --mm-rating-vague: #B4761D;
+  --mm-rating-unknown: #B64A31;
+  --mm-danger: #B64A31;
+  --mm-warning: #B4761D;
+  --mm-success: #2E9E86;
+  --mm-info: #2A7FB0;
+
+  /* ===== 不熟悉度 5 档（0%→100%） ===== */
+  --mm-fam-0: #2E9E86;
+  --mm-fam-1: #5E9334;
+  --mm-fam-2: #B4761D;
+  --mm-fam-3: #B25C28;
+  --mm-fam-4: #B64A31;
+  --mm-fam-0-text: #227762;
+  --mm-fam-1-text: #3E6E22;
+  --mm-fam-2-text: #7C5214;
+  --mm-fam-3-text: #7C3E19;
+  --mm-fam-4-text: #7A2E1F;
+  --mm-fam-track: #EDF1EF;
+
+  /* ===== 背景 / 表面 ===== */
+  --mm-bg: #F6F8F7;
+  --mm-surface: #FFFFFF;
+  --mm-surface-2: #F5F6F6;
+  --mm-surface-3: #EDF1EF;
+  --mm-overlay: rgba(20, 24, 22, 0.42);
+
+  /* ===== 文字 ===== */
+  --mm-text: #232725;
+  --mm-text-2: #6B7270;
+  --mm-text-3: #9AA19F;
+  --mm-text-disabled: #C3C8C6;
+  --mm-text-on-primary: #FFFFFF;
+
+  /* ===== 线 / 边框 ===== */
+  --mm-border: #E6E9E8;
+  --mm-divider: #ECEFEE;
+  --mm-border-strong: #D7DCDA;
+
+  /* ===== 图表 ===== */
+  --mm-chart-known: #2E9E86;
+  --mm-chart-known-lite: #8FC4B2;
+  --mm-chart-vague: #E0A33F;
+  --mm-chart-forgot: #C9653E;
+  --mm-chart-projected: #D8DCDA;
+  --mm-chart-curve-you: #C9653E;
+  --mm-chart-curve-ebbinghaus: #7FBFA9;
+
+  /* ===== 字体 ===== */
+  --mm-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "PingFang SC", "HarmonyOS Sans SC", "Noto Sans SC",
+    "Microsoft YaHei", system-ui, sans-serif;
+
+  /* ===== 字号 / 行高 ===== */
+  --mm-text-display: calc(34px * var(--mm-font-scale));      --mm-leading-display: calc(40px * var(--mm-font-scale));
+  --mm-text-wc-word: calc(36px * var(--mm-font-scale));      --mm-leading-wc-word: calc(44px * var(--mm-font-scale));
+  --mm-text-wc-cn: calc(34px * var(--mm-font-scale));        --mm-leading-wc-cn: calc(42px * var(--mm-font-scale));
+  --mm-text-h1: calc(24px * var(--mm-font-scale));           --mm-leading-h1: calc(32px * var(--mm-font-scale));
+  --mm-text-h2: calc(20px * var(--mm-font-scale));           --mm-leading-h2: calc(28px * var(--mm-font-scale));
+  --mm-text-title: calc(17px * var(--mm-font-scale));        --mm-leading-title: calc(24px * var(--mm-font-scale));
+  --mm-text-body: calc(16px * var(--mm-font-scale));         --mm-leading-body: calc(26px * var(--mm-font-scale));
+  --mm-text-body-sm: calc(15px * var(--mm-font-scale));      --mm-leading-body-sm: calc(24px * var(--mm-font-scale));
+  --mm-text-caption: calc(13px * var(--mm-font-scale));      --mm-leading-caption: calc(20px * var(--mm-font-scale));
+  --mm-text-label: calc(12px * var(--mm-font-scale));        --mm-leading-label: calc(16px * var(--mm-font-scale));
+  --mm-text-tab: calc(11px * var(--mm-font-scale));          --mm-leading-tab: calc(14px * var(--mm-font-scale));
+  --mm-weight-regular: 400;
+  --mm-weight-medium: 500;
+  --mm-weight-semibold: 600;
+
+  /* ===== 间距（4px 基数） ===== */
+  --mm-space-1: 4px;  --mm-space-2: 8px;  --mm-space-3: 12px;
+  --mm-space-4: 16px; --mm-space-5: 20px; --mm-space-6: 24px;
+  --mm-space-8: 32px; --mm-space-10: 40px; --mm-space-12: 48px;
+  --mm-page-x: 16px;
+  --mm-section-band-h: 32px;
+  --mm-row-h: 56px;
+  --mm-touch: 44px;
+
+  /* ===== 圆角 ===== */
+  --mm-radius-xs: 4px;
+  --mm-radius-sm: 6px;
+  --mm-radius-md: 10px;
+  --mm-radius-lg: 14px;
+  --mm-radius-pill: 999px;
+
+  /* ===== 阴影 ===== */
+  --mm-shadow-card: 0 1px 2px rgba(35, 39, 37, 0.04);
+  --mm-shadow-float: 0 2px 8px rgba(35, 39, 37, 0.08);
+  --mm-shadow-bar: 0 -1px 0 rgba(35, 39, 37, 0.06),
+    0 -8px 24px rgba(35, 39, 37, 0.06);
+  --mm-shadow-sheet: 0 -8px 32px rgba(35, 39, 37, 0.14);
+
+  /* ===== 动效 ===== */
+  --mm-dur-instant: 90ms;
+  --mm-dur-fast: 160ms;
+  --mm-dur-base: 220ms;
+  --mm-dur-slow: 320ms;
+  --mm-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --mm-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --mm-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --mm-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ===== 布局 ===== */
+  --mm-tabbar-h: 56px;
+  --mm-header-h: 44px;
+  --mm-content-max: 560px;
+  --mm-safe-top: env(safe-area-inset-top, 0px);
+  --mm-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --mm-theme-color: #FFFFFF;
+
+  /* ===== 层级 ===== */
+  --mm-z-tabbar: 20;
+  --mm-z-actionbar: 30;
+  --mm-z-sheet: 40;
+  --mm-z-dialog: 50;
+  --mm-z-toast: 60;
+}
+
+
+:root[data-theme="dark"] {
+  --mm-primary: #45C6AC;
+  --mm-primary-strong: #5AD2B8;
+  --mm-primary-text: #6FD8C0;
+  --mm-primary-soft: #15332C;
+  --mm-primary-soft-border: #245247;
+  --mm-highlight: #6FD8C0;
+  --mm-highlight-bg: #17352E;
+
+  --mm-rating-know: #35A98F;
+  --mm-rating-vague: #C08325;
+  --mm-rating-unknown: #C25A40;
+  --mm-danger: #C25A40;
+  --mm-warning: #C08325;
+  --mm-success: #35A98F;
+  --mm-info: #4E9FCC;
+
+  --mm-fam-0: #39A98F;
+  --mm-fam-1: #6B9C3F;
+  --mm-fam-2: #C08325;
+  --mm-fam-3: #C1672F;
+  --mm-fam-4: #C25A40;
+  --mm-fam-0-text: #7FD8C0;
+  --mm-fam-1-text: #A8C97F;
+  --mm-fam-2-text: #E5B45F;
+  --mm-fam-3-text: #E59A63;
+  --mm-fam-4-text: #E58E75;
+  --mm-fam-track: #2A302D;
+
+  --mm-bg: #101312;
+  --mm-surface: #1A1E1C;
+  --mm-surface-2: #232826;
+  --mm-surface-3: #2A302D;
+  --mm-overlay: rgba(0, 0, 0, 0.55);
+
+  --mm-text: #E8ECEA;
+  --mm-text-2: #A7AFAC;
+  --mm-text-3: #7C8582;
+  --mm-text-disabled: #565E5B;
+  --mm-text-on-primary: #0E1412;
+
+  --mm-border: #2C322F;
+  --mm-divider: #262C29;
+  --mm-border-strong: #3A423E;
+
+  --mm-chart-known: #39A98F;
+  --mm-chart-known-lite: #5E8C7E;
+  --mm-chart-vague: #C08325;
+  --mm-chart-forgot: #C25A40;
+  --mm-chart-projected: #3A423E;
+  --mm-chart-curve-you: #D0714C;
+  --mm-chart-curve-ebbinghaus: #4FA98F;
+
+  --mm-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --mm-shadow-float: 0 2px 8px rgba(0, 0, 0, 0.32);
+  --mm-shadow-bar: 0 -1px 0 rgba(0, 0, 0, 0.4),
+    0 -8px 24px rgba(0, 0, 0, 0.28);
+  --mm-shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.5);
+
+  --mm-theme-color: #101312;
+}
+
