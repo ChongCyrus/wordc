@@ -1,0 +1,16 @@
+import { launch, newContext, BASE, waitSeededHome, setupAi, injectPlanForWord, clickHomeLearn, enterAnnotation, openAiPanel, makeMockState, installMock, sleep } from './ai-qa-lib.mjs'
+const browser = await launch(); const { context, page, bag } = await newContext(browser); page.setDefaultTimeout(12000)
+page.on('crash', () => console.log('PAGE CRASHED'))
+await installMock(page, makeMockState())
+await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 }); console.log('goto ok'); await waitSeededHome(page); console.log('seeded')
+await setupAi(page); console.log('ai set')
+await injectPlanForWord(page, 1, { headword: 'address' }); console.log('plan injected')
+await page.reload({ waitUntil: 'domcontentloaded' }); console.log('reload'); await waitSeededHome(page); console.log('seeded2')
+await clickHomeLearn(page); console.log('study'); await enterAnnotation(page); console.log('anno')
+const gen = await openAiPanel(page); console.log('panel'); await sleep(1000)
+console.log('text1', (await gen.innerText()).replace(/\s+/g,' ').match(/目标：\d+[^·]*/)?.[0])
+const sels = gen.locator('select'); console.log('select count', await sels.count())
+try { await sels.first().selectOption('append', { timeout: 5000 }); console.log('selected append') } catch(e) { console.log('select err', e.message.slice(0,300)) }
+await sleep(1000); console.log('text2', (await gen.innerText()).replace(/\s+/g,' ').match(/目标：\d+[^·]*/)?.[0])
+console.log('bag', bag.consoleErrors.slice(0,3), bag.pageErrors.slice(0,2))
+await context.close(); await browser.close()
