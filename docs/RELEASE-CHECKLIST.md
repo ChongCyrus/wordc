@@ -1,0 +1,110 @@
+# 发版前真机验收清单（强制门禁）
+
+> 背景：task-118。现有 E2E 全部跑在 fresh IndexedDB + 合成 pack / fake provider，**不能替代真机升级路径与真实传输验收**。
+> **任一项失败 → 本次不发版/回滚**。由 Lead 在真机执行，QA 负责记录结果与截图；CI 绿只作为前置，不是发版依据。
+
+## 0. 前置
+- [ ] CI 构建通过；APK sha256/versionCode 与预期一致
+- [ ] 真机安装/升级（**不要先清数据**；覆盖安装以验证升级路径）
+- [ ] 记录：机型 / Android / APK version / versionCode / 安装方式（覆盖/清装）
+- [ ] 若清装：另做一次「旧版 → 新版覆盖升级」验证升级路径（至少旧版 0.3.20/0.3.21 → 本版）
+
+## 1. 首启/升级 seed
+- [ ] 首屏可操作，不白屏、不崩溃
+- [ ] 设置 → 内容包：内置内容最终全部 `已应用 == 总`
+- [ ] **升级路径**：旧版已 seed 的设备升级后，旧 v3/v4 本义链包被清理，只剩当前 v4 包；无重复/空包/草稿包行
+- [ ] 关掉网络重开：首页/学习可打开，不报错；恢复网络后内容包可重新应用
+
+## 2. 学习页（核心）
+- [ ] 首页 → 开始学习 → 白板面（单词+例句）
+- [ ] 点击进入注释面；注释面中文含义、例句、词组、助记正常
+- [ ] **本义链**：至少抽查 2 个多义词（如 `technical`、`domain`、`axe`）
+  - [ ] 顶部本义列表显示，编号/「」括号正确
+  - [ ] c 行下本义链与 c 对应（如 technical c3 显示本义②「专门」）
+  - [ ] 链尾「AI 推演，仅供参考」存在
+- [ ] 点「记忆」进入 w-c：当前 c 下方显示本义链；切换 c 后链跟随变化
+- [ ] 长文本（如 domain 本义链/长例句）390px 不横向溢出，按钮区不被挤压
+- [ ] 三键评分正常；回退/改判正常；退出/续学正常
+
+## 3. AI 面板（真实 key / 真实网络）
+- [ ] 设置填写真实 Key，测试连接成功
+- [ ] 学习页 → 更多 → AI 补内容：范围/类型/排除可切换，目标数/费用随选择刷新
+- [ ] 生成 1 个词（或少量）：出现真实进度；成功后审核 ✓ 保存，注释面/w-c 立即出现新内容
+- [ ] 关闭面板再重开：有草稿时提示「继续上次生成（X/Y）」
+- [ ] 取消生成：草稿保留，summary 提示已保存；重新打开可继续
+- [ ] 放弃草稿：需二次确认，确认后不再提示
+- [ ] 错误场景：断网/错误 Key 时显示分类文案（网络失败/Key 无效），错误可清除，不出现空包/重复包
+
+## 4. 内容包管理
+- [ ] 列表行「已应用 N / 总 M」；来源显示正确（内置/AI/手工/草稿）
+- [ ] 无草稿包混入列表、无空包、无重复行
+- [ ] 「重新检查内置内容」运行中按钮禁用 + 进度文案；完成后包总数不增加，所有内置包 N==M
+- [ ] 「清理重复内容包」（如有重复）：toast「已清理 N 个」，列表不再重复，已应用内容仍在
+- [ ] **重置本义数据**：二次确认；完成后本义链为当前 v4，词条/学习进度保留
+- [ ] 删除内容包：确认后删除；默认已应用内容保留（如产品提供“同时移除已应用内容”开关，勾选时对应内容移除）
+- [ ] 删除大包（如 examples 9.4MB）应快速完成（目标 <2s，真机可接受 <5s），不卡死
+
+## 5. 首页/统计/我的/设置
+- [ ] 首页 KPI（待复习/待新学/今日已学）与文案「复习 a · 新学 b」正确
+- [ ] 今日单词页两分区、标签、空态正常
+- [ ] 统计页有数据时图表/分区正常，无数据时空态正常
+- [ ] 我的页导出/导入学习进度正常（导出无完整 API Key）
+- [ ] 设置页长选项文案不溢出、开关/选择器可用、主题/字号生效
+
+## 6. 记录与门禁
+- [ ] 结果写入 `docs/QA-v2.md`（版本/机型/通过项/失败项/截图路径）
+- [ ] 任一项失败：记录复现步骤 + 截图 + 日志，**不发版**；修复后重跑本清单
+- [ ] 无障碍开启时，QA 用 `mcp__phone__*` 自行点检并留证；未开启由 Lead 操作并转截图给 QA
+
+## 签字
+| 项 | 结果 | 备注/截图 |
+|---|---|---|
+| 安装/升级版本 |  |  |
+| seed/内容包 |  |  |
+| 学习页/本义链 |  |  |
+| AI 真实生成 |  |  |
+| 内容包管理 |  |  |
+| 首页/统计/我的/设置 |  |  |
+| 结论 | 发版 / 不发 |  |
+
+## 7. 构建矩阵（arch，发版前逐项打勾）
+- [ ] 5 处版本一致：`package.json`、`tools/e2e/package.json`、`src/app/version.ts`、`src/data/import-export.ts`（GENERATOR+APP_VERSION）、`tools/apk/version.json`（version+code）
+- [ ] 私版：`rm -rf dist public/packs && bash scripts/build-private.sh` 成功，`dist/packs` 6 个、`dist/generated` 2 个
+- [ ] 公开版：干净 commit → `tools/sanitize-public.mjs`，禁用词 0、`public/packs` 仅 dagang 2、`public/generated`/`data/generated` 不存在
+- [ ] APK：`tools/apk/build-apk.sh` 成功；badging versionName/versionCode 与版本一致；`assets/pwa/generated/` 2 文件、`assets/pwa/packs/` 齐全
+- [ ] APK sha256 与交付路径记录；DSH-Go 文件名含版本号，不覆盖旧包（保留可回滚）
+- [ ] 公开仓 root/tag 指向同一 commit；CI + e2e 全绿
+
+## 8. 升级 / 重装（真机，必须）
+- [ ] **覆盖升级**（不清数据）：安装上一版 → 不清库直接覆盖本版；启动不白屏；设置保留；旧计划/旧 session 可继续
+- [ ] **升级保留**：IndexedDB（decks/words/states/reviewLogs/plans/notes/settings）在；旧 SW 被清理并重载一次；无旧 chunk 混用黑屏
+- [ ] **新装**：卸载或清应用数据后安装；首启可操作；默认 `study.newWordSource=manual`、`memory.cardFlashAnimation=false`、`data.generatedAutoSeed=false`；首页待新学 0，手动添加后才有新词
+- [ ] **卸载重装 + Android 自动恢复**：分别在系统「自动恢复/备份」开启与关闭下各装一次；若系统恢复了旧 WebView/IndexedDB，确认页面不卡、旧计划不残留未学自动新词；异常时记录系统设置与截图（`allowBackup=true` 是已知变量）
+- [ ] **预装内容**：默认不自动导入；「我的→数据→预装内容」=未开始 + 立即导入；手动导入完成后本义助记/引申图出现，重复导入幂等、不覆盖手改
+- [ ] **自动备份**：内部 `getFilesDir()/auto-backups/*.json.gz` 生成；列表/恢复/导出到 Download 可用；卸载会清内部备份（系统备份恢复除外）
+
+## 9. Service Worker / 缓存
+- [ ] 生产构建 `/sw.js` active 属预期（vite-plugin-pwa generateSW），不是旧缓存
+- [ ] 覆盖升级后旧 SW 被注销并清 caches，再重载拿新 assets（APK 内 assets 不受影响）
+- [ ] 手工验证：设置页/学习页刷新两次不黑屏；`console` 无旧 chunk 404/React #310
+
+## 10. GitHub 网络兜底（发布时）
+- [ ] 先试 `git push` / API push；遇 `github.com:443` TLS 阻断时，用 `api.github.com` Git Data API 或 `ssh://git@ssh.github.com:443/...`（deploy key）兜底
+- [ ] 公开树 push 后核对 `package.json` 版本、root commit、tag 指向；CI/e2e 绿再报发布
+- [ ] 手动长测试：Actions → data-tests (manual) 选 `all`，下载 `data-tests-all-logs` artifact；失败先看 `vitest.log`
+
+
+---
+
+## 11. 0.3.93–0.3.98 回归专项（强制）
+
+> **版本注记：0.3.96 / 0.3.97 未公开发布，其修复并入 0.3.98。** 本节为 0.3.98 起每次发版的必跑项；任一项失败不发版。
+
+- [ ] **全屏面板关闭不渲染**：新全屏面板（AI 批量、批量不常考、选择模式、详情弹层等）默认 `open=false` 时**不挂载 DOM**；不存在隐藏遮罩、页面滚动锁、focus trap 或残留监听；打开才挂载、关闭后清理。Gate：`qa-task297-gate`（面板路径）+ 手动 DOM 检查。
+- [ ] **详情冷启动直接渲染**：词库→单词详情（`/study?detailWord`）冷启动直接显示词根词缀词源卡片，**不等待聚合/内容包/preinstall**；无先白屏后突然出现。Gate：`qa-detail-root-card-gate`。
+- [ ] **浏览器 back 哨兵/history**：进入全屏面板、详情、临时复习时只压入一个哨兵；返回关闭当前层并回原页；连续打开/关闭后 `history.length` 不增长、不累积废条目；首屏返回不退出 App。
+- [ ] **批量面板选中来源请求竞态**：快速切换「已选/当前词/今日计划/当前词库/当前筛选」与筛选条件时，旧请求不得覆盖新来源；候选数、「开始」按钮、预览勾选与当前来源一致。Gate：`qa-task297-gate`。
+- [ ] **fresh 预装顺序**：全新安装先完成内容包 apply，再导入 mnemonics/衍生数据；两者不并行互相覆盖；任一步失败可重试且不阻塞首屏；Web/PWA 不自动 seed。Gate：fresh 预装手动流程 + `qa-task271/272` 相关套件。
+- [ ] **自动备份边界**：单份备份 ≤100MB；`.json.gz` 可解压/可恢复；`restoreState` 恢复（含旧 `sources` 结构兼容）；恢复前 pre-restore 备份生成；列表/恢复/pre-restore/异常提示可用。Gate：`qa-autobackup-native-gate`、`qa-autobackup-daily-gate`。
+- [ ] **安装矩阵**：覆盖升级（旧计划/设置/进度保留）、卸载重装、手动导入恢复、fresh 预装四路径全部跑通；APK 与 Web 至少各一次并在结果中标注实际路径。
+- [ ] **回炉回归**：同日重复「认识」在进度未满时继续回炉、最后词不提前 completed。Gate：`qa-requeue-gate`。
