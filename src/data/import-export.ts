@@ -1,0 +1,1422 @@
+/**
+ * 导入 / 导出（SPEC §6，AC5）。
+ *
+ * 三种文件：
+ * - DeckFile v1（`momo-deck`）：纯词库，可公开分享，不含学习状态（§6.1）；
+ * - MigrationFile v1（`momo-migration`）：词库 + 学习状态 + 设置 + 版本号 + checksum（§6.2, D22）；
+ * - CSV（§6.3）：用户自己的词单（一行一词，多义用 `；` 分隔）。
+ *
+ * 导入流程统一为：**先校验后写库**；任何 error 级 issue → 整体不写库（ok:false）。
+ * 导入结果写 `meta:import:last`，设置页展示（§2.2）。
+ */
+
+import { localDateKey, newDeckId } from '../core'
+import type {
+  Deck,
+  DeckFile,
+  ImportIssue,
+  ImportReport,
+  MigrationFile,
+  ReviewLog,
+  SettingRecord,
+  Word,
+  WordState,
+} from '../core'
+import type { DailyPlan } from './plan.types'
+import { computeChecksum, migrationChecksumPayload, stableStringify, stableStringifyAsync } from './checksum'
+import type { ChecksumAlgo } from './checksum'
+import { getDb } from './db'
+import { diffReplaceDeckWords } from './word-mutation'
+import { withDataWriteLock } from './write-lock'
+import { bumpDataEpoch } from './data-epoch'
+import { assertIdbMutationAllowed, getLearningWriteSource, persistLearningWriteSource } from './learning-write-source'
+import { clearAllSqliteFacts, clearSqliteFactsTables } from './sqlite-clear'
+import { sqliteQuery, sqliteTx } from './native-sqlite'
+import { createSqliteFactsBackup, restoreSqliteFactsBackup } from './sqlite-backup'
+import { migrateIdbToSqlite, stateRow as migrationStateRow, planRow as migrationPlanRow, logRow as migrationLogRow, settingRow as migrationSettingRow } from './migration-sqlite'
+import { rebuildIdbCacheFromSqlite } from './cache-rebuild'
+import { deleteStateCheckpointFiles } from './state-checkpoint'
+import type { AutoBackupBridge } from './auto-backup'
+import { csvToWordInputs, parseCsv } from './csv'
+import { ensureSingleDefaultDeck } from './decks.repo'
+import { ensureBuiltinDeckWords } from './builtin'
+import { makeIssue, parseDeckFile, parseMigrationFile } from './schema'
+import { applyImportedSettings, getSettings } from './settings.repo'
+import type { RawWordInput } from './word-factory'
+
+export const GENERATOR = 'wordc@0.11.0'
+export const APP_VERSION = '0.11.0'
+
+/** 迁移包导出选项 */
+export interface ExportOptions {
+  /** 是否包含复习日志（默认 true；最多 20000 条） */
+  includeReviewLogs?: boolean
+  /** 复习日志条数上限（默认 20000，§6.2） */
+  maxReviewLogs?: number
+  /**
+   * 0.3.61：是否包含全量 derivationMap（默认 **false**）。
+   * 引申图体积可达数 MB，应使用「我的→数据→整库引申图」bundle 单独导出；
+   * false 时迁移包仍包含 words/notes/nc/rootMnemonic/rareMeaningIds/states/settings。
+   */
+  includeDerivationMaps?: boolean
+  /**
+   * 0.3.61：是否包含内容包三表（默认 **false**）。
+   * 内容包体积大，可单独用内容包导出；false 时迁移包不含 packs/packItems/contentRejects。
+   */
+  includeContentPacks?: boolean
+  /**
+   * 0.3.63：导出前体积硬性上限（字节）。超过则抛 MigrationTooLargeError，**不构建大字符串/不 base64**，
+   * 避免 WebView OOM。UI 完整备份建议传 24MB 左右；轻量备份可不传。
+   */
+  maxBytes?: number
+}
+
+/** 完整备份安全上限（0.3.63：超过则不构建大 JSON/base64，直接引导分项导出） */
+export const FULL_BACKUP_MAX_BYTES = 20 * 1024 * 1024
+
+export class MigrationTooLargeError extends Error {
+  readonly estimatedBytes: number
+  readonly maxBytes: number
+  constructor(estimatedBytes: number, maxBytes: number) {
+    const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)}MB`
+    super(
+      `迁移包预计 ${mb(estimatedBytes)}，超过安全上限 ${mb(maxBytes)}，已取消导出（不会生成文件，避免 App 崩溃）。` +
+        '请改用：导出学习进度（轻量）+ 导出全部引申图 + 内容包导出；需要完整恢复时分别导入。',
+    )
+    this.name = 'MigrationTooLargeError'
+    this.estimatedBytes = estimatedBytes
+    this.maxBytes = maxBytes
+  }
+}
+
+export interface MigrationSizeEstimate {
+  bytes: number
+  breakdown: {
+    words: number
+    derivationMaps: number
+    states: number
+    reviewLogs: number
+    settings: number
+    packs: number
+    packItems: number
+    contentRejects: number
+  }
+}
+
+/** 导入选项（§9.3） */
+export type MigrationImportPhase = 'read' | 'parse' | 'checksum' | 'validate' | 'apply' | 'done'
+
+export interface MigrationImportProgress {
+  phase: MigrationImportPhase
+  message?: string
+}
+
+export interface ImportSqliteStageImpl {
+  createBackup?: typeof createSqliteFactsBackup
+  restoreBackup?: typeof restoreSqliteFactsBackup
+  clearFacts?: typeof clearAllSqliteFacts
+  migrate?: typeof migrateIdbToSqlite
+  rebuildCache?: typeof rebuildIdbCacheFromSqlite
+  health?: () => Promise<{ counts?: Record<string, number>; ok?: boolean; message?: string }>
+}
+
+export interface ImportOptions {
+  strategy?: 'replace' | 'merge' | 'keepNewer'
+  /** checksum 不符仍导入（UI「仍要导入（风险）」按钮） */
+  force?: boolean
+  /** 0.3.95：大文件恢复进度（仅阶段，不表示每表进度） */
+  onProgress?: (progress: MigrationImportProgress) => void
+  /** 0.10.0：恢复超时/取消检查；每个写批次前调用，返回 true 则中止导入 */
+  shouldAbort?: () => boolean
+  /** 0.10.0：调用方已持有全局写锁（restore 内部用），避免嵌套死锁 */
+  skipWriteLock?: boolean
+  /** A3：sqlite 模式导入前强制完整备份（失败拒绝） */
+  preBackup?: () => Promise<void | { ok: boolean; error?: string }>
+  /** A3：测试注入 SQLite staging 实现 */
+  sqliteStageImpl?: ImportSqliteStageImpl
+}
+
+/**
+ * 迁移包 v2（formatVersion 保持 1；只加可选字段）：
+ * - `data.plans?`：只带导出当天的今日计划（≤1–2 条，跨设备续学）；
+ * - `counts.plans?`：旧文件缺省 0；
+ * - `meta.checksumAlgo`：checksum 算法标注（§6.2）。
+ */
+export type MigrationFileWithMeta = MigrationFile & {
+  counts: MigrationFile['counts'] & { plans?: number }
+  data: MigrationFile['data'] & { plans?: DailyPlan[] }
+  meta?: { checksumAlgo?: ChecksumAlgo; excluded?: string[] }
+}
+
+const EMPTY_COUNTS: ImportReport['counts'] = {
+  decks: 0,
+  words: 0,
+  states: 0,
+  reviewLogs: 0,
+  skipped: 0,
+}
+
+function makeReport(
+  kind: ImportReport['kind'],
+  issues: ImportIssue[],
+  counts: Partial<ImportReport['counts']>,
+  durationMs: number,
+): ImportReport {
+  return {
+    ok: !issues.some((issue) => issue.level === 'error'),
+    kind,
+    counts: { ...EMPTY_COUNTS, ...counts },
+    issues,
+    durationMs,
+  }
+}
+
+/** 统一读入文本（string 或 File/Blob） */
+async function readInput(input: string | File): Promise<string> {
+  if (typeof input === 'string') return input
+  if (input && typeof (input as File).text === 'function') return (input as File).text()
+  throw new Error('无法读取文件内容')
+}
+
+async function parseJsonText(text: string): Promise<{ ok: true; value: unknown } | { ok: false; issues: ImportIssue[] }> {
+  const trimmed = text.replace(/^\uFEFF/, '').trim()
+  if (!trimmed) return { ok: false, issues: [makeIssue('error', 'E_FORMAT', '文件是空的')] }
+  try {
+    return { ok: true, value: JSON.parse(trimmed) as unknown }
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [
+        makeIssue('error', 'E_FORMAT', `JSON 解析失败：${error instanceof Error ? error.message : String(error)}`),
+      ],
+    }
+  }
+}
+
+async function writeLastImport(report: ImportReport): Promise<void> {
+  try {
+    const db = getDb()
+    await db.meta.put({
+      key: 'import:last',
+      value: { at: Date.now(), kind: report.kind, report },
+      updatedAt: Date.now(),
+    })
+  } catch {
+    // 记录上次导入失败不该影响主流程
+  }
+}
+
+/** 分批写词条/状态（手机端 bulkPut 500 条更稳，§6.5） */
+const CHUNK = 500
+async function bulkPutChunked<T>(table: { bulkPut: (items: T[]) => Promise<unknown> }, items: T[]): Promise<void> {
+  for (let i = 0; i < items.length; i += CHUNK) {
+    await table.bulkPut(items.slice(i, i + CHUNK))
+  }
+}
+
+function uniqueDeckName(base: string, existing: ReadonlySet<string>): string {
+  if (!existing.has(base)) return base
+  for (let i = 2; i < 1000; i += 1) {
+    const candidate = `${base} (${i})`
+    if (!existing.has(candidate)) return candidate
+  }
+  return `${base} ${Date.now()}`
+}
+
+/** 词库文件名（UI 下载用）：非法字符替换为 _ */
+export function deckFileName(deck: Pick<Deck, 'name'>): string {
+  const safe = deck.name.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 80)
+  return `${safe || 'deck'}.deck.json`
+}
+
+/** 迁移包文件名（UI 下载用） */
+export function migrationFileName(now: number = Date.now()): string {
+  return `momo-backup-${localDateKey(now)}.migration.json`
+}
+
+// ============ 导出 ============
+
+/** 构造纯词库文件（DeckFile v1） */
+export async function buildDeckFile(deckId: string, now: number = Date.now()): Promise<DeckFile> {
+  const db = getDb()
+  const deck = await db.decks.get(deckId)
+  if (!deck) throw new Error('词库不存在')
+  const words = await db.words
+    .where('[deckId+order]')
+    .between([deckId, -Infinity], [deckId, Infinity])
+    .toArray()
+  const meta: DeckFile['meta'] = { wordCount: words.length }
+  if (deck.license) {
+    meta.license = deck.license
+    if (deck.source === 'builtin') meta.copyrightNotice = deck.license
+  }
+  return {
+    format: 'momo-deck',
+    formatVersion: 1,
+    exportedAt: now,
+    generator: GENERATOR,
+    deck: { ...deck, wordCount: words.length, updatedAt: now },
+    words,
+    meta,
+  }
+}
+
+/** 导出纯词库（不含学习状态，可公开分享） */
+export async function exportDeck(deckId: string): Promise<Blob> {
+  const file = await buildDeckFile(deckId)
+  return new Blob([stableStringify(file)], { type: 'application/json' })
+}
+
+/**
+ * 0.3.61：旧包/轻量包缺字段时，merge/keepNewer 保留本机用户内容（避免导入旧备份把新数据清空）。
+ * replace 模式不保留（除 derivationMap 在包声明 excluded 时单独快照保护）。
+ */
+const OPTIONAL_USER_FIELDS: Array<keyof Word> = [
+  'derivationMap',
+  'ncMeaningIds',
+  'rootMnemonic',
+  'rareMeaningIds',
+  'rareMarkCheckedAt',
+  'rareMarkVersion',
+  'rootEtymology',
+  'rootEtymologyCheckedAt',
+  'rootEtymologyVersion',
+  'userNotes',
+  'userMnemonics',
+  'hiddenMnemonicKeys',
+]
+
+function preserveLocalUserFields(imported: Word, local: Word | undefined): Word {
+  if (!local) return imported
+  let next = imported
+  for (const field of OPTIONAL_USER_FIELDS) {
+    if (next[field] === undefined && local[field] !== undefined) {
+      if (next === imported) next = { ...imported }
+      ;(next as unknown as Record<string, unknown>)[field] = local[field]
+    }
+  }
+  return next
+}
+
+/** 构造可迁移包（含 states/settings，checksum） */
+/** 估算 migration JSON 体积（逐项 stringify 后累加；不一次性拼大字符串，供 OOM 预检） */
+export async function estimateMigrationBytes(opts: ExportOptions = {}): Promise<MigrationSizeEstimate> {
+  const db = getDb()
+  const [decks, words, states, settingRows] = await Promise.all([
+    db.decks.toArray(),
+    db.words.toArray(),
+    db.states.toArray(),
+    db.settings.toArray(),
+  ])
+  let derivationMaps = 0
+  let wordBytes = 0
+  for (const word of words) {
+    const mapBytes = word.derivationMap ? JSON.stringify(word.derivationMap).length : 0
+    derivationMaps += mapBytes
+    wordBytes += JSON.stringify(word).length + 1
+  }
+  let reviewLogs = 0
+  if (opts.includeReviewLogs !== false) {
+    const max = Math.max(0, Math.floor(opts.maxReviewLogs ?? 20000))
+    if (max > 0) {
+      const rows = await db.reviewLogs.orderBy('reviewedAt').reverse().limit(max).toArray()
+      reviewLogs = rows.reduce((sum, row) => sum + JSON.stringify(row).length + 1, 0)
+    }
+  }
+  let packs = 0
+  let packItems = 0
+  let contentRejects = 0
+  if (opts.includeContentPacks === true) {
+    const [packRows, itemRows, rejectRows] = await Promise.all([
+      db.packs.toArray(),
+      db.packItems.toArray(),
+      db.contentRejects.toArray(),
+    ])
+    packs = packRows.reduce((sum, row) => sum + JSON.stringify(row).length + 1, 0)
+    packItems = itemRows.reduce((sum, row) => sum + JSON.stringify(row).length + 1, 0)
+    contentRejects = rejectRows.reduce((sum, row) => sum + JSON.stringify(row).length + 1, 0)
+  }
+  const statesBytes = states.reduce((sum, row) => sum + JSON.stringify(row).length + 1, 0)
+  const settingsBytes = settingRows.reduce((sum, row) => sum + JSON.stringify(row).length + 1, 0)
+  const decksBytes = decks.reduce((sum, row) => sum + JSON.stringify(row).length + 1, 0)
+  const bytes =
+    wordBytes + statesBytes + reviewLogs + settingsBytes + decksBytes + packs + packItems + contentRejects
+  return {
+    bytes,
+    breakdown: {
+      words: wordBytes,
+      derivationMaps,
+      states: statesBytes,
+      reviewLogs,
+      settings: settingsBytes,
+      packs,
+      packItems,
+      contentRejects,
+    },
+  }
+}
+
+export async function buildMigrationFile(opts: ExportOptions = {}): Promise<MigrationFileWithMeta> {
+  const db = getDb()
+  const now = Date.now()
+  const [decks, rawWords, states, settingRows] = await Promise.all([
+    db.decks.toArray(),
+    db.words.toArray(),
+    db.states.toArray(),
+    db.settings.toArray(),
+  ])
+  const includeDerivationMaps = opts.includeDerivationMaps === true
+  // 0.3.61：默认轻量迁移（不含 ~MB 级 derivationMap），避免 WebView 桥 base64 OOM；
+  // 需要完整备份时显式 includeDerivationMaps/includeContentPacks。
+  const words: Word[] = includeDerivationMaps
+    ? rawWords
+    : rawWords.map((word) => {
+        if (!word.derivationMap) return word
+        const { derivationMap: _omitted, ...rest } = word
+        return rest
+      })
+  let reviewLogs: ReviewLog[] = []
+  if (opts.includeReviewLogs !== false) {
+    const max = Math.max(0, Math.floor(opts.maxReviewLogs ?? 20000))
+    if (max > 0) {
+      const tail = await db.reviewLogs.orderBy('reviewedAt').reverse().limit(max).toArray()
+      reviewLogs = tail.sort((a, b) => a.reviewedAt - b.reviewedAt)
+    }
+  }
+  // 隐私（D23/task-70）：MaiMemo token 与 AI Key 永不进迁移包
+  const settings: SettingRecord[] = settingRows.filter(
+    (record) => record.key !== 'data.maimemoToken' && record.key !== 'ai.apiKey',
+  )
+  // v2：只带导出当天的今日计划（最多 2 条：一天内切换词库的情况）
+  const todayKey = localDateKey(now)
+  const plans = await db.plans.where('date').equals(todayKey).limit(2).toArray()
+  // v3（task-69）：内容包三表随迁移包导出（备份/换机保留 AI 生成内容与拒绝记忆）
+  // 0.3.61：默认排除（体积大；内容包有单独导出），显式 includeContentPacks 才读取
+  const includeContentPacks = opts.includeContentPacks === true
+  const [contentPacks, packItems, contentRejects] = includeContentPacks
+    ? await Promise.all([db.packs.toArray(), db.packItems.toArray(), db.contentRejects.toArray()])
+    : [[], [], []]
+  const excluded: string[] = []
+  if (!includeDerivationMaps) excluded.push('derivationMap')
+  if (!includeContentPacks) excluded.push('contentPacks')
+  const data: MigrationFileWithMeta['data'] = {
+    decks,
+    words,
+    states,
+    reviewLogs,
+    settings,
+    ...(plans.length > 0 ? { plans } : {}),
+    ...(contentPacks.length > 0 ? { contentPacks } : {}),
+    ...(packItems.length > 0 ? { packItems } : {}),
+    ...(contentRejects.length > 0 ? { contentRejects } : {}),
+  }
+  const payload = {
+    format: 'momo-migration' as const,
+    formatVersion: 1 as const,
+    dataVersion: 1 as const,
+    data,
+  }
+  const checksum = await computeChecksum(migrationChecksumPayload(payload))
+  return {
+    format: 'momo-migration',
+    formatVersion: 1,
+    exportedAt: now,
+    generator: GENERATOR,
+    appVersion: APP_VERSION,
+    dataVersion: 1,
+    counts: {
+      decks: decks.length,
+      words: words.length,
+      states: states.length,
+      reviewLogs: reviewLogs.length,
+      ...(plans.length > 0 ? { plans: plans.length } : {}),
+    },
+    data,
+    checksum: checksum.hex,
+    meta: { checksumAlgo: checksum.algo, ...(excluded.length > 0 ? { excluded } : {}) },
+  }
+}
+
+/** 导出可迁移包（备份/跨设备迁移） */
+export async function exportMigration(opts: ExportOptions = {}): Promise<Blob> {
+  // 0.3.63：完整备份先做体积预检（逐项估算，不构建完整 JSON/base64），超过硬上限直接拒绝，避免 OOM
+  if (opts.maxBytes && opts.maxBytes > 0) {
+    const estimate = await estimateMigrationBytes(opts)
+    if (estimate.bytes > opts.maxBytes) {
+      throw new MigrationTooLargeError(estimate.bytes, opts.maxBytes)
+    }
+  }
+  const file = await buildMigrationFile(opts)
+  return new Blob([stableStringify(file)], { type: 'application/json' })
+}
+
+/**
+ * 0.4.0/task-282：自动备份专用异步导出文本。
+ * buildMigrationFile 后分片 stableStringifyAsync，每 ~128KB / 200 字段让出主线程；
+ * 内容与 exportMigration 的 Blob 文本一致。
+ */
+export async function exportMigrationText(
+  opts: ExportOptions & { onProgress?: (progress: { phase: 'build' | 'stringify'; chars?: number }) => void } = {},
+): Promise<string> {
+  if (opts.maxBytes && opts.maxBytes > 0) {
+    const estimate = await estimateMigrationBytes(opts)
+    if (estimate.bytes > opts.maxBytes) throw new MigrationTooLargeError(estimate.bytes, opts.maxBytes)
+  }
+  opts.onProgress?.({ phase: 'build' })
+  const file = await buildMigrationFile(opts)
+  opts.onProgress?.({ phase: 'stringify', chars: 0 })
+  return stableStringifyAsync(file, {
+    onProgress: (chars) => opts.onProgress?.({ phase: 'stringify', chars }),
+  })
+}
+
+// ============ 导入：纯词库 ============
+
+/** 导入 DeckFile（strategy 默认 replace：同 id 清空该库 words/states 再写） */
+export function importDeckFile(
+  input: string | File,
+  opts: ImportOptions & {
+    preBackup?: () => Promise<void | { ok: boolean; error?: string }>
+    unsafe?: boolean
+  } = {},
+): Promise<ImportReport> {
+  if (getLearningWriteSource() === 'sqlite') {
+    return withDataWriteLock(() => importDeckFileSqlite(input, opts))
+  }
+  if (!opts.unsafe) assertIdbMutationAllowed('导入词库文件')
+  return withDataWriteLock(() => importDeckFileInner(input, opts))
+}
+
+/** sqlite 模式导入纯词库：只写 IDB decks/words cache；已有词库（可能含 SQLite states）拒绝覆盖。 */
+async function importDeckFileSqlite(
+  input: string | File,
+  opts: ImportOptions & { preBackup?: () => Promise<void | { ok: boolean; error?: string }>; unsafe?: boolean } = {},
+): Promise<ImportReport> {
+  const startedAt = Date.now()
+  const returnReport = async (report: ImportReport): Promise<ImportReport> => { await writeLastImport(report); return report }
+  if (!opts.unsafe && opts.preBackup) {
+    const backup = await opts.preBackup()
+    if (backup && backup.ok === false) throw new Error(`预备份失败，已拒绝导入：${backup.error ?? '未知错误'}`)
+  }
+  const text = await readInput(input)
+  const json = await parseJsonText(text)
+  if (!json.ok) return returnReport(makeReport('deck', json.issues, {}, Date.now() - startedAt))
+  const parsed = parseDeckFile(json.value)
+  if (!parsed.ok) return returnReport(makeReport('deck', parsed.issues, {}, Date.now() - startedAt))
+  if (parsed.value.issues.some((issue) => issue.level === 'error')) {
+    return returnReport(makeReport('deck', parsed.value.issues, {}, Date.now() - startedAt))
+  }
+  const db = getDb()
+  const existing = await db.decks.get(parsed.value.deck.id)
+  if (existing) {
+    throw new Error('E_UNSUPPORTED: sqlite 模式暂不支持覆盖已有词库（含学习状态）；请新建词库导入，或先 0.10/0.11.1')
+  }
+  const sqliteStates = await sqliteQuery({ table: 'states', where: { deck_id: parsed.value.deck.id }, limit: 1 }, 5_000).catch(() => null)
+  if (((sqliteStates?.rows as unknown[] | undefined) ?? []).length > 0) {
+    throw new Error('E_UNSUPPORTED: 该词库已有 SQLite 学习状态，禁止覆盖')
+  }
+  const report = await importDeckFileInner(input, { ...opts, unsafe: true })
+  return report
+}
+
+async function importDeckFileInner(
+  input: string | File,
+  opts: ImportOptions & {
+    /** 0.10.0：replace 且目标库已有 words/states 时必须先成功的预备份 */
+    preBackup?: () => Promise<void | { ok: boolean; error?: string }>
+    /** 仅供内部测试/重置；UI 不得使用 */
+    unsafe?: boolean
+  } = {},
+): Promise<ImportReport> {
+  const startedAt = Date.now()
+  const strategy = opts.strategy ?? 'replace'
+  opts.onProgress?.({ phase: 'read', message: '读取备份文本' })
+  const text = await readInput(input)
+  opts.onProgress?.({ phase: 'parse', message: '解析 JSON' })
+  const json = await parseJsonText(text)
+  if (!json.ok) {
+    const report = makeReport('deck', json.issues, {}, Date.now() - startedAt)
+    await writeLastImport(report)
+    return report
+  }
+  const parsed = parseDeckFile(json.value)
+  if (!parsed.ok) {
+    const report = makeReport('deck', parsed.issues, {}, Date.now() - startedAt)
+    await writeLastImport(report)
+    return report
+  }
+  const issues = parsed.issues
+  if (issues.some((issue) => issue.level === 'error')) {
+    const report = makeReport('deck', issues, {}, Date.now() - startedAt)
+    await writeLastImport(report)
+    return report
+  }
+
+  const db = getDb()
+  const { deck, words } = parsed.value
+  const now = Date.now()
+  // 0.10.0：replace 会删除同库 words/states；已有数据时必须先成功预备份
+  if (strategy === 'replace' && !opts.unsafe) {
+    const [existingWords, existingStates] = await Promise.all([
+      db.words.where('deckId').equals(deck.id).count(),
+      db.states.where('deckId').equals(deck.id).count(),
+    ])
+    if (existingWords > 0 || existingStates > 0) {
+      if (!opts.preBackup) throw new Error('替换词库会删除现有词条/学习状态，必须先备份')
+      const backup = await opts.preBackup()
+      if (backup && backup.ok === false) throw new Error(`预备份失败，已拒绝替换：${backup.error ?? '未知错误'}`)
+    }
+  }
+  const existingDefaultId =
+    (await db.decks.toArray()).find((item) => item.isDefault)?.id ?? null
+  await db.transaction('rw', [db.decks, db.words, db.states, db.plans, db.reviewLogs, db.settings, db.meta], async () => {
+    const existingDeck = await db.decks.get(deck.id)
+    if (strategy === 'replace') {
+      // 0.10.0：diff 替换；只删新词表不存在的旧 wordId，并重映射 plans/日志
+      await diffReplaceDeckWords(deck.id, words, 'import-deck-replace')
+      // 词库文件不含 states：replace 语义仍重置该库学习状态（显式操作已先 preBackup）
+      await db.states.where('deckId').equals(deck.id).delete()
+    }
+    const nextDeck: Deck = {
+      ...deck,
+      createdAt: existingDeck?.createdAt ?? deck.createdAt ?? now,
+      updatedAt: now,
+    }
+    await db.decks.put(nextDeck)
+    if (strategy !== 'replace') await bulkPutChunked(db.words, words)
+    // 没有任何选中词库时，自动选中导入的词库
+    const selected = await db.settings.get('data.selectedDeckId')
+    const selectedDeck = selected ? await db.decks.get(selected.value as string) : undefined
+    if (!selectedDeck) {
+      await db.settings.put({ key: 'data.selectedDeckId', value: deck.id, updatedAt: now })
+    }
+    // 默认词库全局唯一（QA-01：导入文件不能造出第二个 isDefault）
+    await ensureSingleDefaultDeck(existingDefaultId)
+  })
+
+  const report = makeReport(
+    'deck',
+    issues,
+    { decks: 1, words: words.length, skipped: issues.filter((i) => i.code === 'W_SKIPPED').length },
+    Date.now() - startedAt,
+  )
+  await writeLastImport(report)
+  return report
+}
+
+// ============ 导入：CSV ============
+
+/** 导入 CSV 词单（新建词库；同 headword 多行合并） */
+export async function importCsv(input: string | File, deckName?: string): Promise<ImportReport> {
+  const startedAt = Date.now()
+  const db = getDb()
+  const now = Date.now()
+  const text = await readInput(input)
+  const parsed = parseCsv(text)
+  const converted = csvToWordInputs(parsed)
+  const issues = converted.issues
+  if (issues.some((issue) => issue.level === 'error') || converted.words.length === 0) {
+    const report = makeReport('csv', issues, { skipped: parsed.rows.length }, Date.now() - startedAt)
+    await writeLastImport(report)
+    return report
+  }
+
+  const { buildWord } = await import('./word-factory')
+  const existingDecks = await db.decks.toArray()
+  const name = uniqueDeckName(
+    (deckName ?? '导入的词库').trim() || '导入的词库',
+    new Set(existingDecks.map((deck) => deck.name)),
+  )
+  let deckId = newDeckId(name, now)
+  while (await db.decks.get(deckId)) deckId = `${deckId}-${Math.random().toString(36).slice(2, 5)}`
+  const words: Word[] = converted.words.map((raw: RawWordInput, index) =>
+    buildWord(raw, deckId, { order: index + 1, createdAt: now }),
+  )
+  const deck: Deck = {
+    id: deckId,
+    name,
+    source: 'imported',
+    wordCount: words.length,
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+  }
+  await db.transaction('rw', db.decks, db.words, db.settings, async () => {
+    await db.decks.put(deck as never)
+    await bulkPutChunked(db.words, words)
+    const selected = await db.settings.get('data.selectedDeckId')
+    if (!selected) {
+      await db.settings.put({ key: 'data.selectedDeckId', value: deckId, updatedAt: now })
+    }
+  })
+  const report = makeReport(
+    'csv',
+    issues,
+    { decks: 1, words: words.length, skipped: parsed.rows.length - converted.words.length },
+    Date.now() - startedAt,
+  )
+  await writeLastImport(report)
+  return report
+}
+
+// ============ 导入：可迁移包 ============
+
+/** 合并两条学习状态（§6.2 merge：lastReviewedAt 较新者为准，clicks/encounters 取 max） */
+function mergeStatMap(
+  a: Record<string, { clicks: number; encounters: number }> | undefined,
+  b: Record<string, { clicks: number; encounters: number }> | undefined,
+): Record<string, { clicks: number; encounters: number }> {
+  const out: Record<string, { clicks: number; encounters: number }> = { ...(a ?? {}) }
+  for (const [key, stat] of Object.entries(b ?? {})) {
+    const old = out[key]
+    out[key] = old
+      ? { clicks: Math.max(old.clicks, stat.clicks), encounters: Math.max(old.encounters, stat.encounters) }
+      : { ...stat }
+  }
+  return out
+}
+
+function mergeState(local: WordState, imported: WordState): WordState {
+  const localAt = local.lastReviewedAt ?? -Infinity
+  const importedAt = imported.lastReviewedAt ?? -Infinity
+  const base = importedAt > localAt ? imported : local
+  const other = base === imported ? local : imported
+  const meaningStats: WordState['meaningStats'] = { ...other.meaningStats }
+  for (const [meaningId, stat] of Object.entries(base.meaningStats)) {
+    const old = meaningStats[meaningId]
+    meaningStats[meaningId] = old
+      ? {
+          clicks: Math.max(old.clicks, stat.clicks),
+          encounters: Math.max(old.encounters, stat.encounters),
+        }
+      : { ...stat }
+  }
+  const coreSenseStats = mergeStatMap(local.coreSenseStats, imported.coreSenseStats)
+  return {
+    ...base,
+    meaningStats,
+    ...(Object.keys(coreSenseStats).length > 0 ? { coreSenseStats } : {}),
+    updatedAt: Math.max(local.updatedAt ?? 0, imported.updatedAt ?? 0),
+  }
+}
+
+/** 导入可迁移包（replace / merge / keepNewer） */
+export function importMigration(
+  input: string | File,
+  opts: ImportOptions = {},
+): Promise<ImportReport> {
+  if (getLearningWriteSource() === 'sqlite') {
+    // 0.11 新架构：IDB 暂存导入 → 清 SQLite → migrate/rebuild/counts 校验；失败回滚 SQLite prebackup。
+    if (opts.sqliteStageImpl) return importMigrationSqliteStaging(input, opts)
+    return importMigrationSqliteStaging(input, opts)
+  }
+  assertIdbMutationAllowed('导入迁移包')
+  return opts.skipWriteLock ? importMigrationInner(input, opts) : withDataWriteLock(() => importMigrationInner(input, opts))
+}
+
+/**
+ * A3：sqlite 模式「暂存 IDB→重建 SQLite」导入：
+ * 锁内 preBackup + readonly 阻止用户写 → 现有 IDB 导入 → 清 SQLite → migrate→rebuild→校验；
+ * 失败恢复 SQLite prebackup、写源 idb，绝不留双源。
+ */
+async function importMigrationSqliteStagingInner(input: string | File, opts: ImportOptions = {}): Promise<ImportReport> {
+    const stageTiming: Record<string, number> = {}
+    let stageStart = Date.now()
+    const mark = (name: string, message: string) => {
+      stageTiming[name] = Date.now() - stageStart
+      stageStart = Date.now()
+      try { opts.onProgress?.({ phase: 'apply', message }) } catch { /* ignore */ }
+    }
+    opts.onProgress?.({ phase: 'apply', message: '准备导入（预计 32MB 包可能 3–5 分钟，请勿退出）' })
+    if (!opts.preBackup) throw new Error('SQLite 模式导入前必须先完整备份（preBackup 未提供）')
+    const pre = await opts.preBackup()
+    mark('preBackup', '应用级备份完成')
+    if (pre && pre.ok === false) throw new Error(`预备份失败，已拒绝导入：${pre.error ?? '未知错误'}`)
+    const stage = opts.sqliteStageImpl ?? {}
+    const createBackup = stage.createBackup ?? createSqliteFactsBackup
+    const restoreBackup = stage.restoreBackup ?? restoreSqliteFactsBackup
+    const clearFacts = stage.clearFacts ?? (() => clearSqliteFactsTables(['states', 'plans', 'review_logs']))
+    const migrate = stage.migrate ?? migrateIdbToSqlite
+    const rebuildCache = stage.rebuildCache ?? rebuildIdbCacheFromSqlite
+    const sqliteBackup = await createBackup()
+    mark('sqliteBackup', 'SQLite 快照完成')
+    if (!sqliteBackup.ok || !sqliteBackup.manifest) throw new Error(`SQLite 备份失败：${sqliteBackup.error ?? '未知错误'}`)
+    await persistLearningWriteSource('readonly')
+    try {
+      const report = await importMigrationInner(input, { ...opts, skipWriteLock: true })
+      mark('idbImport', 'IDB 暂存导入完成')
+      if (!report.ok) {
+        const first = report.issues.find((issue) => issue.level === 'error')
+        throw new Error(first ? `${first.code}: ${first.message}` : '导入报告失败')
+      }
+      await clearFacts()
+      mark('clearSqlite', 'SQLite 清空完成')
+      const migrated = await migrate({ dryRun: false, unsafe: true, skipWriteLock: true })
+      mark('migrate', 'SQLite 写入完成')
+      if (!migrated.ok) throw new Error(`导入后 SQLite 重建失败：${migrated.error ?? '未知'}`)
+      const rebuilt = await rebuildCache({ unsafe: true, skipWriteLock: true })
+      mark('rebuild', 'cache 重建完成')
+      if (!rebuilt.ok) throw new Error(`导入后 cache 重建失败：${rebuilt.error ?? rebuilt.conflict ?? '未知'}`)
+      const health = stage.health ? await stage.health() : await (await import('./native-sqlite')).sqliteHealth(10_000)
+      const counts = (health as unknown as { counts?: Record<string, number> }).counts ?? {}
+      const db = getDb()
+      const [states, plans, settings, logs] = await Promise.all([db.states.count(), db.plans.count(), db.settings.count(), db.reviewLogs.count()])
+      if (Number(counts.states ?? -1) !== states || Number(counts.plans ?? -1) !== plans || Number(counts.settings ?? -1) !== settings || Number(counts.review_logs ?? -1) !== logs) {
+        throw new Error('导入后 SQLite/IDB counts 不一致')
+      }
+      await persistLearningWriteSource('sqlite')
+      const { persistSettingsWriteMode } = await import('./settings.repo')
+      await persistSettingsWriteMode('sqlite').catch(() => undefined)
+      mark('done', '导入完成')
+      try { await getDb().meta.put({ key: 'import.sqlite.stageTiming', value: { at: Date.now(), stageTiming }, updatedAt: Date.now() }) } catch { /* ignore */ }
+      return report
+    } catch (error) {
+      // 恢复导入前 SQLite；IDB 保留导入结果但写源回 idb，避免双源
+      try {
+        const file = sqliteBackup.manifest
+        await restoreBackup(
+          { ...(file.path ? { path: file.path } : {}), manifest: file },
+          { preBackup: async () => ({ ok: true }), skipWriteLock: true },
+        )
+      } catch {
+        /* restore 失败写 diag；仍回 idb */
+      }
+      await persistLearningWriteSource('idb').catch(() => undefined)
+      const { persistSettingsWriteMode } = await import('./settings.repo')
+      await persistSettingsWriteMode('idb').catch(() => undefined)
+      try {
+        await getDb().meta.put({ key: 'import.sqlite.stageDiag', value: { at: Date.now(), stageTiming, error: error instanceof Error ? error.message : String(error) }, updatedAt: Date.now() })
+      } catch {
+        /* ignore */
+      }
+      throw error
+    }
+}
+
+function importMigrationSqliteStaging(input: string | File, opts: ImportOptions = {}): Promise<ImportReport> {
+  return opts.skipWriteLock ? importMigrationSqliteStagingInner(input, opts) : withDataWriteLock(() => importMigrationSqliteStagingInner(input, { ...opts, skipWriteLock: true }))
+}
+
+/**
+ * A3 facts-only：sqlite 模式只写 states/plans/settings/reviewLogs 到 SQLite；
+ * words 不写 IDB（内置词库已有），仅缺失的自定义 deck 才导入 words。
+ */
+async function writeImportStageNow(phase: string, extra: Record<string, unknown> = {}): Promise<void> {
+  try { await getDb().meta.put({ key: 'import.sqlite.stageNow', value: { phase, at: Date.now(), ...extra }, updatedAt: Date.now() }) } catch { /* ignore */ }
+}
+
+async function clearImportStageNow(): Promise<void> {
+  await getDb().meta.delete('import.sqlite.stageNow').catch(() => undefined)
+}
+
+async function importMigrationSqliteInner(input: string | File, opts: ImportOptions = {}): Promise<ImportReport> {
+    const stageTiming: Record<string, number> = {}
+    let stageStart = Date.now()
+    const mark = (name: string, message: string) => {
+      stageTiming[name] = Date.now() - stageStart
+      stageStart = Date.now()
+      try { opts.onProgress?.({ phase: 'apply', message: `${message}（${Math.round(stageTiming[name]!)}ms）` }) } catch { /* ignore */ }
+    }
+    const startedAt = Date.now()
+    const strategy = opts.strategy ?? 'replace'
+    const returnReport = async (report: ImportReport): Promise<ImportReport> => { await writeLastImport(report); return report }
+    await writeImportStageNow('prepare')
+    opts.onProgress?.({ phase: 'apply', message: 'facts-only 导入：只写学习事实，不写 12230 words' })
+    if (!opts.preBackup) throw new Error('SQLite 模式导入前必须先备份（preBackup 未提供）')
+    const pre = await opts.preBackup()
+    if (pre && pre.ok === false) throw new Error(`预备份失败，已拒绝导入：${pre.error ?? '未知错误'}`)
+    await writeImportStageNow('parse')
+    const text = await readInput(input)
+    const json = await parseJsonText(text)
+    if (!json.ok) return returnReport(makeReport('migration', json.issues, {}, Date.now() - startedAt))
+    const raw = json.value as Record<string, unknown>
+    if (raw.format !== 'momo-migration') return returnReport(makeReport('migration', [makeIssue('error', 'E_FORMAT', '不是可迁移包', { path: 'format' })], {}, Date.now() - startedAt))
+    if (raw.formatVersion !== 1 || raw.dataVersion !== 1) return returnReport(makeReport('migration', [makeIssue('error', 'E_VERSION', '可迁移包版本不支持', { path: 'formatVersion' })], {}, Date.now() - startedAt))
+    mark('parseJson', 'JSON.parse 完成')
+    await writeImportStageNow('checksum')
+    const checksumPayload = migrationChecksumPayload({ format: String(raw.format ?? ''), formatVersion: Number(raw.formatVersion ?? 0), dataVersion: Number(raw.dataVersion ?? 0), data: raw.data })
+    const checksum = await (await import('./checksum')).verifyChecksum(checksumPayload, typeof raw.checksum === 'string' ? raw.checksum : '')
+    if (!checksum.ok && !opts.force) return returnReport(makeReport('migration', [makeIssue('error', 'E_CHECKSUM', '校验和不匹配，文件可能被修改过', { path: 'checksum' })], {}, Date.now() - startedAt))
+    mark('checksum', '校验和完成')
+    // facts-only：绕开 migrationFileSchema/zod 对 12230 words 的全量校验；只提取事实与 deck 元数据。
+    const data = (raw.data ?? {}) as Record<string, unknown>
+    const arr = (value: unknown): Array<Record<string, unknown>> => (Array.isArray(value) ? value as Array<Record<string, unknown>> : [])
+    const file = {
+      decks: arr(data.decks),
+      words: arr(data.words),
+      states: arr(data.states),
+      reviewLogs: arr(data.reviewLogs),
+      settings: arr(data.settings),
+      plans: arr(data.plans),
+      issues: [] as ImportIssue[],
+    } as unknown as {
+      decks: Array<{ id: string } & Record<string, unknown>>
+      words: Array<{ id: string; deckId: string } & Record<string, unknown>>
+      states: Array<{ wordId: string; deckId: string; updatedAt: number } & Record<string, unknown>>
+      reviewLogs: Array<{ wordId: string; deckId: string } & Record<string, unknown>>
+      settings: Array<{ key: string; updatedAt: number; value: unknown } & Record<string, unknown>>
+      plans: Array<{ id: string; deckId: string } & Record<string, unknown>>
+      issues: ImportIssue[]
+    }
+    mark('extract', `事实提取完成（facts ${file.states.length + file.reviewLogs.length + file.settings.length + file.plans.length}）`)
+    await writeImportStageNow('idbFacts')
+    const sqliteBackup = await createSqliteFactsBackup()
+    if (!sqliteBackup.ok || !sqliteBackup.manifest) throw new Error(`SQLite 备份失败：${sqliteBackup.error ?? '未知错误'}`)
+    await writeImportStageNow('importing', { backupName: sqliteBackup.manifest.name, backupPath: sqliteBackup.manifest.path })
+    await persistLearningWriteSource('readonly')
+    try {
+      const db = getDb()
+      const issues: ImportIssue[] = [...file.issues]
+      // 1) 自定义 deck：仅 deck 不存在时导入 deck+words（分批）；内置词库不写 words。
+      const importedDecks = new Set<string>()
+      for (const deck of file.decks) {
+        const existing = await db.decks.get(deck.id)
+        if (existing) continue
+        importedDecks.add(deck.id)
+        const words = file.words.filter((word) => word.deckId === deck.id)
+        await db.transaction('rw', [db.decks, db.words, db.meta], async () => {
+          await db.decks.put(deck as never)
+          for (let i = 0; i < words.length; i += 500) await db.words.bulkPut(words.slice(i, i + 500) as never)
+        })
+      }
+      // 2) 内置 deck 缺词先用内置词表补（单 deck）；失败只跳过缺词，不整单失败。
+      const referencedDeckIds = new Set<string>()
+      for (const state of file.states) referencedDeckIds.add(state.deckId)
+      for (const log of file.reviewLogs) referencedDeckIds.add(log.deckId)
+      for (const plan of file.plans) referencedDeckIds.add(plan.deckId)
+      for (const deckId of referencedDeckIds) {
+        try { await ensureBuiltinDeckWords(deckId) } catch { /* custom/missing deck */ }
+      }
+      // 3) 过滤缺词事实（不整单失败，报告 skipped）
+      const wordIds = new Set((await db.words.toArray()).map((word) => word.id))
+      const states = file.states.filter((state) => wordIds.has(state.wordId))
+      const logs = file.reviewLogs.filter((log) => wordIds.has(log.wordId))
+      const skippedStates = file.states.length - states.length
+      const skippedLogs = file.reviewLogs.length - logs.length
+      if (skippedStates > 0) issues.push(makeIssue('warning', 'W_SKIPPED', `${skippedStates} 条学习状态缺词，已跳过`, { path: 'data.states' }))
+      if (skippedLogs > 0) issues.push(makeIssue('warning', 'W_SKIPPED', `${skippedLogs} 条复习日志缺词，已跳过`, { path: 'data.reviewLogs' }))
+      mark('prepare', `事实准备完成（states ${states.length} / logs ${logs.length} / custom decks ${importedDecks.size}）`)
+
+      // 4) merge/keepNewer：本地较新时保留本地；replace 先清 states/plans/review_logs（保留 settings/token）。
+      const readAll = async (table: string, key: string): Promise<Array<Record<string, unknown>>> => {
+        const out: Array<Record<string, unknown>> = []
+        for (let offset = 0; offset < 1_000_000; offset += 500) {
+          const res = await sqliteQuery({ table, limit: 500, offset, orderBy: key, direction: 'asc' }, 5_000)
+          const rows = (res.rows as Array<Record<string, unknown>> | undefined) ?? []
+          out.push(...rows)
+          if (rows.length < 500) break
+        }
+        return out
+      }
+      if (strategy === 'replace') {
+        await writeImportStageNow('clear')
+        await clearSqliteFactsTables(['states', 'plans', 'review_logs'])
+      }
+      const localStateUpdated = new Map((await readAll('states', 'word_id')).map((row) => [String(row.word_id), Number(row.updated_at ?? 0)]))
+      const localSettingUpdated = new Map((await readAll('settings', 'key')).map((row) => [String(row.key), Number(row.updated_at ?? 0)]))
+      const ops: unknown[] = []
+      if (strategy === 'merge' || strategy === 'keepNewer') {
+        for (const state of states) {
+          const local = localStateUpdated.get(state.wordId)
+          if (local != null && local >= state.updatedAt) continue
+          ops.push({ op: 'upsert', table: 'states', row: migrationStateRow(state as unknown as Record<string, unknown>) })
+        }
+      } else {
+        for (const state of states) ops.push({ op: 'upsert', table: 'states', row: migrationStateRow(state as unknown as Record<string, unknown>) })
+      }
+      for (const plan of file.plans) ops.push({ op: 'upsert', table: 'plans', row: migrationPlanRow(plan as unknown as Record<string, unknown>) })
+      for (const log of logs) ops.push({ op: 'upsert', table: 'review_logs', row: migrationLogRow(log as unknown as Record<string, unknown>) })
+      for (const setting of file.settings) {
+        if (setting.key === 'data.maimemoToken') continue
+        const local = localSettingUpdated.get(setting.key)
+        if ((strategy === 'merge' || strategy === 'keepNewer') && local != null && local >= setting.updatedAt) continue
+        ops.push({ op: 'upsert', table: 'settings', row: migrationSettingRow(setting as unknown as Record<string, unknown>) })
+      }
+      mark('build-ops', `写入操作 ${ops.length} 条（states ${states.length}/plans ${file.plans.length}/logs ${logs.length}）`)
+      await writeImportStageNow('migrate')
+      for (let i = 0; i < ops.length; i += 400) {
+        if (opts.shouldAbort?.()) throw new Error('导入已取消')
+        const tx = await sqliteTx(ops.slice(i, i + 400))
+        if (tx.ok === false) throw new Error(tx.message ?? 'facts-only SQLite 写入失败')
+      }
+      mark('idbFacts', `facts-only SQLite 写入完成（${ops.length} ops）`)
+      const rebuilt = await runWithTimeout(rebuildIdbCacheFromSqlite({ unsafe: true, skipWriteLock: true, onProgress: (stage) => { void writeImportStageNow(`rebuild:${stage}`) } }), 20_000, '导入后 cache 重建')
+      if (!rebuilt.ok) throw new Error(`导入后 cache 重建失败：${rebuilt.error ?? rebuilt.conflict ?? '未知'}`)
+      mark('rebuild', 'cache 重建完成')
+      await writeImportStageNow('verify')
+      const health = await (await import('./native-sqlite')).sqliteHealth(10_000)
+      const counts = (health as unknown as { counts?: Record<string, number> }).counts ?? {}
+      const [idbStates, idbPlans, idbSettings, idbLogs] = await Promise.all([db.states.count(), db.plans.count(), db.settings.count(), db.reviewLogs.count()])
+      if (Number(counts.states ?? -1) !== idbStates || Number(counts.plans ?? -1) !== idbPlans || Number(counts.settings ?? -1) !== idbSettings || Number(counts.review_logs ?? -1) !== idbLogs) {
+        throw new Error('导入后 SQLite/IDB counts 不一致')
+      }
+      await persistLearningWriteSource('sqlite')
+      const { persistSettingsWriteMode } = await import('./settings.repo')
+      await persistSettingsWriteMode('sqlite').catch(() => undefined)
+      await db.meta.put({ key: 'import.sqlite.factsOnlyTiming', value: { at: Date.now(), strategy, stageTiming, importedDecks: [...importedDecks], skippedStates, skippedLogs, filePlans: file.plans.length, fileLogs: file.reviewLogs.length, states: states.length, logs: logs.length, opsTotal: ops.length }, updatedAt: Date.now() })
+      await clearImportStageNow()
+      mark('verify', '校验完成')
+      const report: ImportReport = {
+        ok: true,
+        kind: 'migration',
+        counts: { decks: importedDecks.size, words: importedDecks.size > 0 ? file.words.filter((word) => importedDecks.has(word.deckId)).length : 0, states: states.length, reviewLogs: logs.length, skipped: skippedStates + skippedLogs },
+        issues,
+        durationMs: Date.now() - startedAt,
+      }
+      await writeLastImport(report)
+      return report
+    } catch (error) {
+      try {
+        await restoreSqliteFactsBackup({ ...(sqliteBackup.manifest.path ? { path: sqliteBackup.manifest.path } : {}), manifest: sqliteBackup.manifest }, { preBackup: async () => ({ ok: true }), skipWriteLock: true })
+      } catch { /* ignore */ }
+      await persistLearningWriteSource('idb').catch(() => undefined)
+      const { persistSettingsWriteMode } = await import('./settings.repo')
+      await persistSettingsWriteMode('idb').catch(() => undefined)
+      await clearImportStageNow()
+      try { await getDb().meta.put({ key: 'import.sqlite.stageDiag', value: { at: Date.now(), error: error instanceof Error ? error.message : String(error), stageTiming }, updatedAt: Date.now() }) } catch { /* ignore */ }
+      throw error
+    }
+}
+
+async function runWithTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label}超时（>${Math.round(ms / 1000)}s）`)), ms)),
+  ])
+}
+
+function importMigrationSqlite(input: string | File, opts: ImportOptions = {}): Promise<ImportReport> {
+  return opts.skipWriteLock ? importMigrationSqliteInner(input, opts) : withDataWriteLock(() => importMigrationSqliteInner(input, { ...opts, skipWriteLock: true }))
+}
+
+async function importMigrationInner(
+  input: string | File,
+  opts: ImportOptions = {},
+): Promise<ImportReport> {
+  const startedAt = Date.now()
+  const strategy = opts.strategy ?? 'replace'
+  opts.onProgress?.({ phase: 'read', message: '读取备份文本' })
+  const text = await readInput(input)
+  opts.onProgress?.({ phase: 'parse', message: '解析 JSON' })
+  const json = await parseJsonText(text)
+  if (!json.ok) {
+    const report = makeReport('migration', json.issues, {}, Date.now() - startedAt)
+    await writeLastImport(report)
+    return report
+  }
+  const raw = json.value as Record<string, unknown>
+  const issues: ImportIssue[] = []
+
+  // 0) format / version 先判（SPEC §6.2 顺序：format/version → checksum → 字段校验）
+  if (raw.format !== 'momo-migration') {
+    const report = makeReport(
+      'migration',
+      [makeIssue('error', 'E_FORMAT', '不是可迁移包（format 应为 momo-migration）', { path: 'format' })],
+      {},
+      Date.now() - startedAt,
+    )
+    await writeLastImport(report)
+    return report
+  }
+  if (raw.formatVersion !== 1 || raw.dataVersion !== 1) {
+    const report = makeReport(
+      'migration',
+      [makeIssue('error', 'E_VERSION', '可迁移包版本不支持，请升级 App 后重试', { path: 'formatVersion' })],
+      {},
+      Date.now() - startedAt,
+    )
+    await writeLastImport(report)
+    return report
+  }
+
+  // 1) checksum 校验
+  opts.onProgress?.({ phase: 'checksum', message: '校验备份完整性' })
+  const checksumPayload = migrationChecksumPayload({
+    format: String(raw.format ?? ''),
+    formatVersion: Number(raw.formatVersion ?? 0),
+    dataVersion: Number(raw.dataVersion ?? 0),
+    data: raw.data,
+  })
+  const expectedChecksum = typeof raw.checksum === 'string' ? raw.checksum : ''
+  const { verifyChecksum } = await import('./checksum')
+  const checksumResult = await verifyChecksum(checksumPayload, expectedChecksum)
+  if (!checksumResult.ok) {
+    if (!opts.force) {
+      const report = makeReport(
+        'migration',
+        [
+          makeIssue('error', 'E_CHECKSUM', '校验和不匹配，文件可能被修改过（仍要导入请选择「仍要导入」）', {
+            path: 'checksum',
+          }),
+        ],
+        {},
+        Date.now() - startedAt,
+      )
+      await writeLastImport(report)
+      return report
+    }
+    issues.push(
+      makeIssue('warning', 'E_CHECKSUM', '校验和不匹配，已按「强制导入」继续（数据可能不完整）', {
+        path: 'checksum',
+      }),
+    )
+  } else if (checksumResult.matchedAlgo === 'fnv1a64') {
+    issues.push(
+      makeIssue('warning', 'W_SKIPPED', '该备份文件使用降级校验算法（FNV-1a 64），已通过校验', {
+        path: 'checksum',
+      }),
+    )
+  }
+
+  // 2) 字段校验 + 规范化
+  opts.onProgress?.({ phase: 'validate', message: '校验数据结构' })
+  const parsed = parseMigrationFile(raw)
+  if (!parsed.ok) {
+    const report = makeReport('migration', [...issues, ...parsed.issues], {}, Date.now() - startedAt)
+    await writeLastImport(report)
+    return report
+  }
+  const file = parsed.value
+  issues.push(...file.issues)
+  if (issues.some((issue) => issue.level === 'error')) {
+    const report = makeReport('migration', issues, {}, Date.now() - startedAt)
+    await writeLastImport(report)
+    return report
+  }
+
+  const db = getDb()
+  const now = Date.now()
+  const deckIds = file.decks.map((deck) => deck.id)
+  const importedStates = file.states
+  const existingDefaultId =
+    (await db.decks.toArray()).find((deck) => deck.isDefault)?.id ?? null
+
+  opts.onProgress?.({ phase: 'apply', message: '写入数据库（大库可能需要几十秒）' })
+  await db.transaction(
+    'rw',
+    [db.decks, db.words, db.states, db.reviewLogs, db.settings, db.meta, db.plans, db.packs, db.packItems, db.contentRejects],
+    async () => {
+      if (strategy === 'replace') {
+        // 0.3.61：轻量迁移包（meta.excluded 含 derivationMap）替换导入时，保留本机同 id 词已有的引申图
+        const preserveDerivation = file.metaExcluded.includes('derivationMap')
+        const localMaps = preserveDerivation
+          ? new Map(
+              (await db.words.bulkGet(file.words.map((word) => word.id)))
+                .filter((word): word is Word => Boolean(word?.derivationMap))
+                .map((word) => [word.id, word.derivationMap!] as const),
+            )
+          : new Map<string, Word['derivationMap']>()
+        // 0.10.0：replace 也按 wordId diff（upsert + 仅删多余），绝不清空整段 words
+        if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.decks, file.decks)
+        const nextWords = file.words.map((word) =>
+          word.derivationMap === undefined && localMaps.has(word.id)
+            ? { ...word, derivationMap: localMaps.get(word.id) }
+            : word,
+        )
+        const wordsByDeck = new Map<string, Word[]>()
+        for (const word of nextWords) {
+          const list = wordsByDeck.get(word.deckId) ?? []
+          list.push(word)
+          wordsByDeck.set(word.deckId, list)
+        }
+        for (const deckId of deckIds) {
+          await diffReplaceDeckWords(deckId, wordsByDeck.get(deckId) ?? [], 'import-replace')
+        }
+        if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.states, importedStates)
+        // 复习日志：追加（去掉自增 id，避免主键冲突）
+        const logs = file.reviewLogs.map((log) => {
+          const copy: ReviewLog = { ...log }
+          delete copy.id
+          return copy
+        })
+        if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(
+          {
+            async bulkPut(items: ReviewLog[]) {
+              await db.reviewLogs.bulkAdd(items)
+            },
+          },
+          logs,
+        )
+        // 设置：整体覆盖，但保留本机 token（隐私，D23）与设备本地开关（不应被备份改回）
+        const deviceLocalKeys = ['data.maimemoToken', 'data.autoBackupEnabled'] as const
+        const deviceLocalRows = (await db.settings.bulkGet([...deviceLocalKeys])).filter((row): row is NonNullable<typeof row> => Boolean(row))
+        await db.settings.clear()
+        if (deviceLocalRows.length > 0) await db.settings.bulkPut(deviceLocalRows)
+        await applyImportedSettings(file.settings.filter((record) => !deviceLocalKeys.includes(record.key as never)))
+      } else if (strategy === 'merge') {
+        if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.decks, file.decks)
+        const localWords = await db.words.bulkGet(file.words.map((word) => word.id))
+        if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(
+          db.words,
+          file.words.map((word, index) => preserveLocalUserFields(word, localWords[index])),
+        )
+        const existing = await db.states.bulkGet(importedStates.map((state) => state.wordId))
+        const merged: WordState[] = importedStates.map((state, index) => {
+          const local = existing[index]
+          return local ? mergeState(local, state) : state
+        })
+        if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.states, merged)
+        // 合并模式不导入复习日志（避免重复计数）；设置只补缺省项
+        const localSettings = await db.settings.toArray()
+        const localKeys = new Set(localSettings.map((record) => record.key))
+        const missing = file.settings.filter((record) => !localKeys.has(record.key))
+        await applyImportedSettings(missing)
+        issues.push(
+          makeIssue('warning', 'W_SKIPPED', '合并模式未导入复习日志（避免重复计数），学习状态已按时间合并', {
+            path: 'data.reviewLogs',
+          }),
+        )
+      } else {
+        // keepNewer：仅导入包里的 state 更新时才覆盖本地 state
+        if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.decks, file.decks)
+        const localWords = await db.words.bulkGet(file.words.map((word) => word.id))
+        if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(
+          db.words,
+          file.words.map((word, index) => preserveLocalUserFields(word, localWords[index])),
+        )
+        const existing = await db.states.bulkGet(importedStates.map((state) => state.wordId))
+        const kept: WordState[] = []
+        let overwritten = 0
+        importedStates.forEach((state, index) => {
+          const local = existing[index]
+          if (!local) {
+            kept.push(state)
+            return
+          }
+          const localAt = local.lastReviewedAt ?? -Infinity
+          const importedAt = state.lastReviewedAt ?? -Infinity
+          if (importedAt > localAt) {
+            overwritten += 1
+            kept.push(mergeState(local, state))
+          }
+        })
+        if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.states, kept)
+        const localSettings = await db.settings.toArray()
+        const localKeys = new Set(localSettings.map((record) => record.key))
+        await applyImportedSettings(file.settings.filter((record) => !localKeys.has(record.key)))
+        issues.push(
+          makeIssue(
+            'warning',
+            'W_SKIPPED',
+            `keepNewer：仅覆盖了 ${overwritten} 条较新的学习状态，其余保留本机`,
+            { path: 'data.states' },
+          ),
+        )
+      }
+
+      // v2：迁移包里的今日 plan（只恢复同一天；旧包/跨天忽略）
+      const filePlans = parsed.value.plans ?? []
+      if (filePlans.length > 0) {
+        if (strategy === 'replace') {
+          const today = localDateKey(now)
+          const accepted = filePlans.filter((plan) => plan.date === today)
+          for (const plan of accepted) await db.plans.put(plan)
+          const ignored = filePlans.length - accepted.length
+          if (ignored > 0) {
+            issues.push(
+              makeIssue(
+                'warning',
+                'W_SKIPPED',
+                `有 ${ignored} 条非今日的学习计划未恢复（跨天计划无意义，仅保留本机历史）`,
+                { path: 'data.plans' },
+              ),
+            )
+          }
+        } else if (filePlans.length > 0) {
+          issues.push(
+            makeIssue(
+              'warning',
+              'W_SKIPPED',
+              '合并/保留较新模式下未导入包内今日计划（队列与设备上下文相关，保留本机）',
+              { path: 'data.plans' },
+            ),
+          )
+        }
+      }
+      // v3（task-69）：内容包三表（备份/换机保留 AI 生成内容与拒绝记忆）
+      const filePacks = parsed.value.contentPacks ?? []
+      const filePackItems = parsed.value.packItems ?? []
+      const fileRejects = parsed.value.contentRejects ?? []
+      if (strategy === 'replace') {
+        // 0.3.61：轻量迁移包不含内容包 → 保留本机内容包，避免换机备份清空 AI 内容
+        if (!file.metaExcluded.includes('contentPacks')) {
+          await db.packs.clear()
+          await db.packItems.clear()
+          await db.contentRejects.clear()
+          if (filePacks.length > 0) if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.packs, filePacks)
+          if (filePackItems.length > 0) if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.packItems, filePackItems)
+          if (fileRejects.length > 0) if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.contentRejects, fileRejects)
+        }
+      } else {
+        // merge / keepNewer：只补本机没有的 pack / packItem / 拒绝记录（避免覆盖本机审核状态）
+        const existingPackIds = new Set((await db.packs.toArray()).map((pack) => pack.id))
+        const existingItemIds = new Set((await db.packItems.toArray()).map((item) => item.id))
+        const existingRejectIds = new Set((await db.contentRejects.toArray()).map((row) => row.id))
+        const newPacks = filePacks.filter((pack) => !existingPackIds.has(pack.id))
+        const newItems = filePackItems.filter((item) => !existingItemIds.has(item.id))
+        const newRejects = fileRejects.filter((row) => !existingRejectIds.has(row.id))
+        if (newPacks.length > 0) if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.packs, newPacks)
+        if (newItems.length > 0) if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.packItems, newItems)
+        if (newRejects.length > 0) if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
+      await bulkPutChunked(db.contentRejects, newRejects)
+        if (filePacks.length > 0) {
+          issues.push(
+            makeIssue(
+              'warning',
+              'W_SKIPPED',
+              `合并/保留较新模式：只补入 ${newPacks.length} 个本机没有的内容包，本机审核状态保持不变`,
+              { path: 'data.contentPacks' },
+            ),
+          )
+        }
+      }
+
+      // 默认词库全局唯一（QA-01）：已有默认词库优先，其次包内第一个默认，否则第一个词库
+      await ensureSingleDefaultDeck(existingDefaultId)
+      // 选中词库兜底：当前选中的词库不在导入包里就切到默认/第一个
+      const selected = await db.settings.get('data.selectedDeckId')
+      const selectedId = selected?.value as string | undefined
+      const decksNow = await db.decks.toArray()
+      if (!selectedId || !decksNow.some((deck) => deck.id === selectedId)) {
+        if (decksNow.length > 0) {
+          const fallback = decksNow.find((deck) => deck.isDefault) ?? decksNow[0]!
+          await db.settings.put({ key: 'data.selectedDeckId', value: fallback.id, updatedAt: now })
+        }
+      }
+    },
+  )
+
+  const report = makeReport(
+    'migration',
+    issues,
+    {
+      decks: file.decks.length,
+      words: file.words.length,
+      states: file.states.length,
+      reviewLogs: strategy === 'replace' ? file.reviewLogs.length : 0,
+      skipped: issues.filter((issue) => issue.code === 'W_SKIPPED').length,
+    },
+    Date.now() - startedAt,
+  )
+  opts.onProgress?.({ phase: 'done', message: '导入完成' })
+  if (strategy === 'replace') await bumpDataEpoch('importMigration:replace')
+  await writeLastImport(report)
+  return report
+}
+
+// ============ 清空数据 ============
+
+/**
+ * 清空全部数据（危险操作，UI 需二次确认）。
+ * - 清 decks/words/states/reviewLogs/settings/meta；
+ * - `keepToken=true` 时保留 `data.maimemoToken`；`keepAiKey=true` 时保留 `ai.apiKey`（默认一起清，D23/task-70）；
+ * - v3：同时清空内容包三表；清空后内置词库需要重新 `ensureBuiltinDecks()`。
+ */
+export function clearAllData(
+  opts: {
+    keepToken?: boolean
+    keepAiKey?: boolean
+    /** 0.10.0：执行前强制预备份；不提供且 unsafe!=true 时拒绝执行 */
+    preBackup?: () => Promise<void | { ok: boolean; error?: string }>
+    /** 仅供内部测试/重置；UI 不得使用 */
+    unsafe?: boolean
+    /** 0.10.0：清空后删除 native 检查点文件，避免重启复活 */
+    checkpointBridge?: AutoBackupBridge
+  } = {},
+): Promise<void> {
+  return withDataWriteLock(() => clearAllDataInner(opts))
+}
+
+async function clearAllDataInner(
+  opts: {
+    keepToken?: boolean
+    keepAiKey?: boolean
+    preBackup?: () => Promise<void | { ok: boolean; error?: string }>
+    unsafe?: boolean
+    checkpointBridge?: AutoBackupBridge
+  } = {},
+): Promise<void> {
+  const learningSource = getLearningWriteSource()
+  if (!opts.unsafe) {
+    if (!opts.preBackup) throw new Error('清空数据前必须先备份（preBackup 未提供）')
+    const backup = await opts.preBackup()
+    if (backup && backup.ok === false) throw new Error(`预备份失败，已拒绝清空：${backup.error ?? '未知错误'}`)
+  }
+  const db = getDb()
+  const tokenRow = opts.keepToken ? await db.settings.get('data.maimemoToken') : undefined
+  const aiKeyRow = opts.keepAiKey ? await db.settings.get('ai.apiKey') : undefined
+  await db.transaction(
+    'rw',
+    [db.decks, db.words, db.states, db.reviewLogs, db.settings, db.meta, db.plans, db.packs, db.packItems, db.contentRejects],
+    async () => {
+      await db.packs.clear()
+      await db.packItems.clear()
+      await db.contentRejects.clear()
+      await db.plans.clear()
+      await db.decks.clear()
+      await db.words.clear()
+      await db.states.clear()
+      await db.reviewLogs.clear()
+      await db.settings.clear()
+      await db.meta.clear()
+      if (tokenRow) await db.settings.put(tokenRow)
+      if (aiKeyRow) await db.settings.put(aiKeyRow)
+    },
+  )
+  // A1：先备份→清 IDB→清 SQLite；SQLite 失败则从 SQLite 重建 IDB 回滚，避免半清空
+  if (learningSource !== 'idb') {
+    try {
+      await clearAllSqliteFacts()
+    } catch (error) {
+      await rebuildIdbCacheFromSqlite({ unsafe: true, skipWriteLock: true, onProgress: (stage) => { void writeImportStageNow(`rebuild:${stage}`) } }).catch(() => undefined)
+      throw new Error(`SQLite 清空失败，已尝试恢复 IDB：${error instanceof Error ? error.message : String(error)}`)
+    }
+    await persistLearningWriteSource('idb').catch(() => undefined)
+  }
+  // 0.10.0：写入 clearedAt 兜底；有 bridge 时立即删除 checkpoint 文件
+  await db.meta.put({ key: 'data.clearedAt', value: { at: Date.now() }, updatedAt: Date.now() })
+  if (opts.checkpointBridge) {
+    try {
+      await deleteStateCheckpointFiles(opts.checkpointBridge)
+      await db.meta.delete('checkpoint.clearDeleteFailed')
+    } catch (error) {
+      // 删除失败可验证；clearedAt 仍会阻止旧检查点恢复
+      await db.meta.put({
+        key: 'checkpoint.clearDeleteFailed',
+        value: { at: Date.now(), error: error instanceof Error ? error.message : String(error) },
+        updatedAt: Date.now(),
+      })
+    }
+  }
+  await bumpDataEpoch('clearAllData')
+}
+
+// ============ 杂项 ============
+
+/** 读取上次导入报告（设置页展示，§2.2 key `import:last`） */
+export async function getLastImportReport(): Promise<ImportReport | null> {
+  const db = getDb()
+  const row = await db.meta.get('import:last')
+  const value = row?.value as { report?: ImportReport } | undefined
+  return value?.report ?? null
+}
+
+/** 当前设置（导出给 UI 的便捷再导出，避免 UI 直接 import settings.repo） */
+export { getSettings }
+
+// 0.11.1 保留内部 staging 实现，rc3 不启用；导出避免死代码告警。
+export { importMigrationSqliteStaging, importMigrationSqlite }
