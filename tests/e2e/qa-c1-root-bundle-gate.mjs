@@ -27,7 +27,7 @@ const importFile = async (path) => {
 try {
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 90_000 }); if (FIXTURE) await maybeLoadFixture(page)
   await seed()
-  await page.goto(`${BASE}#/me`, { waitUntil: 'domcontentloaded' }); await page.waitForTimeout(1000)
+  await page.goto(`${BASE}#/me/import-export`, { waitUntil: 'domcontentloaded' }); await page.waitForTimeout(1000)
   await page.getByText('导出词根缀源', { exact: true }).first().click()
   const exDlg = page.getByRole('dialog', { name: '导出词根缀源' }).first(); await exDlg.waitFor({ state: 'visible', timeout: 5000 })
   const dlPromise = page.waitForEvent('download', { timeout: 10_000 })

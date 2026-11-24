@@ -1232,6 +1232,7 @@ export default function StudyPage() {
               partTotals={partTotals}
               baseTotal={repeatBase}
               partUnfamiliarity={partUnfamiliarity}
+              cardStyle={appSettings?.['study.rootAffixCardStyle'] ?? 'compact'}
               onExit={() => actions.exitMemory()}
             />
           ) : (

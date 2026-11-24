@@ -197,6 +197,24 @@ export function StarIcon(props: IconProps) {
 }
 
 /** 完成页/空状态用的单色猫头鹰（墨墨吉祥物简化轮廓，纯装饰） */
+
+export function SunIcon(props: IconProps) {
+  return (
+    <svg {...iconBase(props)}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19" />
+    </svg>
+  )
+}
+
+export function MoonIcon(props: IconProps) {
+  return (
+    <svg {...iconBase(props)}>
+      <path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z" />
+    </svg>
+  )
+}
+
 export function OwlIcon({ size = 96, ...rest }: IconProps) {
   return (
     <svg

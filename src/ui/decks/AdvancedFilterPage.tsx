@@ -25,6 +25,7 @@ import { PageShell } from '../components/PageShell'
 import { Dialog } from '../components/Dialog'
 import { EmptyState } from '../components/EmptyState'
 import { ReviewChoiceDialog } from '../components/ReviewChoiceDialog'
+import { NumberDraftInput } from '../components/NumberDraftInput'
 
 const FIELD_LABEL: Record<FilterField, string> = {
   learned: '已学',
@@ -786,12 +787,12 @@ export default function AdvancedFilterPage() {
         <div className="filter-batch-controls">
           <label className="filter-batch-field">
             <span>选择前 N 个</span>
-            <input className="mm-input" type="number" min={1} value={topN} onChange={(event) => setTopN(Math.max(1, Number(event.target.value) || 1))} />
+            <NumberDraftInput className="mm-input" min={1} value={topN} onCommit={setTopN} />
             <button type="button" className="mm-btn mm-btn--sm" onClick={() => { setActiveBatchIndex(-1); setBatches([]); setSelected(allIds.slice(0, Math.max(0, topN))) }}>选择</button>
           </label>
           <label className="filter-batch-field">
             <span>每批词数</span>
-            <input className="mm-input" type="number" min={1} value={batchSize} onChange={(event) => setBatchSize(Math.max(1, Number(event.target.value) || 1))} />
+            <NumberDraftInput className="mm-input" min={1} value={batchSize} onCommit={setBatchSize} />
             <button
               type="button"
               className="mm-btn mm-btn--sm"

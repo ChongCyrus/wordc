@@ -65,6 +65,7 @@ import {
 import { APP_VERSION } from '../../app/version'
 import { BRAND } from '../../app/brand'
 import { PageShell } from '../components/PageShell'
+import { SearchFilterBar } from '../components/SearchFilterBar'
 import { SectionBand } from '../components/SectionBand'
 import { SettingRow } from '../components/SettingRow'
 import { Switch } from '../components/Switch'
@@ -219,6 +220,7 @@ export default function SettingsPage() {
 
   return (
     <PageShell title="设置" backTo="/me">
+      <SearchFilterBar placeholder="搜索设置" />
       <SectionBand title="学习设置" />
       <div className="mm-list">
         <SettingRow
@@ -527,7 +529,7 @@ export default function SettingsPage() {
         />
       </div>
 
-      <SectionBand title="学习设置" />
+      <SectionBand title="记忆显示" />
       <div className="mm-list">
         <SettingRow
           label="记忆时隐藏「不常考」含义"
@@ -560,6 +562,21 @@ export default function SettingsPage() {
               checked={s['study.showRootEtymology'] !== false}
               onChange={(checked) => void patch({ 'study.showRootEtymology': checked })}
             />
+          }
+        />
+        <SettingRow
+          label="词根缀卡片样式"
+          hint="compact：紧凑两列（默认）；standard：更宽松的大卡片布局"
+          control={
+            <select
+              className="mm-input"
+              aria-label="词根缀卡片样式"
+              value={s['study.rootAffixCardStyle'] ?? 'compact'}
+              onChange={(event) => void patch({ 'study.rootAffixCardStyle': event.target.value as 'compact' | 'standard' })}
+            >
+              <option value="compact">紧凑（两列）</option>
+              <option value="standard">宽松</option>
+            </select>
           }
         />
         <SettingRow
@@ -753,7 +770,7 @@ export default function SettingsPage() {
         )}
         <SettingRow
           label="导出学习进度"
-          hint="含词库 + 记忆状态 + 设置（迁移/备份）"
+          hint="完整导出：词库/内容 + 记忆状态 + 设置；自动备份只保进度 facts"
           chevron
           onClick={() => void handleExportMigration()}
         />
@@ -762,6 +779,18 @@ export default function SettingsPage() {
           hint={importing ? '正在导入…' : '选择 .migration.json，默认合并'}
           chevron
           onClick={() => void handlePickMigrationImport()}
+        />
+        <SettingRow
+          label="自动备份内容（实验）"
+          hint="开启后先做一次完整基线备份，之后只做增量；内容备份在后台进行，不阻塞学习；失败不会影响学习进度。最近状态：即将支持（引擎未就绪）"
+          control={
+            <Switch
+              label="自动备份内容（实验）"
+              checked={s['backup.autoContentEnabled'] === true}
+              onChange={(checked) => void patch({ 'backup.autoContentEnabled': checked })}
+              disabled
+            />
+          }
         />
         <SettingRow
           label="清空全部数据"

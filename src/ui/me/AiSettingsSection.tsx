@@ -13,6 +13,7 @@ import {
   saveAiSettings,
 } from '../../data/ai'
 import { useToast } from '../../app/toast'
+import { NumberDraftInput } from '../components/NumberDraftInput'
 
 export interface AiSettingsFormValue {
   enabled: boolean
@@ -228,15 +229,14 @@ export function AiSettingsForm({
             <span className="mm-row-title">单次运行费用上限</span>
             <span className="mm-row-sub">元；0=不限制（默认 3）</span>
           </span>
-          <input
+          <NumberDraftInput
             className="mm-input"
-            type="number"
             min={0}
             max={1000}
             step={0.5}
             aria-label="单次运行费用上限"
             value={value.maxCostPerRun}
-            onChange={(event) => onChange({ maxCostPerRun: Number(event.target.value) })}
+            onCommit={(next) => onChange({ maxCostPerRun: next })}
             disabled={saving}
           />
         </label>
@@ -246,15 +246,14 @@ export function AiSettingsForm({
             <span className="mm-row-title">全量预生成预算</span>
             <span className="mm-row-sub">元；用于「今日/词库」批量预估，0=不限制</span>
           </span>
-          <input
+          <NumberDraftInput
             className="mm-input"
-            type="number"
             min={0}
             max={10000}
             step={1}
             aria-label="全量预生成预算"
             value={value.pregenBudget}
-            onChange={(event) => onChange({ pregenBudget: Number(event.target.value) })}
+            onCommit={(next) => onChange({ pregenBudget: next })}
             disabled={saving}
           />
         </label>

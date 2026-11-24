@@ -128,50 +128,69 @@ export async function importRootEtymologyBundle(
   const db = getDb()
   const now = opts.now ?? Date.now()
   const preserveManual = opts.preserveManual !== false
-  for (const item of bundle.items) {
+  // 0.11.1：批量化读取/写入，避免 6000+ 条逐条 IndexedDB 事务导致 Web 端导入挂起。
+  const BATCH = 300
+  for (let start = 0; start < bundle.items.length; start += BATCH) {
+    const chunk = bundle.items.slice(start, start + BATCH)
+    const ids = chunk.map((item) => (item && typeof item.wordId === 'string' ? item.wordId : ''))
+    let rows: Array<Word | undefined> = []
     try {
-      if (!item || typeof item.wordId !== 'string') throw new Error('item 缺少 wordId')
-      const word = await db.words.get(item.wordId)
-      if (!word) {
-        report.skippedMissing += 1
-        continue
-      }
-      if (preserveManual && word.rootEtymology?.source === 'manual') {
-        report.skippedManual += 1
-        continue
-      }
-      const incoming = item.rootEtymology
-      if (incoming) {
-        const parts = normalizeRootEtymologyParts(incoming.parts)
-        if (parts.length === 0 && !incoming.etymology) {
-          report.failed.push({ wordId: item.wordId, reason: 'bundle 条目没有有效 parts/etymology' })
+      rows = await db.words.bulkGet(ids)
+    } catch {
+      rows = []
+    }
+    const updates: Word[] = []
+    for (let index = 0; index < chunk.length; index += 1) {
+      const item = chunk[index]
+      try {
+        if (!item || typeof item.wordId !== 'string') throw new Error('item 缺少 wordId')
+        const word = rows[index]
+        if (!word) {
+          report.skippedMissing += 1
           continue
         }
+        if (preserveManual && word.rootEtymology?.source === 'manual') {
+          report.skippedManual += 1
+          continue
+        }
+        const incoming = item.rootEtymology
+        if (incoming) {
+          const parts = normalizeRootEtymologyParts(incoming.parts)
+          if (parts.length === 0 && !incoming.etymology) {
+            report.failed.push({ wordId: item.wordId, reason: 'bundle 条目没有有效 parts/etymology' })
+            continue
+          }
+        }
+        const next: Word = {
+          ...word,
+          ...(incoming
+            ? {
+                rootEtymology: {
+                  ...incoming,
+                  parts: normalizeRootEtymologyParts(incoming.parts),
+                  ...(incoming.etymology ? { etymology: incoming.etymology } : {}),
+                  ...(incoming.composition ? { composition: incoming.composition } : {}),
+                  source: incoming.source === 'manual' ? 'manual' : 'ai',
+                  updatedAt: incoming.updatedAt ?? now,
+                },
+              }
+            : {}),
+          ...(item.rootEtymologyCheckedAt != null ? { rootEtymologyCheckedAt: item.rootEtymologyCheckedAt } : {}),
+          ...(item.rootEtymologyVersion ? { rootEtymologyVersion: item.rootEtymologyVersion } : {}),
+        }
+        if (!incoming) delete next.rootEtymology
+        updates.push(next)
+      } catch (error) {
+        report.failed.push({ wordId: String(item?.wordId ?? '?'), reason: error instanceof Error ? error.message : String(error) })
       }
-      const next: Word = {
-        ...word,
-        ...(incoming
-          ? {
-              rootEtymology: {
-                ...incoming,
-                parts: normalizeRootEtymologyParts(incoming.parts),
-                ...(incoming.etymology ? { etymology: incoming.etymology } : {}),
-                ...(incoming.composition ? { composition: incoming.composition } : {}),
-                source: incoming.source === 'manual' ? 'manual' : 'ai',
-                updatedAt: incoming.updatedAt ?? now,
-              },
-            }
-          : {}),
-        ...(item.rootEtymologyCheckedAt != null ? { rootEtymologyCheckedAt: item.rootEtymologyCheckedAt } : {}),
-        ...(item.rootEtymologyVersion ? { rootEtymologyVersion: item.rootEtymologyVersion } : {}),
+    }
+    if (updates.length > 0) {
+      try {
+        await db.words.bulkPut(updates)
+        report.updated += updates.length
+      } catch (error) {
+        report.failed.push({ wordId: `batch:${start}`, reason: error instanceof Error ? error.message : String(error) })
       }
-      if (!incoming) {
-        delete next.rootEtymology
-      }
-      await db.words.put(next)
-      report.updated += 1
-    } catch (error) {
-      report.failed.push({ wordId: String(item?.wordId ?? '?'), reason: error instanceof Error ? error.message : String(error) })
     }
   }
   if (report.failed.length > 0) {

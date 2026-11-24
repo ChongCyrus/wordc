@@ -22,6 +22,7 @@ export function RootAffixStage({
   partTotals = {},
   baseTotal = 3,
   partUnfamiliarity = {},
+  cardStyle = 'compact',
   onExit,
 }: {
   mapping: RootAffixMappingsResult
@@ -30,6 +31,7 @@ export function RootAffixStage({
   partTotals?: Record<string, number>
   baseTotal?: number
   partUnfamiliarity?: Record<string, number>
+  cardStyle?: 'compact' | 'standard'
   onExit?: () => void
 }) {
   const cards = useMemo(
@@ -83,7 +85,7 @@ export function RootAffixStage({
   }
 
   return (
-    <div className="memory-stage root-affix-stage" style={{ fontSize: `${Math.round(16 * fontScale)}px` }}>
+    <div className={`memory-stage root-affix-stage${cardStyle === 'standard' ? ' is-standard' : ''}`} style={{ fontSize: `${Math.round(16 * fontScale)}px` }}>
       <div className="root-affix-stage-progress">
         词根缀 {Math.min(index + 1, cards.length)} / {cards.length}
       </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { addDays, localDateKey } from '../../core'
 import type { DailyStatPoint } from '../../core'
 import { PageShell } from '../components/PageShell'
@@ -9,7 +9,7 @@ import { Button } from '../components/Buttons'
 import { HomeTaskCard } from './HomeTaskCard'
 import { AddTodayWordsDialog } from './AddTodayWordsDialog'
 import type { HomeStateLike } from './home-state-view'
-import { SettingsIcon } from '../components/icons'
+import { ThemeToggleButton } from '../components/ThemeToggleButton'
 import { useSettings } from '../../app/hooks/useSettings'
 import { useDailyStats, useStatsOverview } from '../../app/hooks/useStats'
 import { useStudyProgress } from '../../app/hooks/useStudyProgress'
@@ -153,11 +153,7 @@ export default function HomePage() {
     <PageShell
       title="今日"
       hero
-      actions={
-        <Link to="/me/settings" className="mm-icon-btn" aria-label="设置">
-          <SettingsIcon size={22} />
-        </Link>
-      }
+      actions={<ThemeToggleButton />}
     >
       {loading ? <div className="mm-loading">正在加载今日任务…</div> : null}
 

@@ -2427,3 +2427,7 @@ button.root-etymology-part {
 @media (max-width: 360px) {
   .root-affix-stage .wc-info { grid-template-columns: 1fr; }
 }
+/* 0.11.1：rootAffixCardStyle standard 宽松布局 */
+.root-affix-stage.is-standard { padding: 10px 16px; gap: 10px; }
+.root-affix-stage.is-standard .wc-card { min-height: min(52vh, 420px); padding: 22px; gap: 10px; }
+.root-affix-stage.is-standard .wc-info { display: flex; flex-direction: column; gap: 6px; }

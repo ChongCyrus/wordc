@@ -23,11 +23,11 @@ describe('task-228 本义助记导出/导入', () => {
     const html = renderToStaticMarkup(
       createElement(
         MemoryRouter,
-        { initialEntries: ['/me'] },
+        { initialEntries: ['/me/import-export'] },
         createElement(AppProviders, null, createElement(AppRoutes, null)),
       ),
     )
-    expect(html).toContain('导出本义助记')
+    expect(html).toContain('导出学习进度')
     expect(html).toContain('导入本义助记')
     expect(html).toContain('导出学习进度')
     expect(source).toContain('buildCoreSenseMnemonicExport')

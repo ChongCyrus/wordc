@@ -11,6 +11,7 @@ import {
 } from '../../data'
 import type { AdvancedFilter, GenerationJob, GenerationTargetKind } from '../../data'
 import { PageShell } from '../components/PageShell'
+import { NumberDraftInput } from '../components/NumberDraftInput'
 import { FilterTreeEditor } from './AdvancedFilterPage'
 import { useToast } from '../../app/toast'
 
@@ -304,15 +305,15 @@ export default function GeneratePage() {
       <div className="filter-batch-controls" style={{ marginTop: 8 }}>
         <label className="filter-batch-field">
           <span>每批词数</span>
-          <input className="mm-input" type="number" min={1} max={50} value={batchSize} onChange={(event) => setBatchSize(Math.max(1, Math.min(50, Number(event.target.value) || 1)))} />
+          <NumberDraftInput className="mm-input" min={1} max={50} value={batchSize} onCommit={setBatchSize} />
         </label>
         <label className="filter-batch-field">
           <span>并发</span>
-          <input className="mm-input" type="number" min={1} max={8} value={concurrency} onChange={(event) => setConcurrency(Math.max(1, Math.min(8, Number(event.target.value) || 1)))} />
+          <NumberDraftInput className="mm-input" min={1} max={8} value={concurrency} onCommit={setConcurrency} />
         </label>
         <label className="filter-batch-field">
           <span>预算 ¥</span>
-          <input className="mm-input" type="number" min={0} value={budgetYuan} onChange={(event) => setBudgetYuan(Math.max(0, Number(event.target.value) || 0))} />
+          <NumberDraftInput className="mm-input" min={0} value={budgetYuan} onCommit={setBudgetYuan} />
         </label>
       </div>
       <div className="mm-caption" style={{ marginTop: 8 }}>

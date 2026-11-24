@@ -90,6 +90,7 @@ import {
 import { APP_VERSION } from '../../app/version'
 import { BRAND } from '../../app/brand'
 import { PageShell } from '../components/PageShell'
+import { SearchFilterBar } from '../components/SearchFilterBar'
 import { SectionBand, Card } from '../components/SectionBand'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
 import { SettingRow } from '../components/SettingRow'
@@ -1513,6 +1514,7 @@ export default function MePage() {
 
   return (
     <PageShell title="我的" hero>
+      <SearchFilterBar placeholder="搜索我的设置" />
       <Card>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div className="mm-avatar">
@@ -1742,11 +1744,13 @@ export default function MePage() {
             onClick={openRestoreStatus}
           />
         ) : null}
+        {false ? (
+          <>
         <SettingRow
           label="自动备份"
           hint={
             autoBackupAvailable
-              ? `旧 JSON 自动备份（legacy）：存 App 内部（清 WebView 数据不丢）；最近 ${autoBackups[0] ? new Date(autoBackups[0].mtime).toLocaleString() : '暂无'} · ${autoBackups.length} 份（gzip，保留 7 份且 ≤100MB），不会静默删除，可导出到下载`
+              ? `旧 JSON 自动备份（legacy）：存 App 内部（清 WebView 数据不丢）；最近 ${autoBackups[0] ? new Date(autoBackups[0]!.mtime).toLocaleString() : '暂无'} · ${autoBackups.length} 份（gzip，保留 7 份且 ≤100MB），不会静默删除，可导出到下载`
               : '自动备份存 App 内部（清 WebView 数据不丢），浏览器版请手动导出'
           }
           value={autoBackupAvailable && autoBackups.length > 0 ? `${autoBackups.length} 份（legacy）` : undefined}
@@ -1824,6 +1828,16 @@ export default function MePage() {
               .catch(() => toast.error('导出诊断包失败'))
           }}
         />
+        <SettingRow
+          label="调试"
+          hint="SQLite/迁移/写源/诊断等内部工具（默认隐藏）"
+          chevron
+          onClick={() => navigate('/me/debug')}
+        />
+          </>
+        ) : null}
+        {false ? (
+          <>
         <SettingRow
           label="SQLite M3 迁移演练（dryRun）"
           hint="仅演练：显示 IDB/SQLite counts、批次数、是否可迁移与错误；不写 SQLite"
@@ -1932,8 +1946,8 @@ export default function MePage() {
           label="SQLite facts 备份"
           hint={
             sqliteManifest
-              ? `states ${sqliteManifest.counts.states} / plans ${sqliteManifest.counts.plans} / settings ${sqliteManifest.counts.settings} · epoch ${sqliteManifest.dataEpoch} · v${sqliteManifest.userVersion} · ${new Date(sqliteManifest.createdAt).toLocaleString()} · ${(sqliteManifest.bytes / 1024 / 1024).toFixed(1)}MB · ${sqliteManifest.checksum ? `sum ${sqliteManifest.checksum.slice(0, 8)}…` : '无 checksum'}`
-              : '尚未读取 SQLite facts manifest（需内部 APK/原生 SQLite）'
+              ? `仅进度 facts，不含词库/内容包/引申图；states ${sqliteManifest?.counts.states ?? 0} / plans ${sqliteManifest?.counts.plans ?? 0} / settings ${sqliteManifest?.counts.settings ?? 0} · epoch ${sqliteManifest?.dataEpoch ?? 0} · v${sqliteManifest?.userVersion ?? 0} · ${new Date(sqliteManifest?.createdAt ?? Date.now()).toLocaleString()} · ${((sqliteManifest?.bytes ?? 0) / 1024 / 1024).toFixed(1)}MB · ${sqliteManifest?.checksum ? `sum ${sqliteManifest?.checksum?.slice(0, 8)}…` : '无 checksum'}`
+              : '只备份进度 facts；内容请手动完整导出。尚未读取 SQLite facts manifest'
           }
           value={sqliteBackupBusy ? '备份中…' : '立即备份'}
           chevron={!sqliteBackupBusy}
@@ -2015,6 +2029,10 @@ export default function MePage() {
             if (persistState === 'prompt') requestPersist()
           }}
         />
+          </>
+        ) : null}
+        {false ? (
+          <>
         <SettingRow label="词库管理" hint="新建 / 导入 / 导出 / 从墨墨导入" chevron onClick={() => navigate('/decks')} />
         <SettingRow
           label="从墨墨导入学习进度"
@@ -2022,6 +2040,22 @@ export default function MePage() {
           chevron
           onClick={() => navigate('/decks?maimemo=1')}
         />
+          </>
+        ) : null}
+        <SettingRow
+          label="导入与导出"
+          hint="学习进度、完整备份、自动备份、内容包导入导出"
+          chevron
+          onClick={() => navigate('/me/import-export')}
+        />
+        <SettingRow
+          label="迁移与修复"
+          hint="SQLite 迁移/修复/备份/回退与调试工具"
+          chevron
+          onClick={() => navigate('/me/debug')}
+        />
+        {false ? (
+          <>
         <SettingRow
           label="导出学习进度"
           hint="学习进度备份（不含引申图/内容包）；引申图/内容包可分别用对应导出"
@@ -2091,6 +2125,8 @@ export default function MePage() {
           chevron
           onClick={() => void handlePickDerivationBundleImport()}
         />
+          </>
+        ) : null}
         <SettingRow
           label="批量生成引申图"
           hint="词库/今日要学选词；排除已生成；并发/进度/停止/失败重试（上限 200）"

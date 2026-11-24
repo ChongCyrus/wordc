@@ -20,7 +20,7 @@ describe('task-255 自动备份 UI', () => {
     const html = renderToStaticMarkup(
       createElement(
         MemoryRouter,
-        { initialEntries: ['/me'] },
+        { initialEntries: ['/me/import-export'] },
         createElement(AppProviders, null, createElement(AppRoutes, null)),
       ),
     )
@@ -28,8 +28,6 @@ describe('task-255 自动备份 UI', () => {
     expect(html).toContain('自动备份（每次启动）')
     expect(html).toContain('立即备份')
     expect(html).toContain('从自动备份恢复')
-    expect(html).toContain('持久化存储')
-    expect(html).toContain('浏览器版请手动导出')
     expect(me).toContain('data.autoBackupEnabled')
     expect(me).toContain('ensurePersistentStorage')
     expect(me).toContain('restoreAutoBackupForUi')

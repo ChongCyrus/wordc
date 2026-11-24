@@ -1333,3 +1333,7 @@ html[data-reduce-motion='true'] *::after {
 .filter-batch-field .mm-input { width: 64px; min-width: 0; }
 .filter-batch-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 @media (max-width: 360px) { .filter-batch-controls { grid-template-columns: 1fr; } }
+/* 0.11.1：我的/设置顶部本地搜索 */
+.mm-list-search { margin: 0 0 8px; }
+.mm-list-search .mm-input { width: 100%; box-sizing: border-box; }
+.mm-switch.is-disabled { opacity: 0.5; cursor: not-allowed; }

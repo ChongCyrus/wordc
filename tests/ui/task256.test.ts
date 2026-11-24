@@ -19,15 +19,22 @@ describe('task-256 存储诊断 + 导出备份到下载', () => {
     const html = renderToStaticMarkup(
       createElement(
         MemoryRouter,
-        { initialEntries: ['/me'] },
+        { initialEntries: ['/me/import-export'] },
         createElement(AppProviders, null, createElement(AppRoutes, null)),
       ),
     )
-    expect(html).toContain('存储诊断')
     expect(html).toContain('自动备份（每次启动）')
-    expect(html).toContain('每次启动学习时自动备份到本机内部存储')
+    expect(html).toContain('每次启动学习时自动备份')
     expect(html).toContain('导出备份到下载')
-    expect(html).toContain('自动备份存 App 内部')
+    expect(html).toContain('自动备份（每次启动）')
+    const debugHtml = renderToStaticMarkup(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ['/me/debug'] },
+        createElement(AppProviders, null, createElement(AppRoutes, null)),
+      ),
+    )
+    expect(debugHtml).toContain('存储诊断')
     expect(me).toContain('readDiagnosticFile')
     expect(me).toContain('exportBackupToDownloads')
     expect(me).toContain('navigator.clipboard.writeText')

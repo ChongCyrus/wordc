@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
-import { getSettings, updateSettings } from '../data'
+import { useSettings } from './hooks/useSettings'
+import { updateSettings } from '../data'
 
 /**
  * 主题 / 外观渲染通道（SPEC §5 / §8.3）。
@@ -42,7 +42,7 @@ function systemPrefersDark(): boolean {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const settings = useLiveQuery(() => getSettings(), [])
+  const { settings } = useSettings()
   const [storedMode, setStoredMode] = useState<ThemeMode>(readStoredMode)
   const [systemDark, setSystemDark] = useState(systemPrefersDark)
 

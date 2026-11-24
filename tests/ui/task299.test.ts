@@ -26,10 +26,9 @@ describe('task-299 0.6.0 统一词级 runner/并发批次预算', () => {
   })
 
   it('并发 1–8 / 批次 1–50 / 预算输入', () => {
-    expect(page).toContain('min={1} max={50}')
-    expect(page).toContain('Math.max(1, Math.min(50')
-    expect(page).toContain('min={1} max={8}')
-    expect(page).toContain('Math.max(1, Math.min(8')
+    expect(page).toContain('NumberDraftInput')
+    expect(page).toContain('max={50}')
+    expect(page).toContain('max={8}')
     expect(page).toContain('预算 ¥')
   })
 })

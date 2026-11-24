@@ -409,6 +409,8 @@ export type SettingsMap = {
   'memory.cardFlashAnimation': boolean
   /** 0.3.86：每日自动备份（APK 静默写 auto/；默认 true） */
   'data.autoBackupEnabled': boolean
+  /** 0.12：自动备份内容（实验；默认关） */
+  'backup.autoContentEnabled': boolean
   /** 0.3.87：新词来源 manual=用户添加（默认）/ auto=按学习量自动排 */
   'study.newWordSource': 'manual' | 'auto'
   /** 0.3.91：添词默认方式 */
@@ -419,6 +421,8 @@ export type SettingsMap = {
   'data.generatedAutoSeed': boolean
   /** 0.3.98：注释面显示词根词缀词源分解（默认 true） */
   'study.showRootEtymology': boolean
+  /** 0.11.1：根缀卡样式 compact|standard（默认 compact） */
+  'study.rootAffixCardStyle': 'compact' | 'standard'
   /** 0.8.0：加权记忆「只记词根缀」模式（默认 false） */
   'memory.rootAffixOnly': boolean
   'study.recallMode': 'en2cn' // v1 固定 en2cn（只做英→中）

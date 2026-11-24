@@ -17,6 +17,8 @@ import StatsPage from '../ui/stats/StatsPage'
 import MePage from '../ui/me/MePage'
 import SettingsPage from '../ui/me/SettingsPage'
 import GenerationJobsPage from '../ui/me/GenerationJobsPage'
+import DebugPage from '../ui/me/DebugPage'
+import ImportExportPage from '../ui/me/ImportExportPage'
 import AboutPage from '../ui/me/AboutPage'
 import NotFoundPage from '../ui/components/NotFoundPage'
 
@@ -41,6 +43,8 @@ export const routeChildren: RouteObject[] = [
   { path: 'me', element: <MePage /> },
   { path: 'me/settings', element: <SettingsPage /> },
   { path: 'me/jobs', element: <GenerationJobsPage /> },
+  { path: 'me/debug', element: <DebugPage /> },
+  { path: 'me/import-export', element: <ImportExportPage /> },
   { path: 'me/about', element: <AboutPage /> },
   { path: '*', element: <NotFoundPage /> },
 ]
