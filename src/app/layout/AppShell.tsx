@@ -1,9 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { bootstrapM2ReadCache, cleanupOldPlans, ensureBuiltinDecks, ensureDefaultContentPacks, ensureDefaultGeneratedData, getIdbFactCounts, ensureM4b0Schema, healTodayPlanAfterStartup, markStartupPhase, restoreLearningWriteSource, recoverInterruptedWriteSource, ensureLegacyIdbMigratedToSqlite, createFactsPreBackup, ensureRootEtymologyPreinstall, getSettings, restoreSettingsWriteMode, scheduleStateCheckpoint, setSettingsCheckpointScheduler, setSqliteFactsCheckpointBridge, flushSqliteFactsCheckpointAuto } from '../../data'
+import { bootstrapM2ReadCache, cleanupOldPlans, ensureBuiltinDecks, ensureDefaultContentPacks, ensureDefaultGeneratedData, getIdbFactCounts, ensureM4b0Schema, healTodayPlanAfterStartup, markStartupPhase, restoreLearningWriteSource, recoverInterruptedWriteSource, ensureLegacyIdbMigratedToSqlite, createFactsPreBackup, ensureRootEtymologyPreinstall, getSettings, restoreSettingsWriteMode, setContentBackupStorage, runContentAutoBackup, scheduleStateCheckpoint, setSettingsCheckpointScheduler, setSqliteFactsCheckpointBridge, flushSqliteFactsCheckpointAuto, ensureContentSourceV15, CONTENT_SOURCE_V15_EVENT, consumeInterruptedContentRestore } from '../../data'
 import { TAB_ITEMS, tabForPath } from '../routes'
 import { useToast } from '../toast'
-import { createAutoBackupBridge, ensurePersistentStorage, restoreProgressCheckpointIfEmpty } from '../utils/auto-backup-service'
+import { createAutoBackupBridge, createPreBackup, ensurePersistentStorage, restoreProgressCheckpointIfEmpty } from '../utils/auto-backup-service'
+import { createContentBackupStorage } from '../utils/content-backup-storage'
+import { isContentDowngradeError, CONTENT_DOWNGRADE_MESSAGE } from '../utils/content-errors'
 import type { NavIcon } from '../routes'
 import { AutoBackupStartupGate } from '../../ui/me/AutoBackupStartupGate'
 import { GeneratedSeedIndicator } from '../../ui/components/GeneratedSeedIndicator'
@@ -40,12 +42,33 @@ export function AppShell() {
   const { pathname } = useLocation()
   const toast = useToast()
   const isImmersive = pathname === '/study'
+  const [contentMigrating, setContentMigrating] = useState(false)
+  const [contentRestoreInterrupted, setContentRestoreInterrupted] = useState(false)
 
   // 首次启动种入内置词库（幂等、并发安全；失败时由各页面自身空态兜底）
   // 并清理 7 天前的旧今日计划（SPEC-v2 §6.4，幂等、失败不阻塞）
   // 最后自动导入内置内容包（task-87：公开版大纲 pack；幂等、离线失败下次重试，fire-and-forget 不阻塞首屏）
   useEffect(() => {
     const bridge = createAutoBackupBridge()
+    setContentBackupStorage(createContentBackupStorage(bridge))
+    let contentInterval: ReturnType<typeof setInterval> | null = null
+    const contentStart = setTimeout(() => {
+      void runContentAutoBackup().then((result) => {
+        if (result.ok) return
+        if (isContentDowngradeError(result.error)) toast.error(CONTENT_DOWNGRADE_MESSAGE)
+      }).catch((error) => {
+        if (isContentDowngradeError(error)) toast.error(CONTENT_DOWNGRADE_MESSAGE)
+      })
+      contentInterval = setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) return
+        void runContentAutoBackup().then((result) => {
+        if (result.ok) return
+        if (isContentDowngradeError(result.error)) toast.error(CONTENT_DOWNGRADE_MESSAGE)
+      }).catch((error) => {
+        if (isContentDowngradeError(error)) toast.error(CONTENT_DOWNGRADE_MESSAGE)
+      })
+      }, 30 * 60 * 1000)
+    }, 7_000)
     setSettingsCheckpointScheduler(() => scheduleStateCheckpoint(bridge))
     setSqliteFactsCheckpointBridge(bridge)
     const flush = () => {
@@ -53,10 +76,62 @@ export function AppShell() {
     }
     window.addEventListener('pagehide', flush)
     return () => {
+      clearTimeout(contentStart)
+      if (contentInterval) clearInterval(contentInterval)
       window.removeEventListener('pagehide', flush)
       setSettingsCheckpointScheduler(null)
       setSqliteFactsCheckpointBridge(null)
     }
+  }, [])
+
+  // 0.15：原生 SQLite 单一事实源 — v15 一次性内容迁移。
+  // 首帧后延迟触发（不阻塞首屏）；Web/非原生直接 skipped；失败保持 IDB 可读并自动重试 1 次。
+  useEffect(() => {
+    let cancelled = false
+    const timers: ReturnType<typeof setTimeout>[] = []
+    const runV15 = async (attempt: number): Promise<void> => {
+      let overlayTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => setContentMigrating(true), 300)
+      const clearOverlay = () => {
+        if (overlayTimer != null) { clearTimeout(overlayTimer); overlayTimer = null }
+        setContentMigrating(false)
+      }
+      const result = await ensureContentSourceV15({
+        preBackup: async () => {
+          const backup = await createPreBackup()
+          return { ok: backup.ok, ...(backup.error ? { error: backup.error } : {}) }
+        },
+      }).catch((error: unknown) => ({
+        ok: false as const,
+        source: 'idb' as const,
+        error: error instanceof Error ? error.message : String(error),
+      }))
+      clearOverlay()
+      if (cancelled) return
+      try {
+        window.dispatchEvent(new CustomEvent(CONTENT_SOURCE_V15_EVENT, { detail: result }))
+      } catch {
+        /* ignore */
+      }
+      if (result.ok) return
+      try {
+        window.localStorage.setItem('momo:content-v15-diag', JSON.stringify({ at: Date.now(), attempt, ...result }))
+      } catch {
+        /* ignore */
+      }
+      if (attempt < 2) timers.push(setTimeout(() => { void runV15(attempt + 1) }, 15_000))
+    }
+    timers.push(setTimeout(() => { void runV15(1) }, 5_000))
+    return () => {
+      cancelled = true
+      for (const timer of timers) clearTimeout(timer)
+    }
+  }, [])
+
+  // P1-4：内容恢复被 kill 后首次启动只做引导，不从半替换 kv 自动重建
+  useEffect(() => {
+    void consumeInterruptedContentRestore()
+      .then((result) => setContentRestoreInterrupted(result.interrupted))
+      .catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -178,9 +253,28 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
+      {contentRestoreInterrupted ? (
+        <div role="alert" style={{ position: 'sticky', top: 0, zIndex: 9999, background: '#8a2b2b', color: '#fff', padding: '10px 14px', fontSize: 13 }}>
+          上次内容恢复被中断，内容可能不完整。请先到 <Link to="/me" style={{ color: '#fff', textDecoration: 'underline' }}>我的 → 数据</Link> 恢复备份，再继续编辑。
+        </div>
+      ) : null}
       <main className={`app-main${isImmersive ? ' app-main--immersive' : ''}`} id="main">
         <Outlet />
       </main>
+      {contentMigrating ? (
+        <div
+          role="alert"
+          aria-live="assertive"
+          style={{
+            position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.55)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', gap: 12, padding: 24, textAlign: 'center',
+          }}
+        >
+          <strong>正在完成内容迁移…</strong>
+          <span>首次升级需要 1–2 分钟，期间不能评分；完成后自动继续。</span>
+        </div>
+      ) : null}
       {showTabBar ? <TabBar pathname={pathname} /> : null}
       <AutoBackupStartupGate />
       <GeneratedSeedIndicator />

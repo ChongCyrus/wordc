@@ -1,5 +1,6 @@
 /** task-164：nc（用户标记“不能从生成元直接理解”的含义）。存 Word 字段，不进 packItems，AI apply 不覆盖。 */
 import { getDb } from './db'
+import { saveWordOverlay } from './content-write-source'
 import type { Word } from '../core/types'
 
 async function getWordOrThrow(wordId: string): Promise<Word> {
@@ -22,7 +23,7 @@ export async function setNcMeaningIds(wordId: string, meaningIds: string[]): Pro
   const next = [...new Set(meaningIds)].filter((id) => valid.has(id))
   if (next.length > 0) word.ncMeaningIds = next
   else delete word.ncMeaningIds
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return next
 }
 

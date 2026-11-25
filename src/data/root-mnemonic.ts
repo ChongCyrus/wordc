@@ -1,5 +1,6 @@
 /** 0.3.61：单词 w → 生成元 映射助记（存 Word 字段，AI apply 不覆盖）。 */
 import { getDb } from './db'
+import { saveWordOverlay } from './content-write-source'
 import type { RootMnemonic, Word } from '../core/types'
 
 export type { RootMnemonic } from '../core/types'
@@ -26,7 +27,7 @@ export async function saveRootMnemonic(
   const word = await getWordOrThrow(wordId)
   const next: RootMnemonic = { text: value, source: source === 'ai' ? 'ai' : 'manual', updatedAt: Date.now() }
   word.rootMnemonic = next
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return next
 }
 
@@ -34,6 +35,6 @@ export async function clearRootMnemonic(wordId: string): Promise<boolean> {
   const word = await getWordOrThrow(wordId)
   if (!word.rootMnemonic) return false
   delete word.rootMnemonic
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return true
 }

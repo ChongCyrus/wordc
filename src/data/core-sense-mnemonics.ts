@@ -7,6 +7,8 @@ import { localDateKey, normalizeHeadword, type CoreSenseOverview, type SenseMnem
 import { getDb } from './db'
 import { getEffectiveContent, getEffectiveCoreSensesBatch } from './packs.repo'
 import { stableStringify } from './checksum'
+import { wordOverlayOf } from './content-snapshot'
+import { ContentWriteError, saveContentEntitiesBatch } from './content-write-source'
 
 export const CORE_SENSE_MNEMONIC_FORMAT = 'wordc-core-sense-mnemonics'
 export const CORE_SENSE_MNEMONIC_VERSION = 1
@@ -423,8 +425,15 @@ export async function applyCoreSenseMnemonicImportParsed(
   const flush = async (force = false) => {
     if (!force && dirty.size < 100) return
     if (dirty.size === 0) return
-    await getDb().words.bulkPut([...dirty.values()])
+    const rows = [...dirty.values()].map((word) => ({
+      key: `word-overlay:${word.id}`,
+      kind: 'word-overlay' as const,
+      json: JSON.stringify(wordOverlayOf(word as unknown as Record<string, unknown>)),
+      updatedAt: now,
+    }))
     dirty.clear()
+    const result = await saveContentEntitiesBatch(rows)
+    if (!result.ok) throw new ContentWriteError(result.error ?? '本义助记内容写入失败', 'CONTENT_SQLITE_WRITE_FAILED')
   }
   let appliedDone = 0
   const applyTotal = plans.overviews.length + plans.senses.length

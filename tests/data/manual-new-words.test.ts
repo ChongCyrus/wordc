@@ -212,7 +212,7 @@ describe('0.3.87 · manual new words', () => {
     expect(plan.wordIds.length).toBeGreaterThan(2)
     // 学掉最后一个自动新词（rated -> 保留）
     const newIds = plan.wordIds.filter((id) => plan.sources[id] === 'goal' && id !== words[0]!.id)
-    const learnedNew = newIds[0]!
+    const learnedNew = newIds.find((id) => id !== words[1]!.id)!
     await markLearned(learnedNew, deck.id, now, -1000)
     // 手动来源标记（保留）：把 word01 改成 manual
     const dbPlan = (await getDb().plans.get(plan.id))!

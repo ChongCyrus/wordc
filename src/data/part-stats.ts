@@ -9,6 +9,7 @@ import { getLearningWriteSource } from './learning-write-source'
 import { sqliteQuery, sqliteTx } from './native-sqlite'
 import { mapSqliteStateRow } from './sqlite-read'
 import { buildStateSqliteRow } from './study-sqlite'
+import { withStatsWriteLock } from './stats-write-queue'
 
 export function partStatKey(type: string, text: string): string {
   const normalizedType = type === 'prefix' || type === 'root' || type === 'suffix' ? type : 'other'
@@ -60,10 +61,10 @@ export async function getPartStats(wordId: string): Promise<Record<string, Meani
 }
 
 /** 本次展示/记忆每个 part 时 encounters += 1（同一 part 每会话只调一次） */
-export async function recordPartEncounters(
+async function recordPartEncountersInner(
   wordId: string,
   parts: readonly Pick<RootEtymologyPart, 'type' | 'text'>[],
-  now = Date.now(),
+  now: number,
 ): Promise<Record<string, MeaningStat>> {
   const { state } = await readFactState(wordId, now)
   const next: Record<string, MeaningStat> = { ...(state.partStats ?? {}) }
@@ -78,10 +79,10 @@ export async function recordPartEncounters(
 }
 
 /** 用户点开某个 part 含义时 clicks += 1 */
-export async function recordPartClick(
+async function recordPartClickInner(
   wordId: string,
   part: Pick<RootEtymologyPart, 'type' | 'text'>,
-  now = Date.now(),
+  now: number,
 ): Promise<Record<string, MeaningStat>> {
   const { state } = await readFactState(wordId, now)
   const key = partStatKey(part.type, part.text)
@@ -90,6 +91,22 @@ export async function recordPartClick(
   next[key] = { clicks: prev.clicks + 1, encounters: prev.encounters }
   await writeFactState({ ...state, partStats: next, updatedAt: now })
   return next
+}
+
+export function recordPartEncounters(
+  wordId: string,
+  parts: readonly Pick<RootEtymologyPart, 'type' | 'text'>[],
+  now = Date.now(),
+): Promise<Record<string, MeaningStat>> {
+  return withStatsWriteLock(wordId, () => recordPartEncountersInner(wordId, parts, now))
+}
+
+export function recordPartClick(
+  wordId: string,
+  part: Pick<RootEtymologyPart, 'type' | 'text'>,
+  now = Date.now(),
+): Promise<Record<string, MeaningStat>> {
+  return withStatsWriteLock(wordId, () => recordPartClickInner(wordId, part, now))
 }
 
 /** 单 part 不熟悉度；无 encounters 默认 0 */

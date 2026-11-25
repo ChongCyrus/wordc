@@ -11,12 +11,15 @@
  * 不写 `words` 以外的产品表；应用始终合并进 `Word.examples/phrases/mnemonics`（唯一落库点）。
  */
 
-import type { Word } from '../core'
+import type { Deck, Word } from '../core'
 import { localDateKey, meaningIdOf, normalizeHeadword } from '../core'
+import { DECK_SOURCES } from './builtin/deck-sources'
 import { BRAND } from '../app/brand'
 import { computeChecksum, verifyChecksum } from './checksum'
 import { getDb } from './db'
 import { getSettings } from './settings.repo'
+import { ContentWriteError, getContentWriteSource, saveContentEntitiesChunked } from './content-write-source'
+import type { ContentEntityRow } from './content-write-source'
 import { mergeItemIntoWord } from './packs/merge'
 import type { MergeSkip } from './packs/merge'
 import {
@@ -71,6 +74,125 @@ async function readInput(input: string | Blob): Promise<string> {
 
 function emptyCounts(): PackCounts {
   return { items: 0, pending: 0, approved: 0, applied: 0, rejected: 0, skipped: 0 }
+}
+
+// ============ 0.14：内容写源接线（packs / packItems / contentRejects） ============
+// 语义：
+// - `data.contentWriteSource==='idb'`（默认）：helper 直接返回 null，调用方**原 IDB 写逻辑不变**；
+// - `'sqlite'`：先把行写 content_kv（≤500/批；失败即停并抛/返回结构化错误，绝不先写 IDB），
+//   SQLite 成功后才由调用方原有 IDB 写逻辑更新 cache。
+// key 规范：`pack:<id>` / `pack-item:<id>` / `content-reject:<id>`。
+
+export interface PackContentWriteResult { ok: boolean; written: number; revision: number; error?: string }
+
+function packContentRow(pack: PackRecord): ContentEntityRow {
+  return { key: `pack:${pack.id}`, kind: 'pack', json: JSON.stringify(pack), updatedAt: pack.updatedAt ?? pack.createdAt }
+}
+
+function packItemContentRow(item: PackItemRecord): ContentEntityRow {
+  return {
+    key: `pack-item:${item.id}`,
+    kind: 'pack-item',
+    json: JSON.stringify(item),
+    updatedAt: item.appliedAt ?? item.createdAt ?? Date.now(),
+  }
+}
+
+function contentRejectContentRow(reject: ContentRejectRecord): ContentEntityRow {
+  return { key: `content-reject:${reject.id}`, kind: 'content-reject', json: JSON.stringify(reject), updatedAt: reject.rejectedAt }
+}
+
+function packDeletionRow(id: string): ContentEntityRow {
+  return { key: `pack:${id}`, kind: 'pack', json: 'null', deleted: true }
+}
+
+function packItemDeletionRow(id: string): ContentEntityRow {
+  return { key: `pack-item:${id}`, kind: 'pack-item', json: 'null', deleted: true }
+}
+
+function contentRejectDeletionRow(id: string): ContentEntityRow {
+  return { key: `content-reject:${id}`, kind: 'content-reject', json: 'null', deleted: true }
+}
+
+/** sqlite 模式写 content_kv；idb 模式返回 null（调用方保持原 IDB 写路径） */
+async function persistPackRowsToSqlite(rows: readonly ContentEntityRow[]): Promise<PackContentWriteResult | null> {
+  if (rows.length === 0) return null
+  if ((await getContentWriteSource()) !== 'sqlite') return null
+  return saveContentEntitiesChunked([...rows])
+}
+
+/** sqlite 写失败 → 抛结构化错误（调用方在写 IDB 之前调用，失败时 IDB 不被回写） */
+function assertPackRowsWritten(result: PackContentWriteResult | null, message: string): void {
+  if (result && !result.ok) throw new ContentWriteError(result.error ?? message, 'CONTENT_SQLITE_WRITE_FAILED')
+}
+
+/** 删除 pack 时的 tombstone 行（sqlite 需要 key 列表；idb 模式返回 null 走原快路径） */
+async function packDeletionRows(packIds: readonly string[]): Promise<ContentEntityRow[] | null> {
+  if ((await getContentWriteSource()) !== 'sqlite') return null
+  const db = getDb()
+  const rows: ContentEntityRow[] = []
+  for (const id of packIds) {
+    const itemIds = await db.packItems.where('packId').equals(id).primaryKeys()
+    for (const itemId of itemIds) rows.push(packItemDeletionRow(String(itemId)))
+    rows.push(packDeletionRow(id))
+  }
+  return rows
+}
+
+/** 单条 pack 记录写 sqlite（refreshPack / 已有 pack 元数据更新；idb 模式 no-op） */
+async function persistPackRecordToSqlite(pack: PackRecord): Promise<void> {
+  assertPackRowsWritten(await persistPackRowsToSqlite([packContentRow(pack)]), `内容包 ${pack.id} 写入失败`)
+}
+
+/** 内置词库判定（与 content-snapshot 口径一致）：内置词正文来自资源，不进 content_kv */
+function isBuiltinContentDeck(deck: Deck | undefined): boolean {
+  if (!deck) return false
+  if (deck.builtinKey) return true
+  if (deck.source === 'builtin') return true
+  return DECK_SOURCES.some((source) => source.deckId === deck.id)
+}
+
+/**
+ * F6：pack apply/delete 会改 custom word body；sqlite 写源下需把这些词整行写 `word:<id>`，
+ * 否则 rebuild cache（自定义词正文只从 content_kv 恢复）会丢失/复活内容。内置词正文不进 content_kv。
+ */
+async function customWordContentRows(words: readonly Word[], now: number): Promise<ContentEntityRow[]> {
+  if (words.length === 0) return []
+  const db = getDb()
+  const unique = new Map<string, Word>()
+  for (const word of words) unique.set(word.id, word)
+  const deckIds = [...new Set([...unique.values()].map((word) => word.deckId))]
+  const decks = deckIds.length > 0 ? await db.decks.bulkGet(deckIds) : []
+  const deckById = new Map(decks.filter((deck): deck is Deck => Boolean(deck)).map((deck) => [deck.id, deck]))
+  const rows: ContentEntityRow[] = []
+  for (const word of unique.values()) {
+    if (isBuiltinContentDeck(deckById.get(word.deckId))) continue
+    rows.push({ key: `word:${word.id}`, kind: 'word', json: JSON.stringify(word), updatedAt: Number(word.createdAt) || now })
+  }
+  return rows
+}
+
+/** F5：部分批失败时补偿删除已写前缀行，避免半包/孤儿 item 让重试走 reused:true 假成功 */
+async function compensatePartialContentRows(rows: readonly ContentEntityRow[]): Promise<void> {
+  if (rows.length === 0) return
+  const tombstones = rows.map<ContentEntityRow>((row) => ({ key: row.key, kind: row.kind, json: 'null', deleted: true }))
+  try {
+    await persistPackRowsToSqlite(tombstones)
+  } catch {
+    /* 补偿失败不覆盖原始结构化错误；重试仍可继续 */
+  }
+}
+
+/** 失败回滚：先恢复 content_kv 中的 packItems 快照（sqlite），再恢复 IDB 的 Word/items cache */
+async function restorePackSnapshot(words: readonly Word[], items: readonly PackItemRecord[]): Promise<void> {
+  const wordRows = await customWordContentRows(words, Date.now())
+  assertPackRowsWritten(await persistPackRowsToSqlite([...items.map(packItemContentRow), ...wordRows]), '内容包回滚快照写入失败')
+  if (words.length === 0 && items.length === 0) return
+  const db = getDb()
+  await db.transaction('rw', [db.words, db.packItems], async () => {
+    if (words.length > 0) await db.words.bulkPut([...words])
+    if (items.length > 0) await db.packItems.bulkPut([...items])
+  })
 }
 
 /** 条目内每条内容的 hash（examples/phrases/mnemonics 全部） */
@@ -452,6 +574,8 @@ export interface ImportPackResult {
   deckId?: string
   /** task-92：命中已有同 checksum 的 pack（未重复导入），可直接补审/重应用 */
   reused?: boolean
+  /** 0.14：sqlite 写失败时已成功写入 content_kv 的行数（IDB 未回写） */
+  written?: number
   preview: PackPreview
   issues: ImportIssue[]
 }
@@ -473,7 +597,30 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
   if (existingPack) {
     const nextDeckId = file.meta?.deckId ?? existingPack.deckId
     if (nextDeckId && nextDeckId !== existingPack.deckId) {
-      await db.packs.update(existingPack.id, { deckId: nextDeckId, updatedAt: Date.now() })
+      const nextUpdatedAt = Date.now()
+      const saved = await persistPackRowsToSqlite([
+        packContentRow({ ...existingPack, deckId: nextDeckId, updatedAt: nextUpdatedAt }),
+      ])
+      if (saved && !saved.ok) {
+        return {
+          ok: false,
+          packId: existingPack.id,
+          checksum: file.checksum,
+          reused: true,
+          written: saved.written,
+          preview: { matched: [], skipped: [], counts: { total: file.items.length, matched: 0, skipped: file.items.length } },
+          issues: [
+            ...parsed.issues,
+            {
+              level: 'error',
+              code: 'E_IO',
+              message: `内容包写入失败：${saved.error ?? '未知错误'}`,
+              path: 'pack',
+            },
+          ],
+        }
+      }
+      await db.packs.update(existingPack.id, { deckId: nextDeckId, updatedAt: nextUpdatedAt })
     }
     return {
       ok: true,
@@ -640,6 +787,31 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
     updatedAt: now,
   }
   opts.onProgress?.({ phase: 'write', done: 0, total: itemRecords.length })
+  // 0.14 F5：sqlite 模式先写 items、**pack 元数据行最后写**（参考 decks.repo）。
+  // 失败时 pack 行尚未落库，重试不会命中 reused:true 假成功；并补偿删除已写前缀行，避免半包/孤儿 item。
+  const sqliteRows: ContentEntityRow[] = [...itemRecords.map(packItemContentRow), packContentRow(pack)]
+  const savedToSqlite = await persistPackRowsToSqlite(sqliteRows)
+  if (savedToSqlite && !savedToSqlite.ok) {
+    await compensatePartialContentRows(sqliteRows.slice(0, savedToSqlite.written))
+    return {
+      ok: false,
+      packId,
+      checksum: file.checksum,
+      ...(file.meta?.deckId ? { deckId: file.meta.deckId } : {}),
+      reused: false,
+      written: savedToSqlite.written,
+      preview: { matched, skipped, counts: { total: file.items.length, matched: matched.length, skipped: skipped.length } },
+      issues: [
+        ...parsed.issues,
+        {
+          level: 'error',
+          code: 'E_IO',
+          message: `内容包写入失败：${savedToSqlite.error ?? '未知错误'}（已停止，未写入本地缓存）`,
+          path: 'pack',
+        },
+      ],
+    }
+  }
   const ITEM_BATCH = 500
   await db.transaction('rw', [db.packs, db.packItems], async () => {
     await db.packs.put(pack)
@@ -648,6 +820,7 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
       opts.onProgress?.({ phase: 'write', done: Math.min(offset + ITEM_BATCH, itemRecords.length), total: itemRecords.length })
     }
   })
+  opts.onProgress?.({ phase: 'write', done: itemRecords.length, total: itemRecords.length })
   return {
     ok: true,
     packId,
@@ -666,52 +839,61 @@ export const importContentPack = importPack
 export async function approveItems(packId: string, itemIds: string[]): Promise<number> {
   const db = getDb()
   const now = Date.now()
-  let changed = 0
   const BATCH = 500
-  await db.transaction('rw', [db.packItems, db.packs], async () => {
-    // 批量读 + 批量写（28k 条 seed 时避免 2×N 次单条 IDB 往返）
-    const rows = await db.packItems.bulkGet(itemIds)
-    const updates: PackItemRecord[] = []
-    for (const item of rows) {
-      if (!item || item.packId !== packId) continue
-      if (item.status !== 'pending' && item.status !== 'rejected') continue
-      updates.push({ ...item, status: 'approved' })
-    }
-    for (let i = 0; i < updates.length; i += BATCH) {
-      await db.packItems.bulkPut(updates.slice(i, i + BATCH))
-    }
-    changed = updates.length
-    await refreshPack(packId, now)
-  })
-  return changed
+  // 批量读（事务外；sqlite 写失败时不进入 IDB 写）
+  const rows = await db.packItems.bulkGet(itemIds)
+  const updates: PackItemRecord[] = []
+  for (const item of rows) {
+    if (!item || item.packId !== packId) continue
+    if (item.status !== 'pending' && item.status !== 'rejected') continue
+    updates.push({ ...item, status: 'approved' })
+  }
+  // 0.14：sqlite 先写 content_kv；失败抛结构化错误，IDB cache 不回写
+  assertPackRowsWritten(await persistPackRowsToSqlite(updates.map(packItemContentRow)), `内容条目审核写入失败：${packId}`)
+  if (updates.length > 0) {
+    await db.transaction('rw', [db.packItems], async () => {
+      // 批量写（28k 条 seed 时避免 2×N 次单条 IDB 往返）
+      for (let i = 0; i < updates.length; i += BATCH) {
+        await db.packItems.bulkPut(updates.slice(i, i + BATCH))
+      }
+    })
+  }
+  await refreshPack(packId, now)
+  return updates.length
 }
 
 /** 批量 ❌（pending/approved → rejected；同时写拒绝记忆） */
 export async function rejectItems(packId: string, itemIds: string[]): Promise<number> {
   const db = getDb()
   const now = Date.now()
-  let changed = 0
-  await db.transaction('rw', [db.packItems, db.packs, db.contentRejects], async () => {
-    for (const id of itemIds) {
-      const item = await db.packItems.get(id)
-      if (!item || item.packId !== packId || item.status === 'applied' || item.status === 'skipped') continue
-      await db.packItems.update(id, { status: 'rejected' })
-      for (const content of itemContents(item.payload)) {
-        const reject: ContentRejectRecord = {
-          id: `${content.kind}:${item.headwordLower}:${item.meaningIndex ?? 0}:${content.hash}`,
-          kind: content.kind,
-          headwordLower: item.headwordLower,
-          ...(item.meaningIndex != null ? { meaningIndex: item.meaningIndex } : {}),
-          hash: content.hash,
-          rejectedAt: now,
-        }
-        await db.contentRejects.put(reject)
-      }
-      changed += 1
+  const updatedItems: PackItemRecord[] = []
+  const rejects: ContentRejectRecord[] = []
+  for (const id of itemIds) {
+    const item = await db.packItems.get(id)
+    if (!item || item.packId !== packId || item.status === 'applied' || item.status === 'skipped') continue
+    updatedItems.push({ ...item, status: 'rejected' })
+    for (const content of itemContents(item.payload)) {
+      rejects.push({
+        id: `${content.kind}:${item.headwordLower}:${item.meaningIndex ?? 0}:${content.hash}`,
+        kind: content.kind,
+        headwordLower: item.headwordLower,
+        ...(item.meaningIndex != null ? { meaningIndex: item.meaningIndex } : {}),
+        hash: content.hash,
+        rejectedAt: now,
+      })
     }
-    await refreshPack(packId, now)
+  }
+  // 0.14：sqlite 先写 items + contentRejects；失败抛错且不写 IDB
+  assertPackRowsWritten(
+    await persistPackRowsToSqlite([...updatedItems.map(packItemContentRow), ...rejects.map(contentRejectContentRow)]),
+    `内容条目拒绝写入失败：${packId}`,
+  )
+  await db.transaction('rw', [db.packItems, db.contentRejects], async () => {
+    for (const item of updatedItems) await db.packItems.put(item)
+    for (const reject of rejects) await db.contentRejects.put(reject)
   })
-  return changed
+  await refreshPack(packId, now)
+  return updatedItems.length
 }
 
 /** 校验语义条目：coreSenses 索引唯一、meaningMap 指向有效含义与本 item 的本义 */
@@ -742,14 +924,132 @@ function validateSemanticsItem(
 }
 
 export interface ApplyResult {
+  /** F7：false = 有批次写入失败（失败批未落库；applied 为已成功条数，可重新应用补齐） */
+  ok: boolean
+  /** F7：失败分类；无失败时缺省。CONTENT_SQLITE_WRITE_FAILED=sqlite 内容写入失败；APPLY_BATCH_FAILED=批次异常 */
+  errorCode?: 'CONTENT_SQLITE_WRITE_FAILED' | 'APPLY_BATCH_FAILED'
   applied: number
   skipped: number
+  /** F7：因批次写入失败而未落库的条目数（不含被标记 skipped 的条目） */
+  failed: number
+  /** F7：未落库条目明细（便于 UI 提示/重试） */
+  failedItems?: Array<{ itemId: string; reason: 'write-failed' | 'batch-error' }>
   packStatus: PackRecord['status']
   skippedDetails: SkipRecord[]
   /** task-138：批次级异常（已回滚，条目仍为 approved，可再次「重新应用」补齐） */
   errors?: string[]
   /** task-142：最终残留 skipped 按原因分类（unknown-word/unknown-meaning/limit/rejected/duplicate/invalid） */
   skippedByReason?: Partial<Record<SkipReason, number>>
+}
+
+interface ApplyBatchOutcome {
+  updatedWords: Map<string, Word>
+  updatedItems: PackItemRecord[]
+  applied: number
+  skipped: number
+  skippedDetails: SkipRecord[]
+}
+
+/** 只读计算一批 apply 的合并结果（不写库；供 idb/sqlite 两条写路径复用） */
+async function computeApplyBatchOutcome(
+  batch: readonly PackItemRecord[],
+  opts: { allowOverLimit?: boolean },
+  now: number,
+  rejectIndex: Map<string, Set<string>>,
+  errors: string[],
+): Promise<ApplyBatchOutcome> {
+  const db = getDb()
+  const wordIds = [...new Set(batch.map((item) => item.wordId).filter((id): id is string => Boolean(id)))]
+  const wordRows = wordIds.length > 0 ? await db.words.bulkGet(wordIds) : []
+  const words = new Map<string, Word>()
+  wordRows.forEach((word, index) => {
+    if (word) words.set(wordIds[index]!, word)
+  })
+  const updatedWords = new Map<string, Word>()
+  const updatedItems: PackItemRecord[] = []
+  const skippedDetails: SkipRecord[] = []
+  let applied = 0
+  let skipped = 0
+  for (const item of batch) {
+    try {
+      let word = item.wordId ? (updatedWords.get(item.wordId) ?? words.get(item.wordId)) : undefined
+      if (!word || !item.wordId) {
+        updatedItems.push({ ...item, status: 'skipped', skipReason: 'unknown-word' })
+        skipped += 1
+        skippedDetails.push({ headwordLower: item.headwordLower, meaningIndex: item.meaningIndex, reason: 'unknown-word', itemId: item.id })
+        continue
+      }
+      const payload = item.payload
+      const hasWordContent = Boolean(
+        (payload.examples?.length ?? 0) > 0 ||
+          (payload.phrases?.length ?? 0) > 0 ||
+          (payload.mnemonics?.length ?? 0) > 0,
+      )
+      const hasSemantics = Boolean((payload.coreSenses?.length ?? 0) > 0 || (payload.meaningMap?.length ?? 0) > 0)
+      let semanticsOk = false
+      if (hasSemantics) {
+        const check = validateSemanticsItem(word, payload)
+        if (!check.ok) {
+          updatedItems.push({ ...item, status: 'skipped', skipReason: check.reason })
+          skipped += 1
+          skippedDetails.push({
+            headwordLower: item.headwordLower,
+            meaningIndex: item.meaningIndex,
+            reason: check.reason,
+            detail: check.detail,
+            itemId: item.id,
+          })
+          continue
+        }
+        semanticsOk = true
+      }
+      const rejected = rejectIndex.get(item.headwordLower) ?? new Set<string>()
+      const result = hasWordContent
+        ? mergeItemIntoWord(word, payload, rejected, item.meaningIndex, { allowOverLimit: opts.allowOverLimit })
+        : { word, changed: false, added: { examples: [], phrases: [], mnemonics: [] }, skipped: [] }
+      for (const skip of result.skipped) {
+        skippedDetails.push({
+          headwordLower: item.headwordLower,
+          meaningIndex: item.meaningIndex,
+          reason: skip.reason,
+          detail: skip.value,
+          itemId: item.id,
+        })
+      }
+      if (result.changed) {
+        updatedWords.set(item.wordId, result.word)
+        word = result.word
+      }
+      if (result.changed || semanticsOk) {
+        updatedItems.push({
+          ...item,
+          status: 'applied',
+          appliedAt: now,
+          appliedContent: result.added,
+        })
+        applied += 1
+      } else {
+        const reason: MergeSkip['reason'] = result.skipped[0]?.reason ?? 'duplicate'
+        updatedItems.push({ ...item, status: 'skipped', skipReason: reason })
+        skipped += 1
+        skippedDetails.push({ headwordLower: item.headwordLower, meaningIndex: item.meaningIndex, reason, itemId: item.id })
+      }
+    } catch (error) {
+      // task-138：单条异常不中断整批；标记跳过并记录原因（避免永远卡在 approved）
+      const message = error instanceof Error ? error.message : String(error)
+      updatedItems.push({ ...item, status: 'skipped', skipReason: 'invalid' })
+      skipped += 1
+      skippedDetails.push({
+        headwordLower: item.headwordLower,
+        meaningIndex: item.meaningIndex,
+        reason: 'invalid',
+        detail: `apply-error: ${message}`.slice(0, 200),
+        itemId: item.id,
+      })
+      errors.push(`item@${item.id}: ${message}`)
+    }
+  }
+  return { updatedWords, updatedItems, applied, skipped, skippedDetails }
 }
 
 /** 应用某 pack 的全部 approved 条目（单事务；幂等：已存在内容不重复追加） */
@@ -766,6 +1066,7 @@ export async function applyApproved(
 ): Promise<ApplyResult> {
   const db = getDb()
   const now = Date.now()
+  const source = await getContentWriteSource()
   const items = opts.retrySkipped
     ? (await db.packItems.where('packId').equals(packId).toArray()).filter(
         (item) =>
@@ -777,126 +1078,66 @@ export async function applyApproved(
   const BATCH = Math.max(100, Math.min(500, Math.floor(opts.batchSize ?? 500)))
   let applied = 0
   let skipped = 0
+  let failed = 0
+  const failedItems: NonNullable<ApplyResult['failedItems']> = []
   const skippedDetails: SkipRecord[] = []
   const errors: string[] = []
   const total = items.length
+  let sqliteWriteFailed = false
+  let errorCode: ApplyResult['errorCode']
   opts.onProgress?.({ phase: 'apply', done: 0, total })
-  // task-96：按 BATCH 拆事务（不再单个巨型事务）；每批 commit 后可进下一批/让出主线程。
+  // task-96：按 BATCH 拆批（不再单个巨型事务）；每批 commit 后可进下一批/让出主线程。
   // 幂等：mergeItemIntoWord 去重；中途失败已提交的批次不会重复追加内容。
   for (let offset = 0; offset < items.length; offset += BATCH) {
     const batch = items.slice(offset, offset + BATCH)
-    // task-138：单批异常（IDB/Dexie 等）不让整个应用中断；回滚该批计数，后续批次继续
-    const snapshot = { applied, skipped, details: skippedDetails.length }
+    // task-138：单批异常不让整个应用中断；回滚该批计数，后续批次继续（sqlite 写失败按 fail-closed 停止）
+    const snapshot = { applied, skipped, details: skippedDetails.length, failed }
     try {
-    await db.transaction('rw', [db.words, db.packItems], async () => {
-      const wordIds = [...new Set(batch.map((item) => item.wordId).filter((id): id is string => Boolean(id)))]
-      const wordRows = wordIds.length > 0 ? await db.words.bulkGet(wordIds) : []
-      const words = new Map<string, Word>()
-      wordRows.forEach((word, index) => {
-        if (word) words.set(wordIds[index]!, word)
+      const outcome = await computeApplyBatchOutcome(batch, opts, now, rejectIndex, errors)
+      // 0.14 F6：sqlite 先写 packItems + 受影响 custom word 整行（`word:<id>`）到 content_kv；
+      // 失败停止、返回已写/失败项、不回写 IDB（内置词正文不进 content_kv，仍由 packItems 重建）
+      const wordRows = await customWordContentRows([...outcome.updatedWords.values()], now)
+      const savedToSqlite = await persistPackRowsToSqlite([...outcome.updatedItems.map(packItemContentRow), ...wordRows])
+      if (savedToSqlite && !savedToSqlite.ok) {
+        errors.push(`batch@${offset}: ${savedToSqlite.error ?? '内容条目写入失败'}`)
+        errorCode = 'CONTENT_SQLITE_WRITE_FAILED'
+        failed += outcome.updatedItems.length
+        for (const item of outcome.updatedItems) failedItems.push({ itemId: item.id, reason: 'write-failed' })
+        sqliteWriteFailed = true
+        opts.onProgress?.({ phase: 'apply', done: Math.min(offset + batch.length, total), total })
+        break
+      }
+      await db.transaction('rw', [db.words, db.packItems], async () => {
+        const WRITE_BATCH = 500
+        const wordValues = [...outcome.updatedWords.values()]
+        for (let i = 0; i < wordValues.length; i += WRITE_BATCH) {
+          await db.words.bulkPut(wordValues.slice(i, i + WRITE_BATCH))
+        }
+        for (let i = 0; i < outcome.updatedItems.length; i += WRITE_BATCH) {
+          await db.packItems.bulkPut(outcome.updatedItems.slice(i, i + WRITE_BATCH))
+        }
       })
-      const updatedWords = new Map<string, Word>()
-      const updatedItems: PackItemRecord[] = []
-      for (const item of batch) {
-        try {
-        let word = item.wordId ? (updatedWords.get(item.wordId) ?? words.get(item.wordId)) : undefined
-        if (!word || !item.wordId) {
-          updatedItems.push({ ...item, status: 'skipped', skipReason: 'unknown-word' })
-          skipped += 1
-          skippedDetails.push({ headwordLower: item.headwordLower, meaningIndex: item.meaningIndex, reason: 'unknown-word', itemId: item.id })
-          continue
-        }
-        const payload = item.payload
-        const hasWordContent = Boolean(
-          (payload.examples?.length ?? 0) > 0 ||
-            (payload.phrases?.length ?? 0) > 0 ||
-            (payload.mnemonics?.length ?? 0) > 0,
-        )
-        const hasSemantics = Boolean((payload.coreSenses?.length ?? 0) > 0 || (payload.meaningMap?.length ?? 0) > 0)
-        let semanticsOk = false
-        if (hasSemantics) {
-          const check = validateSemanticsItem(word, payload)
-          if (!check.ok) {
-            updatedItems.push({ ...item, status: 'skipped', skipReason: check.reason })
-            skipped += 1
-            skippedDetails.push({
-              headwordLower: item.headwordLower,
-              meaningIndex: item.meaningIndex,
-              reason: check.reason,
-              detail: check.detail,
-              itemId: item.id,
-            })
-            continue
-          }
-          semanticsOk = true
-        }
-        const rejected = rejectIndex.get(item.headwordLower) ?? new Set<string>()
-        const result = hasWordContent
-          ? mergeItemIntoWord(word, payload, rejected, item.meaningIndex, { allowOverLimit: opts.allowOverLimit })
-          : { word, changed: false, added: { examples: [], phrases: [], mnemonics: [] }, skipped: [] }
-        for (const skip of result.skipped) {
-          skippedDetails.push({
-            headwordLower: item.headwordLower,
-            meaningIndex: item.meaningIndex,
-            reason: skip.reason,
-            detail: skip.value,
-            itemId: item.id,
-          })
-        }
-        if (result.changed) {
-          updatedWords.set(item.wordId, result.word)
-          word = result.word
-        }
-        if (result.changed || semanticsOk) {
-          updatedItems.push({
-            ...item,
-            status: 'applied',
-            appliedAt: now,
-            appliedContent: result.added,
-          })
-          applied += 1
-        } else {
-          const reason: MergeSkip['reason'] = result.skipped[0]?.reason ?? 'duplicate'
-          updatedItems.push({ ...item, status: 'skipped', skipReason: reason })
-          skipped += 1
-          skippedDetails.push({ headwordLower: item.headwordLower, meaningIndex: item.meaningIndex, reason, itemId: item.id })
-        }
-        } catch (error) {
-          // task-138：单条异常不中断整批；标记跳过并记录原因（避免永远卡在 approved）
-          const message = error instanceof Error ? error.message : String(error)
-          updatedItems.push({ ...item, status: 'skipped', skipReason: 'invalid' })
-          skipped += 1
-          skippedDetails.push({
-            headwordLower: item.headwordLower,
-            meaningIndex: item.meaningIndex,
-            reason: 'invalid',
-            detail: `apply-error: ${message}`.slice(0, 200),
-            itemId: item.id,
-          })
-          errors.push(`item@${item.id}: ${message}`)
-        }
-      }
-      const WRITE_BATCH = 500
-      const wordValues = [...updatedWords.values()]
-      for (let i = 0; i < wordValues.length; i += WRITE_BATCH) {
-        await db.words.bulkPut(wordValues.slice(i, i + WRITE_BATCH))
-      }
-      for (let i = 0; i < updatedItems.length; i += WRITE_BATCH) {
-        await db.packItems.bulkPut(updatedItems.slice(i, i + WRITE_BATCH))
-      }
-    })
+      applied += outcome.applied
+      skipped += outcome.skipped
+      skippedDetails.push(...outcome.skippedDetails)
     } catch (error) {
       applied = snapshot.applied
       skipped = snapshot.skipped
+      failed = snapshot.failed
       skippedDetails.length = snapshot.details
       const message = error instanceof Error ? error.message : String(error)
       errors.push(`batch@${offset}: ${message}`)
+      errorCode = errorCode ?? 'APPLY_BATCH_FAILED'
+      failed += batch.length
+      for (const item of batch) failedItems.push({ itemId: item.id, reason: 'batch-error' })
       opts.onProgress?.({ phase: 'apply', done: Math.min(offset + batch.length, total), total })
+      if (source === 'sqlite') { sqliteWriteFailed = true; break }
       continue
     }
     opts.onProgress?.({ phase: 'apply', done: Math.min(offset + batch.length, total), total })
   }
-  const pack = await refreshPack(packId, now)
+  // sqlite 写失败时不再写 pack 计数（避免再次失败/掩盖结构化错误），直接返回已写与错误
+  const pack = sqliteWriteFailed ? await db.packs.get(packId) : await refreshPack(packId, now)
   const skippedByReason: Partial<Record<SkipReason, number>> = {}
   if (skipped > 0) {
     const skippedRows = await db.packItems.where('[packId+status]').equals([packId, 'skipped']).toArray()
@@ -906,8 +1147,12 @@ export async function applyApproved(
     }
   }
   return {
+    ok: failed === 0 && errorCode == null,
+    ...(errorCode ? { errorCode } : {}),
     applied,
     skipped,
+    failed,
+    ...(failedItems.length > 0 ? { failedItems } : {}),
     packStatus: pack?.status ?? 'empty',
     skippedDetails,
     ...(errors.length > 0 ? { errors } : {}),
@@ -1020,31 +1265,34 @@ async function reapplyOnePack(
 
   for (let offset = 0; offset < skipped.length; offset += batchSize) {
     const batch = skipped.slice(offset, offset + batchSize)
-    await db.transaction('rw', [db.packItems, db.words, db.settings], async () => {
-      const updates: PackItemRecord[] = []
-      for (const item of batch) {
-        const resolved = await resolveItem(item.payload, item.seq, {
-          resolveAllDecks: true,
-          fallbackUnknownMeaningToWordLevel: true,
-          ...(targetDeckId ? { packDeckId: targetDeckId } : {}),
-        })
-        if (!resolved.ok) continue
-        const resolvedFallback = 'fallbackWordLevel' in resolved.resolved && resolved.resolved.fallbackWordLevel
-        const nextPayload = resolvedFallback ? stripMeaningLevel(resolved.resolved.item) : resolved.resolved.item
-        updates.push({
-          ...item,
-          payload: nextPayload,
-          ...(resolvedFallback ? { meaningIndex: undefined, meaningId: undefined } : {}),
-          status: 'approved',
-          wordId: resolved.resolved.wordId,
-          ...(resolved.resolved.meaningId && !resolvedFallback ? { meaningId: resolved.resolved.meaningId } : {}),
-          deckId: resolved.resolved.deckId,
-          skipReason: undefined,
-        })
-        retried += 1
-      }
-      if (updates.length > 0) await db.packItems.bulkPut(updates)
-    })
+    // 解析只读（事务外），便于 sqlite 先写 content_kv 再更新 IDB cache
+    const updates: PackItemRecord[] = []
+    for (const item of batch) {
+      const resolved = await resolveItem(item.payload, item.seq, {
+        resolveAllDecks: true,
+        fallbackUnknownMeaningToWordLevel: true,
+        ...(targetDeckId ? { packDeckId: targetDeckId } : {}),
+      })
+      if (!resolved.ok) continue
+      const resolvedFallback = 'fallbackWordLevel' in resolved.resolved && resolved.resolved.fallbackWordLevel
+      const nextPayload = resolvedFallback ? stripMeaningLevel(resolved.resolved.item) : resolved.resolved.item
+      updates.push({
+        ...item,
+        payload: nextPayload,
+        ...(resolvedFallback ? { meaningIndex: undefined, meaningId: undefined } : {}),
+        status: 'approved',
+        wordId: resolved.resolved.wordId,
+        ...(resolved.resolved.meaningId && !resolvedFallback ? { meaningId: resolved.resolved.meaningId } : {}),
+        deckId: resolved.resolved.deckId,
+        skipReason: undefined,
+      })
+      retried += 1
+    }
+    if (updates.length > 0) {
+      // 0.14：sqlite 先写 content_kv；失败抛错且不写 IDB
+      assertPackRowsWritten(await persistPackRowsToSqlite(updates.map(packItemContentRow)), `重新解析条目写入失败：${packId}`)
+      await db.packItems.bulkPut(updates)
+    }
     opts.onProgress?.({ phase: 'resolve', done: Math.min(offset + batchSize, total), total, retried })
   }
 
@@ -1054,7 +1302,9 @@ async function reapplyOnePack(
   if (pending.length > 0) {
     const approveBatch = 500
     for (let offset = 0; offset < pending.length; offset += approveBatch) {
-      await db.packItems.bulkPut(pending.slice(offset, offset + approveBatch).map((item) => ({ ...item, status: 'approved' as const })))
+      const approved = pending.slice(offset, offset + approveBatch).map((item) => ({ ...item, status: 'approved' as const }))
+      assertPackRowsWritten(await persistPackRowsToSqlite(approved.map(packItemContentRow)), `补审条目写入失败：${packId}`)
+      await db.packItems.bulkPut(approved)
       opts.onProgress?.({ phase: 'approve', done: Math.min(offset + approveBatch, pending.length), total: pending.length, retried })
     }
   }
@@ -1233,6 +1483,8 @@ async function refreshPack(packId: string, now: number): Promise<PackRecord | un
     updatedAt: now,
     ...(status === 'applied' ? { appliedAt: pack.appliedAt ?? now } : {}),
   }
+  // 0.14：sqlite 先写 content_kv（失败抛错，不回写 IDB），成功后再更新 IDB cache
+  await persistPackRecordToSqlite(next)
   await db.packs.put(next)
   return next
 }
@@ -1306,6 +1558,52 @@ export async function getPackStats(): Promise<PackStats> {
   return { packs, items: counts, rejects }
 }
 
+/**
+ * F6：计算删除 pack（removeAppliedContent=true）后受影响的 Word body（多包引用同一内容则保留）。
+ * 只读；sqlite 模式下结果需要写入 content_kv `word:<id>`（自定义词），再由调用方更新 IDB cache。
+ */
+async function collectWordsAfterPackRemoval(ids: readonly string[]): Promise<Map<string, Word>> {
+  const db = getDb()
+  const idSet = new Set(ids)
+  const allApplied = await db.packItems.where('status').equals('applied').toArray()
+  const keepHashes = new Set(
+    allApplied.filter((item) => !idSet.has(item.packId)).flatMap((item) => item.contentHashes),
+  )
+  const pendingWords = new Map<string, Word>()
+  const CHUNK = 300
+  for (const id of ids) {
+    const applied = allApplied.filter(
+      (item) => item.packId === id && item.wordId && item.appliedContent,
+    )
+    for (let offset = 0; offset < applied.length; offset += CHUNK) {
+      const chunk = applied.slice(offset, offset + CHUNK)
+      for (const item of chunk) {
+        const word = pendingWords.get(item.wordId!) ?? (await db.words.get(item.wordId!))
+        if (!word) continue
+        const removed = item.appliedContent!
+        pendingWords.set(item.wordId!, {
+          ...word,
+          examples: word.examples.filter((example) => {
+            const hash = contentHash('examples', word.headwordLower, undefined, example.en)
+            return !removed.examples.some((en) => normalizeEn(en) === normalizeEn(example.en)) || keepHashes.has(hash)
+          }),
+          phrases: word.phrases.filter((phrase) => {
+            const idx = phrase.meaningId ? Number(phrase.meaningId.split('#M')[1]) : undefined
+            const hash = contentHash('phrases', word.headwordLower, idx, phrase.en)
+            return !removed.phrases.some((en) => normalizeEn(en) === normalizeEn(phrase.en)) || keepHashes.has(hash)
+          }),
+          mnemonics: word.mnemonics.filter((mnemonic) => {
+            const key = mnemonicKey({ type: mnemonic.type, text: mnemonic.text })
+            const hash = contentHash('mnemonics', word.headwordLower, undefined, key)
+            return !removed.mnemonics.some((m) => mnemonicKey(m) === key) || keepHashes.has(hash)
+          }),
+        })
+      }
+    }
+  }
+  return pendingWords
+}
+
 /** 删除 pack（默认保留已落库内容；removeAppliedContent=true 时按 appliedContent 精确移除） */
 /**
  * task-94：批量删除内容包。
@@ -1322,6 +1620,9 @@ export async function deletePacks(
   if (ids.length === 0) return { removed: 0 }
 
   if (!opts.removeAppliedContent) {
+    // 0.14：sqlite 先写 tombstone（pack-item/pack），失败抛错且不删 IDB
+    const deletionRows = await packDeletionRows(ids)
+    if (deletionRows) assertPackRowsWritten(await persistPackRowsToSqlite(deletionRows), `内容包删除写入失败：${ids.join(',')}`)
     // 快路径：无需 toArray 全部条目（大包也不会占内存）
     await db.transaction('rw', [db.packs, db.packItems], async () => {
       for (const id of ids) {
@@ -1332,45 +1633,29 @@ export async function deletePacks(
     return { removed: ids.length }
   }
 
-  return db.transaction('rw', [db.packs, db.packItems, db.words], async () => {
-    const idSet = new Set(ids)
-    // 仅此路径需要读取 applied 条目（仍只读 applied，不读 pending/skipped 全量）
-    const allApplied = await db.packItems.where('status').equals('applied').toArray()
-    const keepHashes = new Set(
-      allApplied.filter((item) => !idSet.has(item.packId)).flatMap((item) => item.contentHashes),
-    )
-    const CHUNK = 300
-    for (const id of ids) {
-      const applied = allApplied.filter(
-        (item) => item.packId === id && item.wordId && item.appliedContent,
-      )
-      const pendingWords = new Map<string, Word>()
-      for (let offset = 0; offset < applied.length; offset += CHUNK) {
-        const chunk = applied.slice(offset, offset + CHUNK)
-        for (const item of chunk) {
-          const word = pendingWords.get(item.wordId!) ?? (await db.words.get(item.wordId!))
-          if (!word) continue
-          const removed = item.appliedContent!
-          pendingWords.set(item.wordId!, {
-            ...word,
-            examples: word.examples.filter((example) => {
-              const hash = contentHash('examples', word.headwordLower, undefined, example.en)
-              return !removed.examples.some((en) => normalizeEn(en) === normalizeEn(example.en)) || keepHashes.has(hash)
-            }),
-            phrases: word.phrases.filter((phrase) => {
-              const idx = phrase.meaningId ? Number(phrase.meaningId.split('#M')[1]) : undefined
-              const hash = contentHash('phrases', word.headwordLower, idx, phrase.en)
-              return !removed.phrases.some((en) => normalizeEn(en) === normalizeEn(phrase.en)) || keepHashes.has(hash)
-            }),
-            mnemonics: word.mnemonics.filter((mnemonic) => {
-              const key = mnemonicKey({ type: mnemonic.type, text: mnemonic.text })
-              const hash = contentHash('mnemonics', word.headwordLower, undefined, key)
-              return !removed.mnemonics.some((m) => mnemonicKey(m) === key) || keepHashes.has(hash)
-            }),
-          })
-        }
+  const source = await getContentWriteSource()
+  if (source === 'sqlite') {
+    // 0.14 F6：先算受影响的 Word body；tombstone + 自定义词整行（`word:<id>`）一起写 content_kv，
+    // 失败抛错且 IDB cache 不动；成功后只更新 IDB cache（applyAppliedPacks 重建时内容不复活/不丢失）
+    const affected = await collectWordsAfterPackRemoval(ids)
+    const deletionRows = (await packDeletionRows(ids)) ?? []
+    const wordRows = await customWordContentRows([...affected.values()], Date.now())
+    assertPackRowsWritten(await persistPackRowsToSqlite([...deletionRows, ...wordRows]), `内容包删除写入失败：${ids.join(',')}`)
+    await db.transaction('rw', [db.packs, db.packItems, db.words], async () => {
+      if (affected.size > 0) await db.words.bulkPut([...affected.values()])
+      for (const id of ids) {
+        await db.packItems.where('packId').equals(id).delete()
+        await db.packs.delete(id)
       }
-      if (pendingWords.size > 0) await db.words.bulkPut([...pendingWords.values()])
+    })
+    return { removed: ids.length }
+  }
+
+  // idb 模式：原事务行为不变
+  return db.transaction('rw', [db.packs, db.packItems, db.words], async () => {
+    const affected = await collectWordsAfterPackRemoval(ids)
+    if (affected.size > 0) await db.words.bulkPut([...affected.values()])
+    for (const id of ids) {
       await db.packItems.where('packId').equals(id).delete()
       await db.packs.delete(id)
     }
@@ -1816,7 +2101,11 @@ export async function rejectGeneratedItem(item: PackItemV1): Promise<number> {
     hash: content.hash,
     rejectedAt: now,
   }))
-  if (rows.length > 0) await db.contentRejects.bulkPut(rows)
+  if (rows.length > 0) {
+    // 0.14：sqlite 先写 content-reject；失败抛错且不写 IDB
+    assertPackRowsWritten(await persistPackRowsToSqlite(rows.map(contentRejectContentRow)), '拒绝记录写入失败')
+    await db.contentRejects.bulkPut(rows)
+  }
   return rows.length
 }
 
@@ -1826,6 +2115,10 @@ export async function clearRejects(kind?: ContentKind): Promise<number> {
   const rows = kind
     ? await db.contentRejects.where('kind').equals(kind).toArray()
     : await db.contentRejects.toArray()
+  if (rows.length > 0) {
+    // 0.14：sqlite 先写 tombstone；失败抛错且不删 IDB
+    assertPackRowsWritten(await persistPackRowsToSqlite(rows.map((row) => contentRejectDeletionRow(row.id))), '拒绝记录清理失败')
+  }
   await db.contentRejects.bulkDelete(rows.map((row) => row.id))
   return rows.length
 }
@@ -1837,23 +2130,31 @@ export async function clearRejects(kind?: ContentKind): Promise<number> {
 export async function reapplyAppliedPacks(): Promise<{ packs: number; items: number }> {
   const db = getDb()
   const applied = await db.packItems.where('status').equals('applied').toArray()
+  // 只读计算（事务外；同词多条 item 用 map 累积，等价原事务内读取已更新 Word）
+  const updatedWords = new Map<string, Word>()
+  const updatedItems: PackItemRecord[] = []
   const packIds = new Set<string>()
-  let items = 0
-  await db.transaction('rw', [db.words, db.packItems, db.contentRejects], async () => {
-    for (const item of applied) {
-      if (!item.wordId) continue
-      const word = await db.words.get(item.wordId)
-      if (!word) continue // 用户删除了该词 → 不复活
-      const rejected = await rejectedHashesFor(item.headwordLower)
-      const result = mergeItemIntoWord(word, item.payload, rejected, item.meaningIndex)
-      if (!result.changed) continue
-      await db.words.put(result.word)
-      await db.packItems.update(item.id, { appliedAt: Date.now(), appliedContent: result.added })
-      packIds.add(item.packId)
-      items += 1
-    }
-  })
-  return { packs: packIds.size, items }
+  for (const item of applied) {
+    if (!item.wordId) continue
+    const word = updatedWords.get(item.wordId) ?? (await db.words.get(item.wordId))
+    if (!word) continue // 用户删除了该词 → 不复活
+    const rejected = await rejectedHashesFor(item.headwordLower)
+    const result = mergeItemIntoWord(word, item.payload, rejected, item.meaningIndex)
+    if (!result.changed) continue
+    updatedWords.set(item.wordId, result.word)
+    updatedItems.push({ ...item, appliedAt: Date.now(), appliedContent: result.added })
+    packIds.add(item.packId)
+  }
+  // 0.14 F6：sqlite 先写 packItems + 受影响自定义词整行；失败抛错且不写 IDB
+  const replayWordRows = await customWordContentRows([...updatedWords.values()], Date.now())
+  assertPackRowsWritten(await persistPackRowsToSqlite([...updatedItems.map(packItemContentRow), ...replayWordRows]), '重放内容包写入失败')
+  if (updatedWords.size > 0) {
+    await db.transaction('rw', [db.words, db.packItems], async () => {
+      await db.words.bulkPut([...updatedWords.values()])
+      if (updatedItems.length > 0) await db.packItems.bulkPut(updatedItems)
+    })
+  }
+  return { packs: packIds.size, items: updatedItems.length }
 }
 
 export { LIMITS }
@@ -1886,39 +2187,44 @@ export async function clearContentForReplace(
   if (ids.length === 0 || kinds.length === 0) return { words: 0, items: 0 }
   let items = 0
   let words = 0
-  await db.transaction('rw', [db.words, db.packItems], async () => {
-    if (kinds.some((kind) => kind !== 'semantics')) {
-      const rows = await db.words.bulkGet(ids)
-      const updated: Word[] = []
-      for (const word of rows) {
-        if (!word) continue
-        let changed = false
-        if (kinds.includes('examples')) {
-          if (word.examples.length > 0) { word.examples = []; changed = true }
-          for (const meaning of word.meanings) {
-            if (meaning.examples?.length) { meaning.examples = []; changed = true }
-          }
+  const updated: Word[] = []
+  if (kinds.some((kind) => kind !== 'semantics')) {
+    const rows = await db.words.bulkGet(ids)
+    for (const word of rows) {
+      if (!word) continue
+      let changed = false
+      if (kinds.includes('examples')) {
+        if (word.examples.length > 0) { word.examples = []; changed = true }
+        for (const meaning of word.meanings) {
+          if (meaning.examples?.length) { meaning.examples = []; changed = true }
         }
-        if (kinds.includes('phrases') && word.phrases.length > 0) { word.phrases = []; changed = true }
-        if (kinds.includes('mnemonics') && word.mnemonics.length > 0) { word.mnemonics = []; changed = true }
-        if (changed) { updated.push(word); words += 1 }
       }
-      if (updated.length > 0) await db.words.bulkPut(updated)
+      if (kinds.includes('phrases') && word.phrases.length > 0) { word.phrases = []; changed = true }
+      if (kinds.includes('mnemonics') && word.mnemonics.length > 0) { word.mnemonics = []; changed = true }
+      if (changed) { updated.push(word); words += 1 }
     }
-    for (const wordId of ids) {
-      const rows = await db.packItems.where('wordId').equals(wordId).toArray()
-      const removable = rows.filter(
-        (item) =>
-          item.packId !== opts.excludePackId &&
-          (item.status === 'applied' || item.status === 'approved' || item.status === 'pending') &&
-          packItemMatchesKinds(item, kinds),
-      )
-      if (removable.length > 0) {
-        await db.packItems.bulkDelete(removable.map((item) => item.id))
-        items += removable.length
-      }
-    }
+  }
+  const removable: PackItemRecord[] = []
+  for (const wordId of ids) {
+    const rows = await db.packItems.where('wordId').equals(wordId).toArray()
+    removable.push(...rows.filter(
+      (item) =>
+        item.packId !== opts.excludePackId &&
+        (item.status === 'applied' || item.status === 'approved' || item.status === 'pending') &&
+        packItemMatchesKinds(item, kinds),
+    ))
+  }
+  // 0.14 F6：sqlite 先写 item tombstones + 被清空的自定义词整行（失败抛错且不删 IDB）
+  const clearedWordRows = await customWordContentRows(updated, Date.now())
+  assertPackRowsWritten(
+    await persistPackRowsToSqlite([...removable.map((item) => packItemDeletionRow(item.id)), ...clearedWordRows]),
+    '替换前清理内容包条目失败',
+  )
+  await db.transaction('rw', [db.words, db.packItems], async () => {
+    if (updated.length > 0) await db.words.bulkPut(updated)
+    if (removable.length > 0) await db.packItems.bulkDelete(removable.map((item) => item.id))
   })
+  items = removable.length
   return { words, items }
 }
 
@@ -1966,11 +2272,10 @@ export async function applyReplacementPack(
     return { ...result, applied: Math.max(result.applied, newApplied), replaced }
   } catch (error) {
     // compensating rollback：恢复旧 Word/旧 items，避免清空后失败丢本义
-    await db.transaction('rw', [db.words, db.packItems], async () => {
-      const words = wordsSnapshot.filter((word): word is Word => Boolean(word))
-      if (words.length > 0) await db.words.bulkPut(words)
-      if (itemsSnapshot.length > 0) await db.packItems.bulkPut(itemsSnapshot)
-    })
+    await restorePackSnapshot(
+      wordsSnapshot.filter((word): word is Word => Boolean(word)),
+      itemsSnapshot,
+    )
     throw error
   }
 }
@@ -2041,6 +2346,8 @@ export async function resetSemanticsData(): Promise<{ removedPacks: number; remo
       (item) => (item.payload.coreSenses ?? []).length > 0 || (item.payload.meaningMap ?? []).length > 0,
     )
     if (removable.length > 0) {
+      // 0.14：sqlite 先写 tombstone；失败抛错且不删 IDB
+      assertPackRowsWritten(await persistPackRowsToSqlite(removable.map((item) => packItemDeletionRow(item.id))), `语义条目清理写入失败：${packId}`)
       await db.packItems.bulkDelete(removable.map((item) => item.id))
       removedItems += removable.length
       await refreshPack(packId, Date.now())
@@ -2070,11 +2377,10 @@ export async function applyGeneratedPack(
     if (pendingIds.length > 0) await approveItems(packId, pendingIds)
     return await applyApproved(packId, { allowOverLimit: opts.allowOverLimit })
   } catch (error) {
-    await db.transaction('rw', [db.words, db.packItems], async () => {
-      const words = wordsSnapshot.filter((word): word is Word => Boolean(word))
-      if (words.length > 0) await db.words.bulkPut(words)
-      if (itemsSnapshot.length > 0) await db.packItems.bulkPut(itemsSnapshot)
-    })
+    await restorePackSnapshot(
+      wordsSnapshot.filter((word): word is Word => Boolean(word)),
+      itemsSnapshot,
+    )
     throw error
   }
 }

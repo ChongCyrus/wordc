@@ -19,6 +19,13 @@ import { planRow } from './plan-sqlite'
 import { bumpDataEpoch } from './data-epoch'
 import { assertIdbMutationAllowed } from './learning-write-source'
 import { withDataWriteLock } from './write-lock'
+import {
+  ContentWriteError,
+  getContentWriteSource,
+  saveContentEntitiesChunked,
+} from './content-write-source'
+import type { ContentEntityRow, SaveContentEntitiesResult } from './content-write-source'
+import { wordOverlayOf } from './content-snapshot'
 import type { RawWordInput } from './word-factory'
 
 /** 词库学习进度（词库列表/详情页用） */
@@ -109,6 +116,182 @@ async function refreshDeckCount(deckId: string, now: number): Promise<Deck | und
     return next
   }
   return deck
+}
+
+// ============ 0.14 自定义内容统一写源（B4） ============
+
+/**
+ * 自定义 deck/word 的 content_kv 行（key 规范：`deck:<id>` / `word:<id>`）。
+ * 内置不可变词正文不进入 content_kv（本文件的写入口只处理用户新建/导入的自定义内容）。
+ */
+export function contentRowOfDeck(deck: Deck): ContentEntityRow {
+  return { key: `deck:${deck.id}`, kind: 'deck', json: JSON.stringify(deck), updatedAt: deck.updatedAt }
+}
+
+export function contentRowOfWord(word: Word, updatedAt: number = Number(word.createdAt) || Date.now()): ContentEntityRow {
+  return { key: `word:${word.id}`, kind: 'word', json: JSON.stringify(word), updatedAt }
+}
+
+/** sqlite 内容写源失败：抛结构化错误（已写条数写进 message），**不回写 IDB** */
+function contentWriteFailure(label: string, result: SaveContentEntitiesResult, total: number): ContentWriteError {
+  return new ContentWriteError(
+    `${label}内容写入 SQLite 失败（已写 ${result.written}/${total} 条，失败批未回写 IDB）：${result.error ?? '未知错误'}`,
+    'CONTENT_SQLITE_WRITE_FAILED',
+  )
+}
+
+/** 写自定义 deck/word 内容行（sqlite 模式；成功后由 saveContentEntities* 写 IDB cache） */
+async function saveCustomContentRows(rows: readonly ContentEntityRow[]): Promise<SaveContentEntitiesResult> {
+  const saved = await saveContentEntitiesChunked(rows)
+  // B-P1-2：分批失败时补偿已写前缀（tombstone），避免留下半成品 deck/词
+  if (!saved.ok && saved.written > 0) {
+    const prefix = rows.slice(0, saved.written).map((row) => ({ ...row, json: 'null', deleted: true }))
+    try {
+      const { writeContentRows } = await import('./content-store')
+      await writeContentRows(prefix as never)
+    } catch {
+      /* 补偿失败由调用方结构化错误暴露 */
+    }
+  }
+  return saved
+}
+
+/**
+ * 新建/导入自定义词：word 正文行 + （wordCount 变化时）deck 元数据行同批写。
+ * deck 行放最后：部分失败时只可能少记 wordCount（下次写入按 IDB cache 实际计数自愈）。
+ */
+async function saveCustomWordRows(
+  deck: Deck,
+  words: readonly Word[],
+  now: number,
+  countAfter: number,
+  label: string,
+): Promise<void> {
+  const rows: ContentEntityRow[] = words.map((word) => contentRowOfWord(word, word.createdAt || now))
+  if (countAfter !== deck.wordCount) rows.push(contentRowOfDeck({ ...deck, wordCount: countAfter, updatedAt: now }))
+  const saved = await saveCustomContentRows(rows)
+  if (!saved.ok) throw contentWriteFailure(label, saved, rows.length)
+}
+
+/** 0.15：重建 Word（update/upsert/批量）时保留用户 overlay，避免刷新词条丢笔记/助记/词源/引申图 */
+function withPreservedWordOverlay(word: Word, existing: Word | undefined): Word {
+  if (!existing) return word
+  const overlay = wordOverlayOf(existing as unknown as Record<string, unknown>)
+  return Object.keys(overlay).length > 0 ? ({ ...word, ...overlay } as Word) : word
+}
+
+/** 内置词库（正文来自打包资源）判定：其词正文不进 content_kv，删除时只清 overlay */
+function isBuiltinDeck(deck: Deck): boolean {
+  if (deck.builtinKey) return true
+  if (deck.source === 'builtin') return true
+  return DECK_SOURCES.some((source) => source.deckId === deck.id)
+}
+
+/** 0.14：sqlite 内容源下内置词正文不可变（来自打包资源），禁止按普通词编辑/删除 */
+async function assertBuiltinWordMutable(word: Word, action: string): Promise<void> {
+  // 0.15：内置 deck 里用户后加的 custom 词是可变的；只有打包正文 fail-closed
+  if (word.custom === true) return
+  const deck = await getDb().decks.get(word.deckId)
+  if (deck && isBuiltinDeck(deck)) {
+    // 0.14 遗留：用户后加词可能没有 custom 标记。按打包词表差集识别并补标记，避免误拦截。
+    const source = DECK_SOURCES.find((item) => item.deckId === deck.id)
+    if (source) {
+      try {
+        const { parseBuiltinDeckFile } = await import('./builtin')
+        const parsed = parseBuiltinDeckFile(await source.load())
+        if (!parsed.words.some((item) => item.id === word.id)) {
+          const next = { ...word, custom: true as const }
+          await getDb().words.put(next)
+          return
+        }
+      } catch {
+        /* 读取打包正文失败时保持 fail-closed */
+      }
+    }
+    throw new Error(`E_UNSUPPORTED: sqlite 内容写源下内置词库词条不支持${action}（正文来自打包资源）`)
+  }
+}
+
+/** 删除自定义词：word tombstone + deck.wordCount 行；SQLite 成功后才由 helper 写 IDB cache */
+async function tombstoneWordContent(word: Word, now: number): Promise<void> {
+  const db = getDb()
+  const deck = await db.decks.get(word.deckId)
+  const countAfter = Math.max(0, (await db.words.where('deckId').equals(word.deckId).count()) - 1)
+  const rows: ContentEntityRow[] = [
+    { key: `word:${word.id}`, kind: 'word', json: 'null', deleted: true, updatedAt: now },
+    { key: `word-overlay:${word.id}`, kind: 'word-overlay', json: 'null', deleted: true, updatedAt: now },
+  ]
+  if (deck && countAfter !== deck.wordCount) rows.push(contentRowOfDeck({ ...deck, wordCount: countAfter, updatedAt: now }))
+  const saved = await saveCustomContentRows(rows)
+  if (!saved.ok) throw contentWriteFailure('删除词条', saved, rows.length)
+}
+
+/** 词 overlay 内容行（无 overlay 返回 null；删除补偿恢复用） */
+function wordOverlayContentRow(word: Word, now: number): ContentEntityRow | null {
+  const overlay = wordOverlayOf(word as unknown as Record<string, unknown>)
+  if (Object.keys(overlay).length === 0) return null
+  return { key: `word-overlay:${word.id}`, kind: 'word-overlay', json: JSON.stringify(overlay), updatedAt: now }
+}
+
+/**
+ * 删除词库的内容 tombstone：deck 行 + 自定义词行；
+ * 内置词库只 tombstone overlay 行（词正文来自资源，不进 content_kv）。
+ * 默认词库被删时，把兜底词库的新默认标记同批写入（避免 cache 领先事实源）。
+ */
+async function tombstoneDeckContent(deck: Deck, now: number, defaultFallbackDeckId?: string | null): Promise<void> {
+  const db = getDb()
+  const words = await db.words.where('deckId').equals(deck.id).toArray()
+  const rows: ContentEntityRow[] = [
+    { key: `deck:${deck.id}`, kind: 'deck', json: 'null', deleted: true, updatedAt: now },
+  ]
+  if (isBuiltinDeck(deck)) {
+    for (const word of words) {
+      const overlay = wordOverlayOf(word as unknown as Record<string, unknown>)
+      if (Object.keys(overlay).length > 0) {
+        rows.push({ key: `word-overlay:${word.id}`, kind: 'word-overlay', json: 'null', deleted: true, updatedAt: now })
+      }
+    }
+  } else {
+    for (const word of words) {
+      rows.push({ key: `word:${word.id}`, kind: 'word', json: 'null', deleted: true, updatedAt: now })
+      // P1：自定义 deck 删除时同批清 overlay，避免重新导入同 deck 后旧笔记复活
+      if (wordOverlayContentRow(word, now)) {
+        rows.push({ key: `word-overlay:${word.id}`, kind: 'word-overlay', json: 'null', deleted: true, updatedAt: now })
+      }
+    }
+  }
+  if (defaultFallbackDeckId) {
+    const fallback = await db.decks.get(defaultFallbackDeckId)
+    if (fallback) rows.push(contentRowOfDeck({ ...fallback, isDefault: true, updatedAt: now }))
+  }
+  const saved = await saveCustomContentRows(rows)
+  if (!saved.ok) throw contentWriteFailure('删除词库', saved, rows.length)
+}
+
+/**
+ * 删除补偿：content tombstone 成功后 facts 级联失败 → 用删除前快照把 content 行 upsert 回来
+ * （SQLite 恢复 + helper 写回 IDB cache），再抛出原始错误；恢复也失败时给结构化错误。
+ */
+async function restoreContentAfterFailedDelete(rows: readonly ContentEntityRow[], cause: unknown): Promise<never> {
+  const causeMessage = cause instanceof Error ? cause.message : String(cause)
+  try {
+    const saved = await saveCustomContentRows(rows)
+    if (!saved.ok) throw new Error(saved.error ?? '未知错误')
+  } catch (restoreError) {
+    const restoreMessage = restoreError instanceof Error ? restoreError.message : String(restoreError)
+    throw new ContentWriteError(
+      `删除失败（${causeMessage}），且内容恢复失败（${restoreMessage}）；请从备份恢复`,
+      'CONTENT_SQLITE_ROLLBACK_FAILED',
+    )
+  }
+  throw cause instanceof Error ? cause : new Error(causeMessage)
+}
+
+/** 写单条 deck 内容行（sqlite 模式） */
+async function savedDeckContent(deck: Deck, label: string): Promise<void> {
+  const rows = [contentRowOfDeck(deck)]
+  const saved = await saveCustomContentRows(rows)
+  if (!saved.ok) throw contentWriteFailure(label, saved, rows.length)
 }
 
 // ============ 查询 ============
@@ -331,6 +514,18 @@ export async function createDeck(input: string | CreateDeckInput): Promise<Deck>
   }
   if (options.description) deck.description = options.description
   if (options.license) deck.license = options.license
+  // 0.14 B4：sqlite 内容写源——先写 content_kv（deck/word 行），成功后才由写源 helper 写 IDB cache；
+  // 失败直接抛结构化错误，IDB 不落任何新建内容（避免双源）。
+  if ((await getContentWriteSource()) === 'sqlite') {
+    const rows: ContentEntityRow[] = [contentRowOfDeck(deck), ...finalWords.map((word) => contentRowOfWord(word, now))]
+    const saved = await saveCustomContentRows(rows)
+    if (!saved.ok) throw contentWriteFailure('新建词库', saved, rows.length)
+    // 第一个词库自动设为在学（settings 事实源写入，不属于内容写源）
+    if (deckCount === 0) {
+      await db.settings.put({ key: 'data.selectedDeckId', value: deckId, updatedAt: now })
+    }
+    return deck
+  }
   await db.transaction('rw', db.decks, db.words, db.settings, async () => {
     await db.decks.put(deck)
     if (finalWords.length > 0) await db.words.bulkPut(finalWords)
@@ -350,6 +545,10 @@ export async function renameDeck(deckId: string, name: string): Promise<Deck> {
   const nextName = normalizeDeckName(name)
   await assertNameAvailable(nextName, deckId)
   const next: Deck = { ...deck, name: nextName, updatedAt: Date.now() }
+  if ((await getContentWriteSource()) === 'sqlite') {
+    await savedDeckContent(next, '重命名词库')
+    return next
+  }
   await db.decks.put(next)
   return next
 }
@@ -371,6 +570,25 @@ export async function updateDeck(
   if (patch.description !== undefined) next.description = patch.description
   if (patch.license !== undefined) next.license = patch.license
   if (patch.isDefault !== undefined) next.isDefault = patch.isDefault
+  if ((await getContentWriteSource()) === 'sqlite') {
+    if (patch.isDefault === true) {
+      // 默认词库全局唯一：只把 isDefault 变化的 deck 行写 content_kv（同批）。
+      // isDefault 是可变 deck 元数据：内置 deck 行也允许写入 content_kv（内置不可变的是词正文）。
+      const decks = await db.decks.toArray()
+      const beforeJson = new Map(decks.map((item) => [item.id, JSON.stringify(item)]))
+      const all = decks.map((item) =>
+        item.id === deckId ? { ...next, isDefault: true } : { ...item, isDefault: false },
+      )
+      const changed = all.filter((item) => beforeJson.get(item.id) !== JSON.stringify(item))
+      if (changed.length > 0) {
+        const saved = await saveCustomContentRows(changed.map((item) => contentRowOfDeck(item)))
+        if (!saved.ok) throw contentWriteFailure('更新词库', saved, changed.length)
+      }
+    } else {
+      await savedDeckContent(next, '更新词库')
+    }
+    return next
+  }
   await db.transaction('rw', db.decks, async () => {
     if (patch.isDefault === true) {
       // 默认词库全局唯一
@@ -392,103 +610,182 @@ export async function updateDeck(
  * 若删的是当前在学词库，会把 `data.selectedDeckId` 切到默认词库/其它词库。
  * 内置词库删除后会清掉 `meta.builtin.seeded` 对应记录，下次 ensureBuiltinDecks 可重装。
  */
-export function deleteDeck(
+type DeleteDeckOptions = {
+  /** 0.10.0：该库有学习进度时必须先备份；不提供且 unsafe!=true 时拒绝 */
+  preBackup?: () => Promise<void | { ok: boolean; error?: string }>
+  unsafe?: boolean
+}
+
+export async function deleteDeck(
   deckId: string,
-  opts: {
-    /** 0.10.0：该库有学习进度时必须先备份；不提供且 unsafe!=true 时拒绝 */
-    preBackup?: () => Promise<void | { ok: boolean; error?: string }>
-    unsafe?: boolean
-  } = {},
+  opts: DeleteDeckOptions = {},
 ): Promise<void> {
+  const contentSqlite = (await getContentWriteSource()) === 'sqlite'
+  if (contentSqlite) {
+    const deck = await getDb().decks.get(deckId)
+    // 0.14 fail-closed：内置词库正文来自打包资源，删除会清 builtin.seeded（下次 seed 复活），
+    // 且 content_kv tombstone 与 ensureBuiltinDecks/cache 重建存在冲突；如需删除请先切回 idb。
+    if (deck && isBuiltinDeck(deck)) {
+      throw new Error('E_UNSUPPORTED: sqlite 内容写源暂不支持删除内置词库（正文来自打包资源，删除会与内置 seed/缓存重建冲突）')
+    }
+  }
   if (getLearningWriteSource() === 'sqlite') {
-    return withDataWriteLock(() => deleteDeckSqlite(deckId, opts))
+    return withDataWriteLock(() => deleteDeckSqlite(deckId, opts, contentSqlite))
   }
   assertIdbMutationAllowed('删除词库')
+  if (contentSqlite) return withDataWriteLock(() => deleteDeckContentSqlite(deckId, opts))
   return withDataWriteLock(() => deleteDeckInner(deckId, opts))
 }
 
-/** A2：sqlite 模式删除词库，先删 SQLite facts（单 tx），成功后再删 IDB cache */
-async function deleteDeckSqlite(
-  deckId: string,
-  opts: { preBackup?: () => Promise<void | { ok: boolean; error?: string }>; unsafe?: boolean },
-): Promise<void> {
+/** 删除前必备份校验（0.10.0：有学习进度时必须先成功预备份） */
+async function requireDeckDeleteBackup(deck: Deck, opts: DeleteDeckOptions): Promise<void> {
   const db = getDb()
-  const deck = await db.decks.get(deckId)
-  if (!deck) return
-  const stateCount = await db.states.where('deckId').equals(deckId).count()
+  const stateCount = await db.states.where('deckId').equals(deck.id).count()
   if (stateCount > 0 && !opts.unsafe) {
     if (!opts.preBackup) throw new Error('该词库有学习进度，删除前必须先备份')
     const backup = await opts.preBackup()
     if (backup && backup.ok === false) throw new Error(`预备份失败，已拒绝删除：${backup.error ?? '未知错误'}`)
   }
-  const remaining = (await db.decks.toArray()).filter((item) => item.id !== deckId)
-  const selected = await db.settings.get('data.selectedDeckId')
-  const fallback = remaining.find((item) => item.isDefault)?.id ?? remaining[0]?.id ?? ''
-  const ops: unknown[] = [
-    { op: 'delete', table: 'states', where: { deck_id: deckId } },
-    { op: 'delete', table: 'review_logs', where: { deck_id: deckId } },
-    { op: 'delete', table: 'plans', where: { deck_id: deckId } },
-  ]
-  if (selected?.value === deckId || !selected) {
-    ops.push({ op: 'upsert', table: 'settings', row: { key: 'data.selectedDeckId', value_json: JSON.stringify(fallback), updated_at: Date.now() } })
-  }
-  const tx = await sqliteTx(ops)
-  if (tx.ok === false) throw new Error(tx.message ?? '删除词库 SQLite 事务失败')
-  await deleteDeckInner(deckId, { ...opts, unsafe: true })
 }
 
-async function deleteDeckInner(
-  deckId: string,
-  opts: {
-    preBackup?: () => Promise<void | { ok: boolean; error?: string }>
-    unsafe?: boolean
-  } = {},
+/**
+ * IDB cache + facts 级联删除（调用方已读取 deck 并完成 preBackup）。
+ * - content 写源 sqlite：deck/word 行已由 tombstone 从 cache 删除，这里只清 facts/缓存残余；
+ * - `defaultAlreadyHandled=true` 时默认标记已在 content_kv 写好（cache 已同步），不再写 IDB。
+ */
+async function deleteDeckIdbCascade(
+  deck: Deck,
+  now: number,
+  opts: { defaultAlreadyHandled?: boolean } = {},
 ): Promise<void> {
   const db = getDb()
-  const deck = await db.decks.get(deckId)
-  if (!deck) return
-  const stateCount = await db.states.where('deckId').equals(deckId).count()
-  if (stateCount > 0 && !opts.unsafe) {
-    if (!opts.preBackup) throw new Error('该词库有学习进度，删除前必须先备份')
-    const backup = await opts.preBackup()
-    if (backup && backup.ok === false) throw new Error(`预备份失败，已拒绝删除：${backup.error ?? '未知错误'}`)
-  }
-  const now = Date.now()
   await db.transaction(
     'rw',
     [db.decks, db.words, db.states, db.plans, db.reviewLogs, db.settings, db.meta],
     async () => {
-    await db.decks.delete(deckId)
-    await db.words.where('deckId').equals(deckId).delete()
-    await db.states.where('deckId').equals(deckId).delete()
-    await db.reviewLogs.where('deckId').equals(deckId).delete()
-    await db.plans.where('deckId').equals(deckId).delete()
-    // 内置词库：清种子记录，允许重新种子
-    if (deck.builtinKey) {
-      const seeded = await db.meta.get('builtin.seeded')
-      const value = seeded?.value as Record<string, number> | undefined
-      if (value && deck.builtinKey in value) {
-        const next = { ...value }
-        delete next[deck.builtinKey]
-        await db.meta.put({ key: 'builtin.seeded', value: next, updatedAt: now })
+      await db.decks.delete(deck.id)
+      await db.words.where('deckId').equals(deck.id).delete()
+      await db.states.where('deckId').equals(deck.id).delete()
+      await db.reviewLogs.where('deckId').equals(deck.id).delete()
+      await db.plans.where('deckId').equals(deck.id).delete()
+      // 内置词库：清种子记录，允许重新种子
+      if (deck.builtinKey) {
+        const seeded = await db.meta.get('builtin.seeded')
+        const value = seeded?.value as Record<string, number> | undefined
+        if (value && deck.builtinKey in value) {
+          const next = { ...value }
+          delete next[deck.builtinKey]
+          await db.meta.put({ key: 'builtin.seeded', value: next, updatedAt: now })
+        }
       }
-    }
-    // 当前在学词库被删：切到默认/第一个
-    const selected = await db.settings.get('data.selectedDeckId')
-    if (selected?.value === deckId || !selected) {
-      const remaining = await db.decks.toArray()
-      const fallback =
-        remaining.find((item) => item.isDefault)?.id ?? remaining[0]?.id ?? ''
-      await db.settings.put({ key: 'data.selectedDeckId', value: fallback, updatedAt: now })
-    }
-    // 默认词库被删：把剩余的第一个设为默认
-    if (deck.isDefault) {
-      const remaining = await db.decks.toArray()
-      const fallback = remaining[0]
-      if (fallback) await db.decks.put({ ...fallback, isDefault: true, updatedAt: now })
-    }
+      // 当前在学词库被删：切到默认/第一个
+      const selected = await db.settings.get('data.selectedDeckId')
+      if (selected?.value === deck.id || !selected) {
+        const remaining = await db.decks.toArray()
+        const fallback = remaining.find((item) => item.isDefault)?.id ?? remaining[0]?.id ?? ''
+        await db.settings.put({ key: 'data.selectedDeckId', value: fallback, updatedAt: now })
+      }
+      // 默认词库被删：把剩余的第一个设为默认（content sqlite 已在 content_kv 写)
+      if (deck.isDefault && opts.defaultAlreadyHandled !== true) {
+        const remaining = await db.decks.toArray()
+        const fallback = remaining[0]
+        if (fallback) await db.decks.put({ ...fallback, isDefault: true, updatedAt: now })
+      }
     },
   )
+}
+
+/**
+ * 删除词库前的内容快照（deck 行 + 其词行 + 兜底默认 deck 旧行），用于 facts 失败时补偿恢复。
+ * 必须在 tombstone 之前调用（此时 IDB cache 仍是删除前状态）。
+ */
+async function deckDeleteContentSnapshot(
+  deck: Deck,
+  now: number,
+): Promise<{ rows: ContentEntityRow[]; defaultFallbackId: string | null }> {
+  const db = getDb()
+  const words = await db.words.where('deckId').equals(deck.id).toArray()
+  const remaining = (await db.decks.toArray()).filter((item) => item.id !== deck.id)
+  const defaultFallbackId = deck.isDefault ? remaining[0]?.id ?? null : null
+  const rows: ContentEntityRow[] = [
+    contentRowOfDeck(deck),
+    ...words.map((word) => contentRowOfWord(word, word.createdAt || now)),
+    ...words.map((word) => wordOverlayContentRow(word, now)).filter((row): row is ContentEntityRow => Boolean(row)),
+  ]
+  if (defaultFallbackId) {
+    const fallback = await db.decks.get(defaultFallbackId)
+    if (fallback) rows.push(contentRowOfDeck(fallback))
+  }
+  return { rows, defaultFallbackId }
+}
+
+/** 0.14：sqlite 内容写源删词库——先 tombstone content_kv（失败不删 IDB），再级联删 facts/cache；facts 失败补偿恢复 content */
+async function deleteDeckContentSqlite(deckId: string, opts: DeleteDeckOptions): Promise<void> {
+  const db = getDb()
+  const deck = await db.decks.get(deckId)
+  if (!deck) return
+  await requireDeckDeleteBackup(deck, opts)
+  const now = Date.now()
+  // 默认词库被删：兜底词库的新默认标记与 tombstone 同批写 content_kv
+  const { rows: snapshot, defaultFallbackId } = await deckDeleteContentSnapshot(deck, now)
+  await tombstoneDeckContent(deck, now, defaultFallbackId)
+  try {
+    await deleteDeckIdbCascade(deck, now, { defaultAlreadyHandled: true })
+  } catch (error) {
+    await restoreContentAfterFailedDelete(snapshot, error)
+  }
+  await bumpDataEpoch('deleteDeck')
+}
+
+/** A2：sqlite 模式删除词库，先删 SQLite facts（单 tx），成功后再删 IDB cache；content sqlite 时先 tombstone */
+async function deleteDeckSqlite(
+  deckId: string,
+  opts: DeleteDeckOptions,
+  contentSqlite = false,
+): Promise<void> {
+  const db = getDb()
+  const deck = await db.decks.get(deckId)
+  if (!deck) return
+  await requireDeckDeleteBackup(deck, opts)
+  const now = Date.now()
+  const remaining = (await db.decks.toArray()).filter((item) => item.id !== deckId)
+  const selected = await db.settings.get('data.selectedDeckId')
+  const fallback = remaining.find((item) => item.isDefault)?.id ?? remaining[0]?.id ?? ''
+  let snapshot: ContentEntityRow[] | null = null
+  if (contentSqlite) {
+    const captured = await deckDeleteContentSnapshot(deck, now)
+    snapshot = captured.rows
+    await tombstoneDeckContent(deck, now, captured.defaultFallbackId)
+  }
+  try {
+    const ops: unknown[] = [
+      { op: 'delete', table: 'states', where: { deck_id: deckId } },
+      { op: 'delete', table: 'review_logs', where: { deck_id: deckId } },
+      { op: 'delete', table: 'plans', where: { deck_id: deckId } },
+    ]
+    if (selected?.value === deckId || !selected) {
+      ops.push({ op: 'upsert', table: 'settings', row: { key: 'data.selectedDeckId', value_json: JSON.stringify(fallback), updated_at: Date.now() } })
+    }
+    const tx = await sqliteTx(ops)
+    if (tx.ok === false) throw new Error(tx.message ?? '删除词库 SQLite 事务失败')
+    await deleteDeckIdbCascade(deck, now, { defaultAlreadyHandled: contentSqlite })
+  } catch (error) {
+    if (snapshot) await restoreContentAfterFailedDelete(snapshot, error)
+    throw error
+  }
+  await bumpDataEpoch('deleteDeck')
+}
+
+async function deleteDeckInner(
+  deckId: string,
+  opts: DeleteDeckOptions = {},
+): Promise<void> {
+  const db = getDb()
+  const deck = await db.decks.get(deckId)
+  if (!deck) return
+  await requireDeckDeleteBackup(deck, opts)
+  const now = Date.now()
+  await deleteDeckIdbCascade(deck, now)
   await bumpDataEpoch('deleteDeck')
 }
 
@@ -513,22 +810,50 @@ export async function ensureSingleDefaultDeck(
     decks[0]!
   if (defaults.length === 1 && preferred.id === defaults[0]!.id) return preferred.id
   const now = Date.now()
-  await db.decks.bulkPut(
-    decks.map((deck) => ({
-      ...deck,
-      isDefault: deck.id === preferred.id,
-      updatedAt: deck.id === preferred.id ? now : deck.updatedAt,
-    })),
-  )
+  const mapped = decks.map((deck) => ({
+    ...deck,
+    isDefault: deck.id === preferred.id,
+    updatedAt: deck.id === preferred.id ? now : deck.updatedAt,
+  }))
+  // 0.14 B4：sqlite 内容写源下默认标记（deck 内容）必须同步 content_kv；只写实际变化行
+  if ((await getContentWriteSource()) === 'sqlite') {
+    const beforeJson = new Map(decks.map((deck) => [deck.id, JSON.stringify(deck)]))
+    const changed = mapped.filter((deck) => beforeJson.get(deck.id) !== JSON.stringify(deck))
+    if (changed.length > 0) {
+      const saved = await saveCustomContentRows(changed.map((deck) => contentRowOfDeck(deck)))
+      if (!saved.ok) throw contentWriteFailure('默认词库标记', saved, changed.length)
+    }
+    return preferred.id
+  }
+  await db.decks.bulkPut(mapped)
   return preferred.id
 }
 
-/** 设为默认词库（全局唯一） */
+/**
+ * 设为默认词库（全局唯一）。
+ * 0.14 注：isDefault 是可变 deck 元数据；sqlite 内容写源下即使目标是内置词库，
+ * 也允许把该 deck 行写入 content_kv（内置不可变的是词正文，不是默认标记）。
+ */
 export async function setDefaultDeck(deckId: string): Promise<Deck> {
   const db = getDb()
   const deck = await db.decks.get(deckId)
   if (!deck) throw new Error('词库不存在')
   const now = Date.now()
+  if ((await getContentWriteSource()) === 'sqlite') {
+    const decks = await db.decks.toArray()
+    const beforeJson = new Map(decks.map((item) => [item.id, JSON.stringify(item)]))
+    const all = decks.map((item) => ({
+      ...item,
+      isDefault: item.id === deckId,
+      updatedAt: item.id === deckId ? now : item.updatedAt,
+    }))
+    const changed = all.filter((item) => beforeJson.get(item.id) !== JSON.stringify(item))
+    if (changed.length > 0) {
+      const saved = await saveCustomContentRows(changed.map((item) => contentRowOfDeck(item)))
+      if (!saved.ok) throw contentWriteFailure('设为默认词库', saved, changed.length)
+    }
+    return { ...deck, isDefault: true, updatedAt: now }
+  }
   await db.transaction('rw', db.decks, db.settings, async () => {
     const all = await db.decks.toArray()
     await db.decks.bulkPut(
@@ -554,7 +879,12 @@ export async function addWord(deckId: string, input: RawWordInput): Promise<Word
   if (existing) throw new Error(`词条已存在：${existing.headword}`)
   const now = Date.now()
   const order = input.order ?? (await maxOrder(deckId)) + 1
-  const word = buildWord(input, deckId, { order, createdAt: now })
+  const word = buildWord(input, deckId, { order, createdAt: now, custom: true })
+  if ((await getContentWriteSource()) === 'sqlite') {
+    const countAfter = (await db.words.where('deckId').equals(deckId).count()) + 1
+    await saveCustomWordRows(deck, [word], now, countAfter, '添加词条')
+    return word
+  }
   await db.transaction('rw', db.decks, db.words, async () => {
     await db.words.put(word)
     await refreshDeckCount(deckId, now)
@@ -573,7 +903,16 @@ export async function upsertWord(deckId: string, input: RawWordInput): Promise<W
   const existing = await db.words.get(wordId)
   const now = Date.now()
   const order = input.order ?? existing?.order ?? (await maxOrder(deckId)) + 1
-  const word = buildWord(input, deckId, { order, createdAt: existing?.createdAt ?? now })
+  if (existing && isBuiltinDeck(deck) && existing.custom !== true) {
+    throw new Error('E_UNSUPPORTED: 内置词库词条正文不支持 upsert（正文来自打包资源）')
+  }
+  const built = buildWord(input, deckId, { order, createdAt: existing?.createdAt ?? now, custom: true })
+  const word = withPreservedWordOverlay(built, existing)
+  if ((await getContentWriteSource()) === 'sqlite') {
+    const current = await db.words.where('deckId').equals(deckId).count()
+    await saveCustomWordRows(deck, [word], now, existing ? current : current + 1, '添加词条')
+    return word
+  }
   await db.transaction('rw', db.decks, db.words, async () => {
     await db.words.put(word)
     await refreshDeckCount(deckId, now)
@@ -593,6 +932,10 @@ export async function addWords(deckId: string, inputs: readonly RawWordInput[]):
   const startOrder = (await maxOrder(deckId)) + 1
   const seen = new Set<string>()
   const words: Word[] = []
+  const existingWords = new Map<string, Word>()
+  const candidateIds = inputs.map((input) => wordIdOf(deckId, String(input.headword ?? '').trim()))
+  const existingRows = await db.words.bulkGet(candidateIds)
+  existingRows.forEach((row, index) => { if (row) existingWords.set(candidateIds[index]!, row) })
   for (const input of inputs) {
     const headword = String(input.headword ?? '').trim()
     if (!headword) continue
@@ -600,13 +943,22 @@ export async function addWords(deckId: string, inputs: readonly RawWordInput[]):
     if (seen.has(normalized)) continue
     seen.add(normalized)
     words.push(
-      buildWord(input, deckId, {
-        order: input.order ?? startOrder + words.length,
-        createdAt: now,
-      }),
+      withPreservedWordOverlay(
+        buildWord(input, deckId, {
+          order: input.order ?? startOrder + words.length,
+          createdAt: now,
+          custom: true,
+        }),
+        existingWords.get(wordIdOf(deckId, headword)),
+      ),
     )
   }
   if (words.length === 0) return []
+  if ((await getContentWriteSource()) === 'sqlite') {
+    const countAfter = (await db.words.where('deckId').equals(deckId).count()) + words.length
+    await saveCustomWordRows(deck, words, now, countAfter, '批量加词')
+    return words
+  }
   await db.transaction('rw', db.decks, db.words, async () => {
     await db.words.bulkPut(words)
     await refreshDeckCount(deckId, now)
@@ -645,20 +997,31 @@ export async function updateWord(wordId: string, patch: Partial<RawWordInput>): 
     examCount: patch.examCount ?? existing.examCount,
     createdAt: existing.createdAt,
   }
-  const word = buildWord(merged, existing.deckId, {
+  const built = buildWord(merged, existing.deckId, {
     wordId: existing.id,
     order: existing.order,
     createdAt: existing.createdAt,
+    custom: existing.custom === true,
   })
+  const word = withPreservedWordOverlay(built, existing)
   if (existing.maimemoVocId) word.maimemoVocId = existing.maimemoVocId
+  if ((await getContentWriteSource()) === 'sqlite') {
+    await assertBuiltinWordMutable(existing, '编辑')
+    const rows = [contentRowOfWord(word, Date.now())]
+    const saved = await saveCustomContentRows(rows)
+    if (!saved.ok) throw contentWriteFailure('更新词条', saved, rows.length)
+    return word
+  }
   await db.words.put(word)
   return word
 }
 
 /** 删除词条（同时删学习状态与该词的 session 快照） */
 export async function deleteWord(wordId: string): Promise<void> {
-  if (getLearningWriteSource() === 'sqlite') return withDataWriteLock(() => deleteWordSqlite(wordId))
+  const contentSqlite = (await getContentWriteSource()) === 'sqlite'
+  if (getLearningWriteSource() === 'sqlite') return withDataWriteLock(() => deleteWordSqlite(wordId, contentSqlite))
   assertIdbMutationAllowed('删除词条')
+  if (contentSqlite) return withDataWriteLock(() => deleteWordContentSqlite(wordId))
   const db = getDb()
   const word = await db.words.get(wordId)
   if (!word) return
@@ -673,12 +1036,63 @@ export async function deleteWord(wordId: string): Promise<void> {
   })
 }
 
+/** 0.14：sqlite 内容写源删自定义词——先 tombstone content_kv（失败不删 IDB），再清 facts；facts 失败补偿恢复 content */
+async function deleteWordContentSqlite(wordId: string): Promise<void> {
+  const db = getDb()
+  const word = await db.words.get(wordId)
+  if (!word) return
+  await assertBuiltinWordMutable(word, '删除')
+  const now = Date.now()
+  const deck = await db.decks.get(word.deckId)
+  const snapshot: ContentEntityRow[] = [contentRowOfWord(word, word.createdAt || now)]
+  const overlayRow = wordOverlayContentRow(word, now)
+  if (overlayRow) snapshot.push(overlayRow)
+  if (deck) snapshot.push(contentRowOfDeck(deck))
+  await tombstoneWordContent(word, now)
+  try {
+    await db.transaction('rw', [db.decks, db.words, db.states, db.plans, db.reviewLogs, db.meta], async () => {
+      // cache 已由 tombstone 删除；这里幂等兜底（cache 写入失败时仍保持一致）
+      await db.words.delete(wordId)
+      await db.states.delete(wordId)
+      await db.meta.delete(`session:${wordId}`)
+      await scrubPlansForRemovedWords([wordId], { deckId: word.deckId, now })
+      await db.reviewLogs.where('wordId').equals(wordId).delete()
+      await refreshDeckCount(word.deckId, now)
+    })
+  } catch (error) {
+    await restoreContentAfterFailedDelete(snapshot, error)
+  }
+}
+
 /** A2：sqlite 模式删除词条，先删 SQLite state/log + 更新 plans（单 tx），成功后删 IDB cache */
-async function deleteWordSqlite(wordId: string): Promise<void> {
+async function deleteWordSqlite(wordId: string, contentSqlite = false): Promise<void> {
   const db = getDb()
   const word = await db.words.get(wordId)
   if (!word) return
   const now = Date.now()
+  if (!contentSqlite) {
+    await deleteWordSqliteFacts(word, now)
+    return
+  }
+  await assertBuiltinWordMutable(word, '删除')
+  // 0.14：sqlite 内容写源先 tombstone；facts 失败用快照补偿恢复 content
+  const deck = await db.decks.get(word.deckId)
+  const snapshot: ContentEntityRow[] = [contentRowOfWord(word, word.createdAt || now)]
+  const overlayRow = wordOverlayContentRow(word, now)
+  if (overlayRow) snapshot.push(overlayRow)
+  if (deck) snapshot.push(contentRowOfDeck(deck))
+  await tombstoneWordContent(word, now)
+  try {
+    await deleteWordSqliteFacts(word, now)
+  } catch (error) {
+    await restoreContentAfterFailedDelete(snapshot, error)
+  }
+}
+
+/** 词条 SQLite facts 删除（states/logs/plans + IDB cache） */
+async function deleteWordSqliteFacts(word: Word, now: number): Promise<void> {
+  const db = getDb()
+  const wordId = word.id
   const plansResponse = await sqliteQuery({ table: 'plans', where: { deck_id: word.deckId }, limit: 1000 }, 5_000)
   const planRows = ((plansResponse.rows as Array<Record<string, unknown>> | undefined) ?? []).map(mapSqlitePlanRow)
   const ops: unknown[] = [

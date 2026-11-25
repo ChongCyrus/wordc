@@ -12,6 +12,7 @@ import { computeChecksum } from './checksum'
 import { packChecksumPayload } from './packs/schema'
 import type { PackCounts, PackItemRecord, PackItemV1, PackRecord } from './packs/schema'
 import { applyApproved, approveItems, deletePacks, importPack, listPackItems } from './packs.repo'
+import { ContentWriteError, getContentWriteSource, saveContentEntitiesChunked, type ContentEntityRow } from './content-write-source'
 
 export interface AppendAiPackResult {
   packId: string
@@ -61,6 +62,15 @@ function countStatuses(records: PackItemRecord[]): PackCounts {
   return counts
 }
 
+/** 0.14：pack 记录写 content_kv（sqlite 模式；idb 模式跳过）。失败结构化抛错，调用方不回写 IDB。 */
+async function persistAiPackRowToSqlite(pack: PackRecord): Promise<void> {
+  if ((await getContentWriteSource()) !== 'sqlite') return
+  const saved = await saveContentEntitiesChunked([
+    { key: `pack:${pack.id}`, kind: 'pack', json: JSON.stringify(pack), updatedAt: pack.updatedAt ?? pack.createdAt },
+  ])
+  if (!saved.ok) throw new ContentWriteError(saved.error ?? 'AI 内容包记录写入失败', 'CONTENT_SQLITE_WRITE_FAILED')
+}
+
 async function refreshAiPackChecksum(packId: string): Promise<void> {
   const db = getDb()
   const pack = await db.packs.get(packId)
@@ -70,64 +80,127 @@ async function refreshAiPackChecksum(packId: string): Promise<void> {
   const checksum = (await computeChecksum(
     packChecksumPayload({ format: 'momo-pack', formatVersion: 1, kind: pack.kind, items }),
   )).hex
-  await db.packs.update(packId, { checksum, counts: countStatuses(records), updatedAt: Date.now() })
+  // 0.14：sqlite 先写完整 pack 行（失败不回写 IDB），成功后再更新 IDB cache
+  const updatedAt = Date.now()
+  const next: PackRecord = { ...pack, checksum, counts: countStatuses(records), updatedAt }
+  await persistAiPackRowToSqlite(next)
+  await db.packs.update(packId, { checksum: next.checksum, counts: next.counts, updatedAt })
+}
+
+/** 0.14：AI 内容包条目写 content_kv（sqlite 模式；idb 模式跳过）。失败结构化抛错，调用方不回写 IDB。 */
+async function persistAiPackItemRowsToSqlite(records: readonly PackItemRecord[]): Promise<void> {
+  if (records.length === 0) return
+  if ((await getContentWriteSource()) !== 'sqlite') return
+  const rows: ContentEntityRow[] = records.map((record) => ({
+    key: `pack-item:${record.id}`,
+    kind: 'pack-item',
+    json: JSON.stringify(record),
+    updatedAt: record.appliedAt ?? record.createdAt ?? Date.now(),
+  }))
+  const saved = await saveContentEntitiesChunked(rows)
+  if (!saved.ok) throw new ContentWriteError(saved.error ?? 'AI 内容包条目写入失败', 'CONTENT_SQLITE_WRITE_FAILED')
+}
+
+/** 读取合并所需 pack 与条目（idb 路径在 Dexie rw 事务内调用同样安全） */
+async function readMergeInputs(
+  targetId: string,
+  sourceId: string,
+): Promise<{ targetItems: PackItemRecord[]; sourceItems: PackItemRecord[] }> {
+  const db = getDb()
+  const target = await db.packs.get(targetId)
+  const source = await db.packs.get(sourceId)
+  if (!target || !source) throw new Error('合并失败：内容包不存在')
+  return {
+    targetItems: await db.packItems.where('packId').equals(targetId).toArray(),
+    sourceItems: await db.packItems.where('packId').equals(sourceId).toArray(),
+  }
+}
+
+/** 合并条目：同 headwordLower+meaningIndex 合并内容，其余新增（id 重新编号到 target） */
+function buildMergedPackItems(
+  targetId: string,
+  targetItems: PackItemRecord[],
+  sourceItems: PackItemRecord[],
+): { records: PackItemRecord[]; added: number; merged: number } {
+  const byKey = new Map(targetItems.map((item) => [itemKey(item), item]))
+  let seq = targetItems.reduce((max, item) => Math.max(max, item.seq), 0)
+  const now = Date.now()
+  let added = 0
+  let merged = 0
+  const records: PackItemRecord[] = []
+  for (const item of sourceItems) {
+    const key = itemKey(item)
+    const existing = byKey.get(key)
+    if (existing) {
+      merged += 1
+      const payload = unionContent(existing.payload, item.payload)
+      const next: PackItemRecord = {
+        ...existing,
+        payload,
+        status: 'pending', // 合并后重新审核/应用，只补缺
+        contentHashes: [...new Set([...(existing.contentHashes ?? []), ...(item.contentHashes ?? [])])],
+        ...(item.wordId ? { wordId: item.wordId } : {}),
+        ...(item.meaningId ? { meaningId: item.meaningId } : {}),
+        ...(item.deckId ? { deckId: item.deckId } : {}),
+      }
+      records.push(next)
+      byKey.set(key, next)
+    } else {
+      seq += 1
+      const next: PackItemRecord = {
+        ...item,
+        id: `${targetId}:${seq}`,
+        packId: targetId,
+        seq,
+        status: 'pending',
+        createdAt: now,
+      }
+      records.push(next)
+      byKey.set(key, next)
+      added += 1
+    }
+  }
+  return { records, added, merged }
+}
+
+/** 写回目标包 counts/status（idb cache 或 idb 事实源），返回合并后条目数 */
+async function finalizeMergedPack(targetId: string, sqlite: boolean): Promise<number> {
+  const db = getDb()
+  const all = await db.packItems.where('packId').equals(targetId).toArray()
+  const pack = await db.packs.get(targetId)
+  if (pack) {
+    const updatedAt = Date.now()
+    const next: PackRecord = { ...pack, counts: countStatuses(all), status: 'reviewing', updatedAt }
+    // 0.14：sqlite 先写完整 pack 行（失败不回写 IDB），成功后再更新 IDB cache。
+    // idb 路径在 Dexie 事务内，事务 scope 不含 settings 表，不能在这里读写源，故由调用方传入。
+    if (sqlite) await persistAiPackRowToSqlite(next)
+    await db.packs.update(targetId, { counts: next.counts, status: next.status, updatedAt })
+  }
+  return all.length
 }
 
 /** 把 source pack 的 items 合并进 target pack（同 headwordLower+meaningIndex 合并内容，其余新增） */
 async function mergePackItemsInto(targetId: string, sourceId: string): Promise<{ added: number; merged: number; total: number }> {
   const db = getDb()
-  return db.transaction('rw', [db.packs, db.packItems], async () => {
-    const target = await db.packs.get(targetId)
-    const source = await db.packs.get(sourceId)
-    if (!target || !source) throw new Error('合并失败：内容包不存在')
-    const targetItems = await db.packItems.where('packId').equals(targetId).toArray()
-    const sourceItems = await db.packItems.where('packId').equals(sourceId).toArray()
-    const byKey = new Map(targetItems.map((item) => [itemKey(item), item]))
-    let seq = targetItems.reduce((max, item) => Math.max(max, item.seq), 0)
-    const now = Date.now()
-    let added = 0
-    let merged = 0
-    const records: PackItemRecord[] = []
-    for (const item of sourceItems) {
-      const key = itemKey(item)
-      const existing = byKey.get(key)
-      if (existing) {
-        merged += 1
-        const payload = unionContent(existing.payload, item.payload)
-        const next: PackItemRecord = {
-          ...existing,
-          payload,
-          status: 'pending', // 合并后重新审核/应用，只补缺
-          contentHashes: [...new Set([...(existing.contentHashes ?? []), ...(item.contentHashes ?? [])])],
-          ...(item.wordId ? { wordId: item.wordId } : {}),
-          ...(item.meaningId ? { meaningId: item.meaningId } : {}),
-          ...(item.deckId ? { deckId: item.deckId } : {}),
-        }
-        records.push(next)
-        byKey.set(key, next)
-      } else {
-        seq += 1
-        const next: PackItemRecord = {
-          ...item,
-          id: `${targetId}:${seq}`,
-          packId: targetId,
-          seq,
-          status: 'pending',
-          createdAt: now,
-        }
-        records.push(next)
-        byKey.set(key, next)
-        added += 1
-      }
+  if ((await getContentWriteSource()) === 'sqlite') {
+    // 0.14：native contentWrite 不能留在 Dexie rw 事务内；先写事实源（失败抛结构化错误不回写 IDB），
+    // 成功后再走原 IDB 写逻辑更新 cache。
+    const { targetItems, sourceItems } = await readMergeInputs(targetId, sourceId)
+    const built = buildMergedPackItems(targetId, targetItems, sourceItems)
+    if (built.records.length > 0) {
+      await persistAiPackItemRowsToSqlite(built.records)
+      await db.packItems.bulkPut(built.records)
     }
-    if (records.length > 0) await db.packItems.bulkPut(records)
-    const all = await db.packItems.where('packId').equals(targetId).toArray()
-    await db.packs.update(targetId, {
-      counts: countStatuses(all),
-      status: 'reviewing',
-      updatedAt: now,
-    })
-    return { added, merged, total: all.length }
+    const total = await finalizeMergedPack(targetId, true)
+    await refreshAiPackChecksum(targetId)
+    return { added: built.added, merged: built.merged, total }
+  }
+  return db.transaction('rw', [db.packs, db.packItems], async () => {
+    const { targetItems, sourceItems } = await readMergeInputs(targetId, sourceId)
+    const built = buildMergedPackItems(targetId, targetItems, sourceItems)
+    if (built.records.length > 0) await db.packItems.bulkPut(built.records)
+    const total = await finalizeMergedPack(targetId, false)
+    return { added: built.added, merged: built.merged, total }
   }).then(async (result) => {
     await refreshAiPackChecksum(targetId)
     return result
@@ -152,7 +225,11 @@ export async function appendAiPack(
   }
   const tempPack = await getDb().packs.get(imported.packId)
   if (!tempPack) throw new Error('AI 内容包导入后丢失')
-  if (opts.name && !tempPack.name) await getDb().packs.update(tempPack.id, { name: opts.name })
+  if (opts.name && !tempPack.name) {
+    // 0.14：sqlite 先写完整 pack 行（失败不回写 IDB），成功后再更新 IDB cache；idb 行为不变
+    await persistAiPackRowToSqlite({ ...tempPack, name: opts.name })
+    await getDb().packs.update(tempPack.id, { name: opts.name })
+  }
   const packs = await getDb().packs.toArray()
   const existing = packs
     .filter((pack) => pack.id !== tempPack.id && isAiContentPack(pack) && pack.deckId === tempPack.deckId)

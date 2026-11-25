@@ -12,7 +12,7 @@ import {
 } from './native-sqlite'
 import { getDb } from './db'
 
-export const SQLITE_SCHEMA_VERSION = 2
+export const SQLITE_SCHEMA_VERSION = 3
 export const SQLITE_DB_NAME = 'momo.db'
 
 /** tx/exec/query 白名单表；native 必须拒绝列表外表 */

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { addDays, localDateKey } from '../../core'
 import type { DailyStatPoint } from '../../core'
@@ -18,6 +18,7 @@ import { resolvePendingNew, resolvePendingReview } from './home-kpi'
 import { readDailyReviewCap } from '../../app/hooks/dailyReviewCap'
 import { useLearningEfficiency } from '../../app/hooks/useLearningEfficiency'
 import { secondsToMinutes } from '../../core'
+import { getContentMigrationState } from '../../data'
 
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六']
 
@@ -54,6 +55,27 @@ function buildWeek(points: DailyStatPoint[]): WeekDay[] {
 export default function HomePage() {
   const navigate = useNavigate()
   const [addWordsOpen, setAddWordsOpen] = useState(false)
+  const [contentMigrationRunning, setContentMigrationRunning] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const refresh = () => {
+      void getContentMigrationState()
+        .then((state) => {
+          if (alive) setContentMigrationRunning(state?.status === 'running')
+        })
+        .catch(() => undefined)
+    }
+    refresh()
+    const timer = window.setInterval(refresh, 3000)
+    window.addEventListener('momo:content-backup-updated', refresh)
+    window.addEventListener('focus', refresh)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+      window.removeEventListener('momo:content-backup-updated', refresh)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
   const { settings, loading: settingsLoading } = useSettings()
   const { data: homeData, homeState: realHomeState } = useHomeStudy()
   const study = useStudyProgress()
@@ -171,6 +193,8 @@ export default function HomePage() {
             plannedTotal={homePlanTotal}
             manualMode={showHomeAddCardPrimary}
             onAddWords={showHomeAddCardPrimary ? () => setAddWordsOpen(true) : undefined}
+            addWordsDisabled={contentMigrationRunning}
+            addWordsLoading={contentMigrationRunning}
             breakdown={homeBreakdown}
             onOpenTodayWords={() => navigate('/today')}
             onAction={(target) =>
@@ -179,8 +203,8 @@ export default function HomePage() {
           />
           {showHomeAddCardPrimary ? null : (
             <div className="mm-btn-row" style={{ paddingTop: 10 }}>
-              <Button variant="soft" onClick={() => setAddWordsOpen(true)}>
-                添加今日新单词
+              <Button variant="soft" disabled={contentMigrationRunning} onClick={() => setAddWordsOpen(true)}>
+                {contentMigrationRunning ? '内容迁移中…' : '添加今日新单词'}
               </Button>
             </div>
           )}

@@ -7,6 +7,8 @@
  * 草稿 items 不是 applied，不影响 getEffectiveContent（已应用内容）。
  */
 import { getDb } from './db'
+import { ContentWriteError, getContentWriteSource, saveContentEntitiesChunked } from './content-write-source'
+import type { ContentEntityRow, SaveContentEntitiesResult } from './content-write-source'
 import type { PackItemRecord, PackItemV1, PackRecord } from './packs/schema'
 import type { GenerationKind } from './ai/types'
 
@@ -53,6 +55,114 @@ function draftMetaOf(pack: PackRecord): GenerationDraftMeta | null {
     targetTotal: Number(raw.targetTotal ?? 0),
     ...(Array.isArray(raw.errors) && raw.errors.length > 0 ? { errors: raw.errors } : {}),
     updatedAt: Number(raw.updatedAt ?? pack.updatedAt),
+  }
+}
+
+// ============ 0.14：内容写源接线（AI 生成草稿 pack / packItems） ============
+// 语义：
+// - `data.contentWriteSource==='idb'`（默认）：沿用原 IDB 写路径，行为不变；
+// - `'sqlite'`：先构造完整行（pack 行含 status/counts/draft/updatedAt，pack-item 行含完整记录），
+//   经 `saveContentEntitiesChunked`（≤500/批）写 content_kv；**成功后才写 IDB cache**；
+//   失败抛结构化 `ContentWriteError`，失败批**不回写 IDB**（不产生双源）。
+// key 规范与 packs 写入口一致：`pack:<id>` / `pack-item:<id>`。
+
+function draftContentRow(pack: PackRecord): ContentEntityRow {
+  return {
+    key: `pack:${pack.id}`,
+    kind: 'pack',
+    json: JSON.stringify(pack),
+    updatedAt: pack.updatedAt ?? pack.createdAt,
+  }
+}
+
+function draftItemContentRow(item: PackItemRecord): ContentEntityRow {
+  return {
+    key: `pack-item:${item.id}`,
+    kind: 'pack-item',
+    json: JSON.stringify(item),
+    updatedAt: item.createdAt ?? Date.now(),
+  }
+}
+
+function draftDeletionRow(packId: string): ContentEntityRow {
+  return { key: `pack:${packId}`, kind: 'pack', json: 'null', deleted: true }
+}
+
+function draftItemDeletionRow(itemId: string): ContentEntityRow {
+  return { key: `pack-item:${itemId}`, kind: 'pack-item', json: 'null', deleted: true }
+}
+
+function draftWriteFailure(label: string, result: SaveContentEntitiesResult, total: number): ContentWriteError {
+  return new ContentWriteError(
+    `${label}：内容写入 SQLite 失败（已写 ${result.written}/${total} 条，失败批未回写本地缓存）——${result.error ?? '未知错误'}`,
+    'CONTENT_SQLITE_WRITE_FAILED',
+  )
+}
+
+async function isSqliteContentSource(): Promise<boolean> {
+  return (await getContentWriteSource()) === 'sqlite'
+}
+
+/** sqlite 模式：先写 content_kv（≤500/批，失败即停）；调用方必须在写 IDB 之前调用 */
+async function writeDraftRowsToSqlite(rows: readonly ContentEntityRow[], label: string): Promise<void> {
+  const saved = await saveContentEntitiesChunked([...rows])
+  if (!saved.ok) throw draftWriteFailure(label, saved, rows.length)
+}
+
+interface DraftAppendBuild {
+  /** 追加后的完整 pack 行（counts/draft/updatedAt 已更新） */
+  pack: PackRecord
+  /** 本次新增的 pack-item 记录 */
+  records: PackItemRecord[]
+  added: number
+  /** 追加后的累计条目数 */
+  done: number
+}
+
+/** 追加的纯计算部分：sqlite / idb 两条路径共用，保证落库内容与最终状态一致 */
+function buildDraftAppend(
+  pack: PackRecord,
+  existing: readonly PackItemRecord[],
+  items: readonly GenerationDraftItemInput[],
+  now: number,
+): DraftAppendBuild {
+  const meta = draftMetaOf(pack)
+  if (!meta) throw new Error(`内容包不是生成草稿：${pack.id}`)
+  const seen = new Set(existing.map((item) => `${item.headwordLower}#${item.meaningIndex ?? 0}`))
+  let seq = existing.reduce((max, item) => Math.max(max, item.seq), 0)
+  const records: PackItemRecord[] = []
+  for (const input of items) {
+    const lower = input.headwordLower.trim().toLowerCase()
+    if (!lower) continue
+    const key = `${lower}#${input.meaningIndex ?? 0}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    seq += 1
+    records.push({
+      id: `${pack.id}:${seq}`,
+      packId: pack.id,
+      seq,
+      headword: input.payload.headword || lower,
+      headwordLower: lower,
+      ...(input.meaningIndex != null ? { meaningIndex: input.meaningIndex } : {}),
+      ...(input.wordId ? { wordId: input.wordId } : {}),
+      ...(input.deckId ? { deckId: input.deckId } : {}),
+      payload: input.payload,
+      status: 'pending',
+      contentHashes: [],
+      createdAt: now,
+    })
+  }
+  const counts = {
+    ...pack.counts,
+    items: pack.counts.items + records.length,
+    pending: pack.counts.pending + records.length,
+  }
+  return {
+    pack: { ...pack, counts, draft: { ...meta, updatedAt: now }, updatedAt: now },
+    records,
+    added: records.length,
+    done: existing.length + records.length,
   }
 }
 
@@ -104,6 +214,13 @@ export async function createGenerationDraft(input: {
     createdAt: now,
     updatedAt: now,
   }
+  // 0.14：sqlite 模式先写 content_kv 的完整 pack 行（含 draft 元数据），成功后才写 IDB cache；
+  // 失败抛结构化错误，IDB 不落任何草稿（避免双源）
+  if (await isSqliteContentSource()) {
+    await writeDraftRowsToSqlite([draftContentRow(pack)], '新建生成草稿')
+    // IDB cache 由 saveContentEntitiesChunked 在 SQLite 成功后写入（失败不回写）
+    return (await toDto(pack))!
+  }
   await db.packs.put(pack)
   return (await toDto(pack))!
 }
@@ -119,51 +236,33 @@ export async function appendGenerationDraftItems(
   const db = getDb()
   const pack = await db.packs.get(draftId)
   if (!pack) throw new Error(`生成草稿不存在：${draftId}`)
-  const meta = draftMetaOf(pack)
-  if (!meta) throw new Error(`内容包不是生成草稿：${draftId}`)
+  if (!draftMetaOf(pack)) throw new Error(`内容包不是生成草稿：${draftId}`)
   if (items.length === 0) {
     return { done: await db.packItems.where('packId').equals(draftId).count(), added: 0 }
   }
   const now = Date.now()
+  // 0.14：sqlite 模式下 native contentWrite 不能留在 Dexie rw 事务内。
+  // 先构造完整行写 content_kv（失败抛结构化错误且不回写 IDB），成功后再写 IDB cache。
+  if (await isSqliteContentSource()) {
+    const existing = await db.packItems.where('packId').equals(draftId).toArray()
+    const built = buildDraftAppend(pack, existing, items, now)
+    await writeDraftRowsToSqlite(
+      [draftContentRow(built.pack), ...built.records.map(draftItemContentRow)],
+      '追加生成草稿条目',
+    )
+    // IDB cache（pack 行 + pack-item 行）由 saveContentEntitiesChunked 在 SQLite 成功后写入
+    return { done: built.done, added: built.added }
+  }
   return db.transaction('rw', [db.packs, db.packItems], async () => {
     const existing = await db.packItems.where('packId').equals(draftId).toArray()
-    const seen = new Set(existing.map((item) => `${item.headwordLower}#${item.meaningIndex ?? 0}`))
-    let seq = existing.reduce((max, item) => Math.max(max, item.seq), 0)
-    const records: PackItemRecord[] = []
-    for (const input of items) {
-      const lower = input.headwordLower.trim().toLowerCase()
-      if (!lower) continue
-      const key = `${lower}#${input.meaningIndex ?? 0}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      seq += 1
-      records.push({
-        id: `${draftId}:${seq}`,
-        packId: draftId,
-        seq,
-        headword: input.payload.headword || lower,
-        headwordLower: lower,
-        ...(input.meaningIndex != null ? { meaningIndex: input.meaningIndex } : {}),
-        ...(input.wordId ? { wordId: input.wordId } : {}),
-        ...(input.deckId ? { deckId: input.deckId } : {}),
-        payload: input.payload,
-        status: 'pending',
-        contentHashes: [],
-        createdAt: now,
-      })
-    }
-    if (records.length > 0) await db.packItems.bulkPut(records)
-    const counts = {
-      ...pack.counts,
-      items: pack.counts.items + records.length,
-      pending: pack.counts.pending + records.length,
-    }
+    const built = buildDraftAppend(pack, existing, items, now)
+    if (built.records.length > 0) await db.packItems.bulkPut(built.records)
     await db.packs.update(draftId, {
-      counts,
-      draft: { ...meta, updatedAt: now },
+      counts: built.pack.counts,
+      draft: built.pack.draft,
       updatedAt: now,
     })
-    return { done: existing.length + records.length, added: records.length }
+    return { done: built.done, added: built.added }
   })
 }
 
@@ -184,6 +283,12 @@ export async function updateGenerationDraftCursor(
     ...(patch.targetTotal != null ? { targetTotal: Math.max(0, patch.targetTotal) } : {}),
     ...(patch.errors !== undefined ? { errors: patch.errors } : {}),
     updatedAt: now,
+  }
+  const nextPack: PackRecord = { ...pack, draft: next, updatedAt: now }
+  // 0.14：sqlite 模式先写完整 pack 行（含 draft 断点），成功后才写 IDB cache；失败抛错且不回写 IDB
+  if (await isSqliteContentSource()) {
+    await writeDraftRowsToSqlite([draftContentRow(nextPack)], '更新生成草稿断点')
+    return
   }
   await db.packs.update(draftId, { draft: next, updatedAt: now })
 }
@@ -243,11 +348,24 @@ export async function listGenerationDrafts(): Promise<GenerationDraft[]> {
 
 /** 放弃草稿：删除 pack + 全部 items（快路径，不读 items） */
 export async function clearGenerationDraft(draftId: string): Promise<void> {
-  const pack = await getDb().packs.get(draftId)
+  const db = getDb()
+  const pack = await db.packs.get(draftId)
   if (!pack) return
   if (!pack.draft) throw new Error(`内容包不是生成草稿：${draftId}`)
-  await getDb().transaction('rw', [getDb().packs, getDb().packItems], async () => {
-    await getDb().packItems.where('packId').equals(draftId).delete()
-    await getDb().packs.delete(draftId)
+  // 0.14：sqlite 模式先写 tombstone（pack + 全部 pack-item），成功后才删 IDB cache；
+  // 失败抛结构化错误，IDB 草稿保持原样
+  if (await isSqliteContentSource()) {
+    const itemIds = await db.packItems.where('packId').equals(draftId).primaryKeys()
+    const rows: ContentEntityRow[] = [
+      ...itemIds.map((itemId) => draftItemDeletionRow(String(itemId))),
+      draftDeletionRow(draftId),
+    ]
+    await writeDraftRowsToSqlite(rows, '删除生成草稿')
+    // IDB cache（pack/pack-item 删除）由 saveContentEntitiesChunked 在 SQLite 成功后写入
+    return
+  }
+  await db.transaction('rw', [db.packs, db.packItems], async () => {
+    await db.packItems.where('packId').equals(draftId).delete()
+    await db.packs.delete(draftId)
   })
 }

@@ -92,7 +92,8 @@ export async function saveSqliteFactsCheckpoint(bridge: AutoBackupBridge): Promi
   }
 }
 
-export function scheduleSqliteFactsCheckpoint(bridge: AutoBackupBridge, delayMs = 2000): void {
+export function scheduleSqliteFactsCheckpoint(bridge: AutoBackupBridge, delayMs = 8000): void {
+  if (typeof window !== 'undefined' && window.location?.pathname === '/study') delayMs = Math.max(delayMs, 30000)
   scheduledBridge = bridge
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => {
@@ -143,7 +144,7 @@ let autoBridge: AutoBackupBridge | null = null
 /** App 启动注册：评分/plan 写成功后自动 2s checkpoint */
 export function setSqliteFactsCheckpointBridge(bridge: AutoBackupBridge | null): void {
   autoBridge = bridge
-  if (bridge) setTimeout(() => { void saveSqliteFactsCheckpoint(bridge) }, 0)
+  if (bridge) setTimeout(() => { void saveSqliteFactsCheckpoint(bridge) }, 15_000)
 }
 export function notifySqliteFactsChanged(delayMs = 2000): void {
   if (autoBridge) scheduleSqliteFactsCheckpoint(autoBridge, delayMs)

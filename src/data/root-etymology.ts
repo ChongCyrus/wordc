@@ -1,5 +1,7 @@
 /** 0.3.98/task-283：词根词缀词源分解（手动优先；AI 不覆盖 manual） */
 import { getDb } from './db'
+import { recordContentOpsAfterTx } from './content-event-log'
+import { saveWordOverlay } from './content-write-source'
 import type { RootEtymology, RootEtymologyPart, Word } from '../core/types'
 
 export const ROOT_ETYMOLOGY_VERSION = '0.3.98'
@@ -101,7 +103,8 @@ export async function saveRootEtymology(
       rootEtymologyCheckedAt: opts.checkedAt ?? opts.now ?? Date.now(),
       rootEtymologyVersion: opts.version ?? ROOT_ETYMOLOGY_VERSION,
     }
-    await db.words.put(next)
+    await saveWordOverlay(next)
+    void recordContentOpsAfterTx([{ type: 'wordOverlay', key: next.id, op: 'upsert' }])
     return null
   }
   const now = opts.now ?? Date.now()
@@ -113,12 +116,14 @@ export async function saveRootEtymology(
     updatedAt: now,
     ...(opts.model ? { model: opts.model } : {}),
   }
-  await db.words.put({
+  const savedWord = {
     ...word,
     rootEtymology: entry,
     rootEtymologyCheckedAt: opts.checkedAt ?? now,
     rootEtymologyVersion: opts.version ?? ROOT_ETYMOLOGY_VERSION,
-  })
+  }
+  await saveWordOverlay(savedWord)
+  void recordContentOpsAfterTx([{ type: 'wordOverlay', key: word.id, op: 'upsert' }])
   return entry
 }
 
@@ -129,7 +134,8 @@ export async function deleteRootEtymology(wordId: string): Promise<void> {
   if (!word) return
   const next = { ...word }
   delete next.rootEtymology
-  await db.words.put(next)
+  await saveWordOverlay(next)
+  void recordContentOpsAfterTx([{ type: 'wordOverlay', key: wordId, op: 'upsert' }])
 }
 
 /** 批量应用 AI 结果：保留 manual；成功词 stamp checkedAt/version */

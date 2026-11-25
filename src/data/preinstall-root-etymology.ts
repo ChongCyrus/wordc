@@ -1,5 +1,7 @@
 /** 0.7.0：rootEtymology 预装 bundle 自动导入（幂等/手改保护/失败重试） */
 import { getDb } from './db'
+import { saveContentEntitiesChunked } from './content-write-source'
+import { wordOverlayOf } from './content-snapshot'
 import type { ImportIssue } from '../core'
 import type { Word } from '../core/types'
 import { ROOT_ETYMOLOGY_VERSION } from './root-etymology'
@@ -214,6 +216,8 @@ async function runEnsureRootEtymologyPreinstall(
   let imported = 0
   let stale = checked.stats.stale
   const conflicts: string[] = []
+  /** 0.14：sqlite 写入失败后停止（fail-closed），标记 meta failed 以便下次重试 */
+  let writeFailure: string | null = null
   const yieldControl = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
   for (let offset = 0; offset < bundle.items.length; offset += chunkSize) {
     const chunk = bundle.items.slice(offset, offset + chunkSize)
@@ -249,8 +253,21 @@ async function runEnsureRootEtymologyPreinstall(
       })
     }
     if (updates.length > 0) {
+      // 0.14：统一内容写入口（sqlite 成功后才更新 IDB cache；失败不回写，停止后续分块）
+      const overlayRows = updates.map((word) => ({
+        key: `word-overlay:${word.id}`,
+        kind: 'word-overlay' as const,
+        json: JSON.stringify(wordOverlayOf(word as unknown as Record<string, unknown>)),
+        updatedAt: (word.rootEtymology as { updatedAt?: number } | undefined)?.updatedAt ?? Date.now(),
+      }))
       try {
-        await db.words.bulkPut(updates)
+        const saved = await saveContentEntitiesChunked(overlayRows)
+        if (!saved.ok) {
+          writeFailure = saved.error ?? '预装词根词源写入失败'
+          stale += updates.length
+          issues.push({ level: 'warning', code: 'E_IO', message: `词根词源分块写入失败（${offset}–${offset + chunk.length}）：${writeFailure}` })
+          break
+        }
         imported += updates.length
       } catch (error) {
         stale += updates.length
@@ -259,6 +276,13 @@ async function runEnsureRootEtymologyPreinstall(
     }
     opts.onProgress?.({ phase: 'write', done: Math.min(bundle.items.length, offset + chunk.length), total: bundle.items.length })
     await yieldControl()
+  }
+  if (writeFailure) {
+    const message = `预装词根词源写入失败：${writeFailure}（下次启动重试）`
+    await writeMeta({ state: 'failed', version, count: imported, total: bundle.items.length, stale, error: message })
+    opts.onProgress?.({ phase: 'done', done: bundle.items.length, total: bundle.items.length })
+    issues.push({ level: 'warning', code: 'E_IO', message })
+    return { ok: false, skippedVersion: false, imported, total: bundle.items.length, stale, version, issues }
   }
   if (imported === 0 && bundle.items.length > 0 && conflicts.length === 0 && stale > 0) {
     const message = '预装词根词源没有任何可写词（可能词库未就绪）'

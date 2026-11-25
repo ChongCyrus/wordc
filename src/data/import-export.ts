@@ -26,26 +26,36 @@ import type { DailyPlan } from './plan.types'
 import { computeChecksum, migrationChecksumPayload, stableStringify, stableStringifyAsync } from './checksum'
 import type { ChecksumAlgo } from './checksum'
 import { getDb } from './db'
-import { diffReplaceDeckWords } from './word-mutation'
+import { diffReplaceDeckWords, scrubPlansForRemovedWords } from './word-mutation'
 import { withDataWriteLock } from './write-lock'
 import { bumpDataEpoch } from './data-epoch'
 import { assertIdbMutationAllowed, getLearningWriteSource, persistLearningWriteSource } from './learning-write-source'
 import { clearAllSqliteFacts, clearSqliteFactsTables } from './sqlite-clear'
-import { sqliteQuery, sqliteTx } from './native-sqlite'
+import { isSqliteAvailable, sqliteQuery, sqliteTx } from './native-sqlite'
 import { createSqliteFactsBackup, restoreSqliteFactsBackup } from './sqlite-backup'
 import { migrateIdbToSqlite, stateRow as migrationStateRow, planRow as migrationPlanRow, logRow as migrationLogRow, settingRow as migrationSettingRow } from './migration-sqlite'
 import { rebuildIdbCacheFromSqlite } from './cache-rebuild'
 import { deleteStateCheckpointFiles } from './state-checkpoint'
 import type { AutoBackupBridge } from './auto-backup'
 import { csvToWordInputs, parseCsv } from './csv'
-import { ensureSingleDefaultDeck } from './decks.repo'
+import { contentRowOfDeck, contentRowOfWord, ensureSingleDefaultDeck } from './decks.repo'
+import { wordOverlayOf } from './content-snapshot'
+import { ContentWriteError, getContentWriteSource, saveContentEntitiesChunked } from './content-write-source'
+import type { ContentEntityRow } from './content-write-source'
+import { getContentMigrationState } from './content-migration-plan'
+import { ensureContentSourceAfterImport } from './content-switch'
+import { listContentByRevision, readContentRevision, writeContentRows } from './content-store'
+import type { ContentKvRow } from './content-store'
+import type { ParsedMigrationFile } from './schema'
+import type { ContentRejectRecord, PackItemRecord, PackRecord } from './packs/schema'
+import { DECK_SOURCES } from './builtin/deck-sources'
 import { ensureBuiltinDeckWords } from './builtin'
 import { makeIssue, parseDeckFile, parseMigrationFile } from './schema'
 import { applyImportedSettings, getSettings } from './settings.repo'
 import type { RawWordInput } from './word-factory'
 
-export const GENERATOR = 'wordc@0.11.1'
-export const APP_VERSION = '0.11.1'
+export const GENERATOR = 'wordc@0.15.0'
+export const APP_VERSION = '0.15.0'
 
 /** 迁移包导出选项 */
 export interface ExportOptions {
@@ -519,6 +529,126 @@ async function importDeckFileSqlite(
   return report
 }
 
+// ============ 0.14 B4：sqlite 内容写源的导入写路径 ============
+
+/** 内置词库文件（正文来自打包资源，不进 content_kv） */
+function isBuiltinDeckFile(deck: Deck): boolean {
+  if (deck.builtinKey) return true
+  if (deck.source === 'builtin') return true
+  return DECK_SOURCES.some((source) => source.deckId === deck.id)
+}
+
+/**
+ * sqlite 内容写源导入安全校验：
+ * - 内置词库（正文来自资源）不能覆盖进 content_kv；
+ * - 新建库时不得有残留词条/SQLite 学习状态（cache 与内容库不一致）。
+ */
+async function assertContentSqliteDeckImportable(deckId: string, existingDeck: Deck | null): Promise<void> {
+  const db = getDb()
+  if (existingDeck) {
+    if (isBuiltinDeckFile(existingDeck)) {
+      throw new Error('E_UNSUPPORTED: sqlite 内容写源下内置词库正文不进 content_kv；不能覆盖内置词库')
+    }
+    return
+  }
+  if ((await db.words.where('deckId').equals(deckId).count()) > 0) {
+    throw new Error('E_UNSUPPORTED: 目标词库仍有词条（cache 与内容库不一致），禁止覆盖')
+  }
+  const sqliteStates = await sqliteQuery({ table: 'states', where: { deck_id: deckId }, limit: 1 }, 5_000).catch(() => null)
+  if (((sqliteStates?.rows as unknown[] | undefined) ?? []).length > 0) {
+    throw new Error('E_UNSUPPORTED: 该词库已有 SQLite 学习状态，禁止覆盖')
+  }
+}
+
+/**
+ * sqlite 内容写源导入纯词库：deck/word 先写 content_kv（≤500/批），成功后才由写源 helper 写 IDB cache；
+ * 失败返回结构化 report（含已写条数），不写 IDB。
+ * - 新建自定义词库：全量写 deck+word；
+ * - 已有自定义词库：replace 时对不在新词表的旧词写 tombstone 并清 facts（states/logs/plans），merge 只 upsert；
+ * - 内置词库正文一律 fail-closed（正文来自资源，不进 content_kv）。
+ */
+async function importDeckFileContentSqlite(args: {
+  deck: Deck
+  words: Word[]
+  issues: ImportIssue[]
+  startedAt: number
+  now: number
+  strategy: 'replace' | 'merge' | 'keepNewer'
+  opts: ImportOptions & { preBackup?: () => Promise<void | { ok: boolean; error?: string }>; unsafe?: boolean }
+}): Promise<ImportReport> {
+  const { deck, words, issues, startedAt, now, strategy, opts } = args
+  const db = getDb()
+  const returnReport = async (report: ImportReport): Promise<ImportReport> => { await writeLastImport(report); return report }
+  if (isBuiltinDeckFile(deck)) {
+    throw new Error('E_UNSUPPORTED: sqlite 内容写源下内置词库正文不进 content_kv；请通过内置词表/资源恢复')
+  }
+  const existingDeck = (await db.decks.get(deck.id)) ?? null
+  await assertContentSqliteDeckImportable(deck.id, existingDeck)
+  // 0.10.0：replace 会删同库词条/states；已有数据时必须先成功预备份（与 idb 路径同语义）
+  if (strategy === 'replace' && !opts.unsafe && existingDeck) {
+    const [existingWords, existingStates] = await Promise.all([
+      db.words.where('deckId').equals(deck.id).count(),
+      db.states.where('deckId').equals(deck.id).count(),
+    ])
+    if (existingWords > 0 || existingStates > 0) {
+      if (!opts.preBackup) throw new Error('替换词库会删除现有词条/学习状态，必须先备份')
+      const backup = await opts.preBackup()
+      if (backup && backup.ok === false) throw new Error(`预备份失败，已拒绝替换：${backup.error ?? '未知错误'}`)
+    }
+  }
+  const existingDefaultId = (await db.decks.toArray()).find((item) => item.isDefault)?.id ?? null
+  const existingWords = existingDeck ? await db.words.where('deckId').equals(deck.id).toArray() : []
+  const newWordIds = new Set(words.map((word) => word.id))
+  const removed = strategy === 'replace' ? existingWords.filter((word) => !newWordIds.has(word.id)) : []
+  const nextDeck: Deck = { ...deck, createdAt: existingDeck?.createdAt ?? deck.createdAt ?? now, updatedAt: now }
+  const rows = [
+    contentRowOfDeck(nextDeck),
+    ...words.map((word) => contentRowOfWord(word, now)),
+    ...removed.map((word) => ({ key: `word:${word.id}`, kind: 'word' as const, json: 'null', deleted: true, updatedAt: now })),
+  ]
+  const saved = await saveContentEntitiesChunked(rows)
+  if (!saved.ok) {
+    return returnReport(makeReport(
+      'deck',
+      [...issues, makeIssue('error', 'E_IO', `SQLite 内容写入失败（已写 ${saved.written}/${rows.length} 条，失败批未回写 IDB）：${saved.error ?? '未知错误'}`, { path: 'data' })],
+      { decks: saved.written > 0 ? 1 : 0, words: Math.max(0, saved.written - 1) },
+      Date.now() - startedAt,
+    ))
+  }
+  // replace：facts 清理（states/logs/plans；与 idb 的 diffReplaceDeckWords 语义对齐）
+  if (strategy === 'replace' && existingDeck) {
+    const removedIds = removed.map((word) => word.id)
+    await db.transaction('rw', [db.states, db.plans, db.reviewLogs, db.meta], async () => {
+      if (removedIds.length > 0) await db.reviewLogs.where('wordId').anyOf(removedIds).delete()
+      await db.states.where('deckId').equals(deck.id).delete()
+    })
+    if (removedIds.length > 0) {
+      await scrubPlansForRemovedWords(removedIds, { deckId: deck.id, now })
+      await db.meta.put({
+        key: 'diag.lastWordMutation',
+        value: { reason: 'import-deck-replace', deckId: deck.id, upserted: words.length, removed: removedIds.length, at: now },
+        updatedAt: now,
+      }).catch(() => undefined)
+    }
+  }
+  // 非内容事实（settings 选中词库）保持原语义
+  const selected = await db.settings.get('data.selectedDeckId')
+  const selectedDeck = selected ? await db.decks.get(selected.value as string) : undefined
+  if (!selectedDeck) {
+    await db.settings.put({ key: 'data.selectedDeckId', value: deck.id, updatedAt: now })
+  }
+  // deck 默认标记也是内容：ensureSingleDefaultDeck 在 sqlite 内容写源下自行同步 content_kv
+  await ensureSingleDefaultDeck(existingDefaultId)
+  const report = makeReport(
+    'deck',
+    issues,
+    { decks: 1, words: words.length, skipped: issues.filter((i) => i.code === 'W_SKIPPED').length },
+    Date.now() - startedAt,
+  )
+  await writeLastImport(report)
+  return report
+}
+
 async function importDeckFileInner(
   input: string | File,
   opts: ImportOptions & {
@@ -555,6 +685,10 @@ async function importDeckFileInner(
   const db = getDb()
   const { deck, words } = parsed.value
   const now = Date.now()
+  // 0.14 B4：sqlite 内容写源——deck/word 先写 content_kv；失败返回结构化 report 且不写 IDB
+  if ((await getContentWriteSource()) === 'sqlite') {
+    return importDeckFileContentSqlite({ deck, words, issues, startedAt, now, strategy, opts })
+  }
   // 0.10.0：replace 会删除同库 words/states；已有数据时必须先成功预备份
   if (strategy === 'replace' && !opts.unsafe) {
     const [existingWords, existingStates] = await Promise.all([
@@ -640,6 +774,33 @@ export async function importCsv(input: string | File, deckName?: string): Promis
     version: 1,
     createdAt: now,
     updatedAt: now,
+  }
+  // 0.14 B4：sqlite 内容写源——先写 content_kv，成功后才写 IDB cache；失败返回结构化 report，不回写 IDB
+  if ((await getContentWriteSource()) === 'sqlite') {
+    const rows = [contentRowOfDeck(deck), ...words.map((word) => contentRowOfWord(word, now))]
+    const saved = await saveContentEntitiesChunked(rows)
+    if (!saved.ok) {
+      const report = makeReport(
+        'csv',
+        [...issues, makeIssue('error', 'E_IO', `SQLite 内容写入失败（已写 ${saved.written}/${rows.length} 条，失败批未回写 IDB）：${saved.error ?? '未知错误'}`, { path: 'data' })],
+        { decks: saved.written > 0 ? 1 : 0, words: Math.max(0, saved.written - 1), skipped: parsed.rows.length - converted.words.length },
+        Date.now() - startedAt,
+      )
+      await writeLastImport(report)
+      return report
+    }
+    const selected = await db.settings.get('data.selectedDeckId')
+    if (!selected) {
+      await db.settings.put({ key: 'data.selectedDeckId', value: deckId, updatedAt: now })
+    }
+    const report = makeReport(
+      'csv',
+      issues,
+      { decks: 1, words: words.length, skipped: parsed.rows.length - converted.words.length },
+      Date.now() - startedAt,
+    )
+    await writeLastImport(report)
+    return report
   }
   await db.transaction('rw', db.decks, db.words, db.settings, async () => {
     await db.decks.put(deck as never)
@@ -741,19 +902,25 @@ async function importMigrationSqliteStagingInner(input: string | File, opts: Imp
     const sqliteBackup = await createBackup()
     mark('sqliteBackup', 'SQLite 快照完成')
     if (!sqliteBackup.ok || !sqliteBackup.manifest) throw new Error(`SQLite 备份失败：${sqliteBackup.error ?? '未知错误'}`)
+    const writeStage = (phase: string) => getDb().meta.put({ key: 'import.sqlite.stageNow', value: { phase, at: Date.now() }, updatedAt: Date.now() }).catch(() => undefined)
+    await writeStage('backup-done')
     await persistLearningWriteSource('readonly')
     try {
+      await writeStage('readonly')
       const report = await importMigrationInner(input, { ...opts, skipWriteLock: true })
       mark('idbImport', 'IDB 暂存导入完成')
       if (!report.ok) {
         const first = report.issues.find((issue) => issue.level === 'error')
         throw new Error(first ? `${first.code}: ${first.message}` : '导入报告失败')
       }
+      await writeStage('clear')
       await clearFacts()
       mark('clearSqlite', 'SQLite 清空完成')
+      await writeStage('migrate')
       const migrated = await migrate({ dryRun: false, unsafe: true, skipWriteLock: true })
       mark('migrate', 'SQLite 写入完成')
       if (!migrated.ok) throw new Error(`导入后 SQLite 重建失败：${migrated.error ?? '未知'}`)
+      await writeStage('rebuild')
       const rebuilt = await rebuildCache({ unsafe: true, skipWriteLock: true })
       mark('rebuild', 'cache 重建完成')
       if (!rebuilt.ok) throw new Error(`导入后 cache 重建失败：${rebuilt.error ?? rebuilt.conflict ?? '未知'}`)
@@ -764,10 +931,14 @@ async function importMigrationSqliteStagingInner(input: string | File, opts: Imp
       if (Number(counts.states ?? -1) !== states || Number(counts.plans ?? -1) !== plans || Number(counts.settings ?? -1) !== settings || Number(counts.review_logs ?? -1) !== logs) {
         throw new Error('导入后 SQLite/IDB counts 不一致')
       }
+      await writeStage('verify')
       await persistLearningWriteSource('sqlite')
       const { persistSettingsWriteMode } = await import('./settings.repo')
       await persistSettingsWriteMode('sqlite').catch(() => undefined)
+      // 0.15 B：native sqlite 保持 sqlite；web/未迁移仍 idb（不绕过门禁）
+      await applyContentSourceAfterImport()
       mark('done', '导入完成')
+      await getDb().meta.delete('import.sqlite.stageNow').catch(() => undefined)
       try { await getDb().meta.put({ key: 'import.sqlite.stageTiming', value: { at: Date.now(), stageTiming }, updatedAt: Date.now() }) } catch { /* ignore */ }
       return report
     } catch (error) {
@@ -868,16 +1039,34 @@ async function importMigrationSqliteInner(input: string | File, opts: ImportOpti
       const db = getDb()
       const issues: ImportIssue[] = [...file.issues]
       // 1) 自定义 deck：仅 deck 不存在时导入 deck+words（分批）；内置词库不写 words。
+      const contentSqlite = (await getContentWriteSource()) === 'sqlite'
       const importedDecks = new Set<string>()
       for (const deck of file.decks) {
         const existing = await db.decks.get(deck.id)
         if (existing) continue
         importedDecks.add(deck.id)
         const words = file.words.filter((word) => word.deckId === deck.id)
-        await db.transaction('rw', [db.decks, db.words, db.meta], async () => {
-          await db.decks.put(deck as never)
-          for (let i = 0; i < words.length; i += 500) await db.words.bulkPut(words.slice(i, i + 500) as never)
-        })
+        if (contentSqlite && !isBuiltinDeckFile(deck as unknown as Deck)) {
+          // 0.14 QA P0：自定义 deck/word 先进 content_kv（≤500/批），失败不写 IDB
+          const rows: ContentEntityRow[] = [
+            { key: `deck:${deck.id}`, kind: 'deck', json: JSON.stringify(deck), updatedAt: Date.now() },
+            ...words.map((word) => ({
+              key: `word:${String(word.id)}`,
+              kind: 'word' as const,
+              json: JSON.stringify(word),
+              updatedAt: Number((word as { createdAt?: number }).createdAt) || Date.now(),
+            })),
+          ]
+          const saved = await saveContentEntitiesChunked(rows)
+          if (!saved.ok) {
+            throw new ContentWriteError(`自定义词库内容写入 content_kv 失败：${saved.error ?? '未知错误'}`, 'CONTENT_SQLITE_WRITE_FAILED')
+          }
+        } else {
+          await db.transaction('rw', [db.decks, db.words, db.meta], async () => {
+            await db.decks.put(deck as never)
+            for (let i = 0; i < words.length; i += 500) await db.words.bulkPut(words.slice(i, i + 500) as never)
+          })
+        }
       }
       // 2) 内置 deck 缺词先用内置词表补（单 deck）；失败只跳过缺词，不整单失败。
       const referencedDeckIds = new Set<string>()
@@ -927,7 +1116,8 @@ async function importMigrationSqliteInner(input: string | File, opts: ImportOpti
       for (const plan of file.plans) ops.push({ op: 'upsert', table: 'plans', row: migrationPlanRow(plan as unknown as Record<string, unknown>) })
       for (const log of logs) ops.push({ op: 'upsert', table: 'review_logs', row: migrationLogRow(log as unknown as Record<string, unknown>) })
       for (const setting of file.settings) {
-        if (setting.key === 'data.maimemoToken') continue
+        // S2：facts-only 恢复同样不得写回 sqlite 内容写源（设备本地键/迁移门禁）
+        if (setting.key === 'data.maimemoToken' || setting.key === 'data.contentWriteSource') continue
         const local = localSettingUpdated.get(setting.key)
         if ((strategy === 'merge' || strategy === 'keepNewer') && local != null && local >= setting.updatedAt) continue
         ops.push({ op: 'upsert', table: 'settings', row: migrationSettingRow(setting as unknown as Record<string, unknown>) })
@@ -953,6 +1143,8 @@ async function importMigrationSqliteInner(input: string | File, opts: ImportOpti
       await persistLearningWriteSource('sqlite')
       const { persistSettingsWriteMode } = await import('./settings.repo')
       await persistSettingsWriteMode('sqlite').catch(() => undefined)
+      // 0.15 B：native sqlite 保持 sqlite；web/未迁移仍 idb（不绕过门禁）
+      await applyContentSourceAfterImport(issues)
       await db.meta.put({ key: 'import.sqlite.factsOnlyTiming', value: { at: Date.now(), strategy, stageTiming, importedDecks: [...importedDecks], skippedStates, skippedLogs, filePlans: file.plans.length, fileLogs: file.reviewLogs.length, states: states.length, logs: logs.length, opsTotal: ops.length }, updatedAt: Date.now() })
       await clearImportStageNow()
       mark('verify', '校验完成')
@@ -987,6 +1179,220 @@ async function runWithTimeout<T>(promise: Promise<T>, ms: number, label: string)
 
 function importMigrationSqlite(input: string | File, opts: ImportOptions = {}): Promise<ImportReport> {
   return opts.skipWriteLock ? importMigrationSqliteInner(input, opts) : withDataWriteLock(() => importMigrationSqliteInner(input, { ...opts, skipWriteLock: true }))
+}
+
+// ============ 0.14 P0-4：迁移包内容包三表 → content_kv ============
+// key 规范与 packs.repo 一致：`pack:<id>` / `pack-item:<id>` / `content-reject:<id>`。
+
+function migrationPackContentRow(pack: PackRecord): ContentEntityRow {
+  return { key: `pack:${pack.id}`, kind: 'pack', json: JSON.stringify(pack), updatedAt: pack.updatedAt ?? pack.createdAt }
+}
+
+function migrationPackItemContentRow(item: PackItemRecord): ContentEntityRow {
+  return {
+    key: `pack-item:${item.id}`,
+    kind: 'pack-item',
+    json: JSON.stringify(item),
+    updatedAt: item.appliedAt ?? item.createdAt ?? Date.now(),
+  }
+}
+
+function migrationContentRejectContentRow(row: ContentRejectRecord): ContentEntityRow {
+  return { key: `content-reject:${row.id}`, kind: 'content-reject', json: JSON.stringify(row), updatedAt: row.rejectedAt }
+}
+
+function migrationPackDeletionRow(id: string): ContentEntityRow {
+  return { key: `pack:${id}`, kind: 'pack', json: 'null', deleted: true }
+}
+
+function migrationPackItemDeletionRow(id: string): ContentEntityRow {
+  return { key: `pack-item:${id}`, kind: 'pack-item', json: 'null', deleted: true }
+}
+
+function migrationContentRejectDeletionRow(id: string): ContentEntityRow {
+  return { key: `content-reject:${id}`, kind: 'content-reject', json: 'null', deleted: true }
+}
+
+/**
+ * 0.14 P0-4：sqlite 内容写源下，迁移包 contentPacks/packItems/contentRejects 先写 content_kv。
+ * - replace：先给本机三表所有行写 tombstone，再 upsert 包内行（`metaExcluded` 含 contentPacks 时保留本机）；
+ * - merge/keepNewer：只补本机没有的行（与 IDB 分支语义一致）。
+ * idb 内容写源返回 `null`，调用方保持原事务内 IDB 写逻辑完全不变。
+ */
+async function buildMigrationContentPackRows(
+  file: ParsedMigrationFile,
+  strategy: 'replace' | 'merge' | 'keepNewer',
+): Promise<ContentEntityRow[] | null> {
+  if ((await getContentWriteSource()) !== 'sqlite') return null
+  if (strategy === 'replace' && file.metaExcluded.includes('contentPacks')) return []
+  const db = getDb()
+  const [localPacks, localItems, localRejects] = await Promise.all([
+    db.packs.toArray(),
+    db.packItems.toArray(),
+    db.contentRejects.toArray(),
+  ])
+  const rows: ContentEntityRow[] = []
+  if (strategy === 'replace') {
+    // B-G2：只 tombstone「本机有但包里没有」的差集，避免同批 entries+deletes 同 key（native 顺序未定义）
+    const filePackIds = new Set(file.contentPacks.map((pack) => pack.id))
+    const fileItemIds = new Set(file.packItems.map((item) => item.id))
+    const fileRejectIds = new Set(file.contentRejects.map((reject) => reject.id))
+    for (const pack of localPacks) if (!filePackIds.has(pack.id)) rows.push(migrationPackDeletionRow(pack.id))
+    for (const item of localItems) if (!fileItemIds.has(item.id)) rows.push(migrationPackItemDeletionRow(item.id))
+    for (const reject of localRejects) if (!fileRejectIds.has(reject.id)) rows.push(migrationContentRejectDeletionRow(reject.id))
+    for (const pack of file.contentPacks) rows.push(migrationPackContentRow(pack))
+    for (const item of file.packItems) rows.push(migrationPackItemContentRow(item))
+    for (const reject of file.contentRejects) rows.push(migrationContentRejectContentRow(reject))
+    return rows
+  }
+  const packIds = new Set(localPacks.map((pack) => pack.id))
+  const itemIds = new Set(localItems.map((item) => item.id))
+  const rejectIds = new Set(localRejects.map((reject) => reject.id))
+  for (const pack of file.contentPacks) if (!packIds.has(pack.id)) rows.push(migrationPackContentRow(pack))
+  for (const item of file.packItems) if (!itemIds.has(item.id)) rows.push(migrationPackItemContentRow(item))
+  for (const reject of file.contentRejects) if (!rejectIds.has(reject.id)) rows.push(migrationContentRejectContentRow(reject))
+  return rows
+}
+
+interface MigrationPackContentSnapshot {
+  packs: PackRecord[]
+  items: PackItemRecord[]
+  rejects: ContentRejectRecord[]
+}
+
+/** B-G3：contentPacks content_kv 写前快照（IDB cache 与 content_kv 同步即写前事实） */
+async function snapshotMigrationPackContent(): Promise<MigrationPackContentSnapshot> {
+  const db = getDb()
+  const [packs, items, rejects] = await Promise.all([db.packs.toArray(), db.packItems.toArray(), db.contentRejects.toArray()])
+  return { packs, items, rejects }
+}
+
+/**
+ * B-G3 补偿：contentPacks content_kv 已写、后续 IDB 大事务失败/部分批失败 → 用写前快照恢复 content_kv：
+ * 快照行 upsert 回来；写前不存在的 key 写 tombstone。恢复失败抛结构化错误。
+ */
+async function restoreMigrationPackContent(
+  snapshot: MigrationPackContentSnapshot,
+  writtenRows: readonly ContentEntityRow[],
+): Promise<void> {
+  const restoreRows: ContentEntityRow[] = [
+    ...snapshot.packs.map((pack) => migrationPackContentRow(pack)),
+    ...snapshot.items.map((item) => migrationPackItemContentRow(item)),
+    ...snapshot.rejects.map((reject) => migrationContentRejectContentRow(reject)),
+  ]
+  const priorKeys = new Set(restoreRows.map((row) => row.key))
+  for (const row of writtenRows) {
+    if (!priorKeys.has(row.key)) restoreRows.push({ key: row.key, kind: row.kind, json: 'null', deleted: true, updatedAt: Date.now() })
+  }
+  // 补偿必须写回 content_kv（此处调用前提是写前 content 源为 sqlite；期间 source 不应影响补偿）
+  const { writeContentRows } = await import('./content-store')
+  const { applyContentCache } = await import('./content-write-source')
+  const upserts = restoreRows.filter((row) => row.deleted !== true)
+  const deletes = restoreRows.filter((row) => row.deleted === true)
+  const saved = await writeContentRows([
+    ...upserts.map((row) => ({ key: row.key, kind: row.kind, json: row.json, updatedAt: row.updatedAt })),
+    ...deletes.map((row) => ({ key: row.key, kind: row.kind, json: 'null' as const, deleted: true as const })),
+  ])
+  if (!saved.ok) {
+    throw new ContentWriteError(`内容包 content_kv 补偿恢复失败：${saved.error ?? '未知错误'}`, 'CONTENT_SQLITE_ROLLBACK_FAILED')
+  }
+  await applyContentCache(restoreRows).catch(() => undefined)
+}
+
+/**
+ * 0.14 G1：迁移恢复的 decks/words 先写 content_kv（≤500/批；仅自定义 deck，内置正文不进）。
+ * 与 IDB 分支语义对齐：
+ * - replace：upsert file deck/new words；对本机已有但新词表没有的词写 word tombstone（含 overlay）；
+ * - merge/keepNewer：upsert deck + preserveLocalUserFields 合并后的词（不删本机词）。
+ * idb 内容写源返回 null，调用方保持原事务内 IDB 写逻辑完全不变。
+ */
+async function buildMigrationDeckWordRows(
+  file: ParsedMigrationFile,
+  strategy: 'replace' | 'merge' | 'keepNewer',
+): Promise<ContentEntityRow[] | null> {
+  if ((await getContentWriteSource()) !== 'sqlite') return null
+  const db = getDb()
+  const now = Date.now()
+  const rows: ContentEntityRow[] = []
+  const wordsByDeck = new Map<string, Word[]>()
+  for (const word of file.words) {
+    const list = wordsByDeck.get(word.deckId) ?? []
+    list.push(word)
+    wordsByDeck.set(word.deckId, list)
+  }
+  // replace 轻量包保留本机同 id 词的引申图（与 IDB 分支 preserveDerivation 一致）
+  const localMaps = strategy === 'replace' && file.metaExcluded.includes('derivationMap')
+    ? new Map(
+        (await db.words.bulkGet(file.words.map((word) => word.id)))
+          .filter((word): word is Word => Boolean(word?.derivationMap))
+          .map((word) => [word.id, word.derivationMap!] as const),
+      )
+    : new Map<string, Word['derivationMap']>()
+  for (const deck of file.decks) {
+    if (isBuiltinDeckFile(deck)) continue // 内置正文来自打包资源，不进 content_kv
+    rows.push(contentRowOfDeck(deck))
+    let deckWords = wordsByDeck.get(deck.id) ?? []
+    if (strategy === 'replace') {
+      deckWords = deckWords.map((word) =>
+        word.derivationMap === undefined && localMaps.has(word.id) ? { ...word, derivationMap: localMaps.get(word.id) } : word,
+      )
+      const fileIds = new Set(deckWords.map((word) => word.id))
+      const localWords = await db.words.where('deckId').equals(deck.id).toArray()
+      for (const word of localWords) {
+        if (fileIds.has(word.id)) continue
+        rows.push({ key: `word:${word.id}`, kind: 'word', json: 'null', deleted: true, updatedAt: now })
+        const overlay = wordOverlayOf(word as unknown as Record<string, unknown>)
+        if (Object.keys(overlay).length > 0) {
+          rows.push({ key: `word-overlay:${word.id}`, kind: 'word-overlay', json: 'null', deleted: true, updatedAt: now })
+        }
+      }
+    } else {
+      const locals = await db.words.bulkGet(deckWords.map((word) => word.id))
+      deckWords = deckWords.map((word, index) => preserveLocalUserFields(word, locals[index]))
+    }
+    for (const word of deckWords) rows.push(contentRowOfWord(word, word.createdAt || now))
+  }
+  return rows
+}
+
+/** 0.15 B：迁移 decks/words 内容写前快照（从 IDB cache 恢复旧 content 行，用于失败补偿） */
+async function snapshotMigrationDeckWordContent(rows: readonly ContentEntityRow[]): Promise<ContentEntityRow[]> {
+  const db = getDb()
+  const prior: ContentEntityRow[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (row.deleted === true || seen.has(row.key)) continue
+    seen.add(row.key)
+    if (row.key.startsWith('deck:')) {
+      const deck = await db.decks.get(row.key.slice('deck:'.length))
+      if (deck) prior.push(contentRowOfDeck(deck))
+    } else if (row.key.startsWith('word:')) {
+      const word = await db.words.get(row.key.slice('word:'.length))
+      if (word) prior.push(contentRowOfWord(word, Date.now()))
+    }
+  }
+  return prior
+}
+
+/** 0.15 B 补偿：导入内容写失败/IDB 事务失败 → 恢复写前 content 行 + 给新增 key 写 tombstone，避免双源分叉 */
+async function restoreMigrationDeckWordContent(
+  prior: readonly ContentEntityRow[],
+  written: readonly ContentEntityRow[],
+  label: string,
+): Promise<void> {
+  const priorKeys = new Set(prior.map((row) => row.key))
+  const rows: ContentEntityRow[] = [...prior]
+  const seen = new Set(rows.map((row) => row.key))
+  for (const row of written) {
+    if (row.deleted === true || priorKeys.has(row.key) || seen.has(row.key)) continue
+    seen.add(row.key)
+    rows.push({ key: row.key, kind: row.kind, json: 'null', deleted: true, updatedAt: Date.now() })
+  }
+  if (rows.length === 0) return
+  const saved = await saveContentEntitiesChunked(rows)
+  if (!saved.ok) {
+    throw new ContentWriteError(`${label}失败后内容补偿失败：${saved.error ?? '未知错误'}`, 'CONTENT_SQLITE_ROLLBACK_FAILED')
+  }
 }
 
 async function importMigrationInner(
@@ -1091,7 +1497,62 @@ async function importMigrationInner(
   const existingDefaultId =
     (await db.decks.toArray()).find((deck) => deck.isDefault)?.id ?? null
 
+  // 0.14 P0-4：sqlite 内容写源——内容包三表先写 content_kv（≤500/批）；失败结构化返回、不回写 IDB。
+  // idb 内容写源 buildMigrationContentPackRows 返回 null，原事务内 IDB 写逻辑完全不变。
+  const contentPackRows = await buildMigrationContentPackRows(file, strategy)
+  // B-G3：写 content_kv 前快照本机内容包三表（IDB cache），用于失败/IDB 事务失败补偿
+  const contentPackPrior = contentPackRows && contentPackRows.length > 0 ? await snapshotMigrationPackContent() : null
+  if (contentPackRows && contentPackRows.length > 0) {
+    const saved = await saveContentEntitiesChunked(contentPackRows)
+    if (!saved.ok) {
+      // 已写批次补偿恢复，避免 content_kv 半更新而 IDB 未写
+      if (contentPackPrior) {
+        await restoreMigrationPackContent(contentPackPrior, contentPackRows.slice(0, saved.written)).catch(() => undefined)
+      }
+      const report = makeReport(
+        'migration',
+        [
+          ...issues,
+          makeIssue(
+            'error',
+            'E_IO',
+            `SQLite 内容包写入失败（已写 ${saved.written}/${contentPackRows.length} 条，失败批未回写 IDB，已尝试补偿）：${saved.error ?? '未知错误'}`,
+            { path: 'data.contentPacks' },
+          ),
+        ],
+        {},
+        Date.now() - startedAt,
+      )
+      await writeLastImport(report)
+      return report
+    }
+  }
+
+  // 0.14 G1：sqlite 内容写源下，自定义 decks/words 先写 content_kv（≤500/批）；失败不写 IDB。
+  const migrationDeckWordRows = await buildMigrationDeckWordRows(file, strategy)
+  // 0.15 B：写前快照本机旧内容（失败时补偿恢复 content_kv，避免 content_kv 与 IDB 分叉）
+  const migrationDeckWordPrior = migrationDeckWordRows && migrationDeckWordRows.length > 0
+    ? await snapshotMigrationDeckWordContent(migrationDeckWordRows)
+    : null
+  if (migrationDeckWordRows && migrationDeckWordRows.length > 0) {
+    const saved = await saveContentEntitiesChunked(migrationDeckWordRows)
+    if (!saved.ok) {
+      if (migrationDeckWordPrior) {
+        await restoreMigrationDeckWordContent(
+          migrationDeckWordPrior,
+          migrationDeckWordRows.slice(0, saved.written),
+          '迁移自定义 deck/word 写入',
+        ).catch(() => undefined)
+      }
+      throw new ContentWriteError(
+        `迁移自定义 deck/word 写入 content_kv 失败（已写 ${saved.written}/${migrationDeckWordRows.length} 条，失败批未回写 IDB）：${saved.error ?? '未知错误'}`,
+        'CONTENT_SQLITE_WRITE_FAILED',
+      )
+    }
+  }
+
   opts.onProgress?.({ phase: 'apply', message: '写入数据库（大库可能需要几十秒）' })
+  try {
   await db.transaction(
     'rw',
     [db.decks, db.words, db.states, db.reviewLogs, db.settings, db.meta, db.plans, db.packs, db.packItems, db.contentRejects],
@@ -1145,7 +1606,7 @@ async function importMigrationInner(
         const deviceLocalRows = (await db.settings.bulkGet([...deviceLocalKeys])).filter((row): row is NonNullable<typeof row> => Boolean(row))
         await db.settings.clear()
         if (deviceLocalRows.length > 0) await db.settings.bulkPut(deviceLocalRows)
-        await applyImportedSettings(file.settings.filter((record) => !deviceLocalKeys.includes(record.key as never)))
+        await applyImportedSettings(file.settings.filter((record) => !deviceLocalKeys.includes(record.key as never) && record.key !== 'data.contentWriteSource'))
       } else if (strategy === 'merge') {
         if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
       await bulkPutChunked(db.decks, file.decks)
@@ -1165,7 +1626,7 @@ async function importMigrationInner(
         // 合并模式不导入复习日志（避免重复计数）；设置只补缺省项
         const localSettings = await db.settings.toArray()
         const localKeys = new Set(localSettings.map((record) => record.key))
-        const missing = file.settings.filter((record) => !localKeys.has(record.key))
+        const missing = file.settings.filter((record) => !localKeys.has(record.key) && record.key !== 'data.contentWriteSource')
         await applyImportedSettings(missing)
         issues.push(
           makeIssue('warning', 'W_SKIPPED', '合并模式未导入复习日志（避免重复计数），学习状态已按时间合并', {
@@ -1202,7 +1663,7 @@ async function importMigrationInner(
       await bulkPutChunked(db.states, kept)
         const localSettings = await db.settings.toArray()
         const localKeys = new Set(localSettings.map((record) => record.key))
-        await applyImportedSettings(file.settings.filter((record) => !localKeys.has(record.key)))
+        await applyImportedSettings(file.settings.filter((record) => !localKeys.has(record.key) && record.key !== 'data.contentWriteSource'))
         issues.push(
           makeIssue(
             'warning',
@@ -1299,6 +1760,16 @@ async function importMigrationInner(
       }
     },
   )
+  } catch (error) {
+    // B-G3/0.15 B：IDB 大事务失败 → 用快照恢复 contentPacks 与 decks/words content_kv，保持双源一致后再抛
+    if (contentPackPrior) {
+      await restoreMigrationPackContent(contentPackPrior, contentPackRows ?? []).catch(() => undefined)
+    }
+    if (migrationDeckWordPrior) {
+      await restoreMigrationDeckWordContent(migrationDeckWordPrior, migrationDeckWordRows ?? [], '迁移自定义 deck/word 写入').catch(() => undefined)
+    }
+    throw error
+  }
 
   const report = makeReport(
     'migration',
@@ -1312,10 +1783,116 @@ async function importMigrationInner(
     },
     Date.now() - startedAt,
   )
+  // 0.15 B：native sqlite 保持 sqlite（差集 tombstone 旧行）；web/未迁移仍 idb
+  await applyContentSourceAfterImport(issues)
   opts.onProgress?.({ phase: 'done', message: '导入完成' })
   if (strategy === 'replace') await bumpDataEpoch('importMigration:replace')
   await writeLastImport(report)
   return report
+}
+
+// ============ 0.14 QA P0：content_kv 清空 ============
+// 迁移包内容包写入见上文 buildMigrationContentPackRows（P0-4），此处只负责 clearAllData 的 content_kv 清空。
+
+/** 分页列出 content_kv 全部行（含 tombstone，若 native 返回）；按 revision 前进 */
+async function listAllContentRows(): Promise<ContentKvRow[]> {
+  const rows: ContentKvRow[] = []
+  let since = 0
+  for (let page = 0; page < 1_000_000; page += 1) {
+    const result = await listContentByRevision(since, 500)
+    if (!result.ok) throw new ContentWriteError(result.error ?? '读取 content_kv 失败', 'CONTENT_SQLITE_WRITE_FAILED')
+    rows.push(...result.rows)
+    if (!result.hasMore || result.rows.length === 0) break
+    const maxRevision = Math.max(...result.rows.map((row) => row.revision))
+    if (maxRevision <= since) break
+    since = maxRevision
+  }
+  return rows
+}
+
+/** content_kv 是否可能含内容：sqlite 写源 / 影子迁移存在 / revision>0 */
+async function hasContentKvRows(): Promise<boolean> {
+  if (!isSqliteAvailable()) return false
+  if ((await getContentWriteSource()) === 'sqlite') return true
+  try {
+    if (await getContentMigrationState()) return true
+    return (await readContentRevision()) > 0
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 清空全部 content_kv（写 tombstone，保留删除标记供增量备份；不清 revision）。
+ * 必须在清 IDB 之前调用：任一失败 → 用快照把已清行按原状态恢复，再抛结构化错误；IDB 完全未动。
+ */
+async function clearContentKvForClearAll(): Promise<number> {
+  const rows = await listAllContentRows()
+  if (rows.length === 0) return 0
+  const tombstones: ContentEntityRow[] = rows.map((row) => ({
+    key: row.key,
+    kind: row.kind,
+    json: row.json,
+    updatedAt: row.updatedAt,
+    deleted: true,
+  }))
+  let written = 0
+  try {
+    for (let i = 0; i < tombstones.length; i += 500) {
+      const chunk = tombstones.slice(i, i + 500)
+      // 直接写 content_kv（不按当前写源路由）：即便写源已回 idb，只要迁移存在也要清事实源
+      const saved = await writeContentRows(chunk)
+      if (!saved.ok) {
+        throw new ContentWriteError(
+          `清空 content_kv 失败（已写 ${written}/${tombstones.length} 条）：${saved.error ?? '未知错误'}`,
+          'CONTENT_SQLITE_WRITE_FAILED',
+        )
+      }
+      written += chunk.length
+    }
+  } catch (error) {
+    const causeMessage = error instanceof Error ? error.message : String(error)
+    // 补偿：把已写 tombstone 的行恢复为删除前内容（含原 deleted 状态）
+    const restoreRows: ContentEntityRow[] = rows.slice(0, written).map((row) => ({
+      key: row.key,
+      kind: row.kind,
+      json: row.json,
+      updatedAt: row.updatedAt,
+      ...(row.deleted === 1 ? { deleted: true } : {}),
+    }))
+    try {
+      for (let i = 0; i < restoreRows.length; i += 500) {
+        const restored = await writeContentRows(restoreRows.slice(i, i + 500))
+        if (!restored.ok) throw new Error(restored.error ?? '未知错误')
+      }
+    } catch (restoreError) {
+      const restoreMessage = restoreError instanceof Error ? restoreError.message : String(restoreError)
+      throw new ContentWriteError(
+        `清空 content_kv 失败（${causeMessage}），且内容恢复失败（${restoreMessage}）；请从备份恢复`,
+        'CONTENT_SQLITE_ROLLBACK_FAILED',
+      )
+    }
+    throw error instanceof ContentWriteError ? error : new ContentWriteError(causeMessage, 'CONTENT_SQLITE_WRITE_FAILED')
+  }
+  return written
+}
+
+// ============ 0.15 B：导入/恢复后的内容写源（task-294） ============
+// 调用 task-293 content-switch.ensureContentSourceAfterImport（native sqlite 保持，不 reset；web/未迁移仍 idb）。
+// 失败 fail-closed：保持调用前写源，写 diag + 导入告警（不改变已导入内容）。
+
+/** 0.15 B：导入/恢复成功后的写源收敛；失败只告警，不改导入结果 */
+async function applyContentSourceAfterImport(issues?: ImportIssue[]): Promise<void> {
+  const result = await ensureContentSourceAfterImport()
+  if (result.ok) return
+  try {
+    await getDb().meta.put({ key: 'import.contentSourceAfterImport.diag', value: { at: Date.now(), ...result }, updatedAt: Date.now() })
+  } catch {
+    /* diag 失败不影响主流程 */
+  }
+  if (issues) {
+    issues.push(makeIssue('warning', 'E_IO', `导入后内容写源处理失败：${result.error ?? '未知错误'}（已保持导入前写源：${result.source}）`, { path: 'data.contentWriteSource' }))
+  }
 }
 
 // ============ 清空数据 ============
@@ -1359,6 +1936,10 @@ async function clearAllDataInner(
   const db = getDb()
   const tokenRow = opts.keepToken ? await db.settings.get('data.maimemoToken') : undefined
   const aiKeyRow = opts.keepAiKey ? await db.settings.get('ai.apiKey') : undefined
+  // 0.14 QA P0：先清 content_kv（内容事实源）；失败会用快照恢复已清行并抛结构化错误，IDB 完全未动。
+  if (await hasContentKvRows()) {
+    await clearContentKvForClearAll()
+  }
   await db.transaction(
     'rw',
     [db.decks, db.words, db.states, db.reviewLogs, db.settings, db.meta, db.plans, db.packs, db.packItems, db.contentRejects],

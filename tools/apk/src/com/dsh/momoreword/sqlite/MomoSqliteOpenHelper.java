@@ -22,7 +22,7 @@ import java.io.OutputStream;
  */
 public class MomoSqliteOpenHelper extends SQLiteOpenHelper {
     public static final String DB_NAME = "momo.db";
-    public static final int DB_VERSION = 2;
+    public static final int DB_VERSION = 3;
     public static final String E_DOWNGRADE = "E_DOWNGRADE";
 
     private final Context context;
@@ -33,8 +33,8 @@ public class MomoSqliteOpenHelper extends SQLiteOpenHelper {
         this.context = context.getApplicationContext();
         // API 16+：由 SQLiteOpenHelper 统一开启 WAL，避免在 execSQL 里跑 PRAGMA。
         setWriteAheadLoggingEnabled(true);
-        // 关键：在 open/onUpgrade 之前复制 v1 DB（含 -wal/-shm），不要在 onUpgrade 事务内 checkpoint/长 IO。
-        this.preflightBackupOk = preflightBackupV1(this.context);
+        // 关键：在 open/onUpgrade 之前复制旧 DB（含 -wal/-shm），不要在 onUpgrade 事务内 checkpoint/长 IO。
+        this.preflightBackupOk = preflightBackupBeforeUpgrade(this.context);
     }
 
     @Override
@@ -175,7 +175,19 @@ public class MomoSqliteOpenHelper extends SQLiteOpenHelper {
                 + "finished_at INTEGER,"
                 + "error TEXT"
                 + ")");
+        db.execSQL("CREATE TABLE IF NOT EXISTS content_kv ("
+                + "key TEXT PRIMARY KEY,"
+                + "kind TEXT NOT NULL,"
+                + "json TEXT NOT NULL,"
+                + "updated_at INTEGER NOT NULL,"
+                + "revision INTEGER NOT NULL,"
+                + "deleted INTEGER NOT NULL DEFAULT 0"
+                + ")");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_content_kv_kind_rev ON content_kv(kind,revision)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_content_kv_rev ON content_kv(revision)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_content_kv_updated ON content_kv(updated_at)");
         db.execSQL("INSERT OR IGNORE INTO schema_meta(key,value_json,updated_at) VALUES('data_epoch','0'," + System.currentTimeMillis() + ")");
+        db.execSQL("INSERT OR IGNORE INTO schema_meta(key,value_json,updated_at) VALUES('content_revision','0'," + System.currentTimeMillis() + ")");
     }
 
     @Override
@@ -198,6 +210,24 @@ public class MomoSqliteOpenHelper extends SQLiteOpenHelper {
                     + "result_json TEXT"
                     + ")");
         }
+        // 0.14：v2 -> v3，新增内容 KV 表（只建表/索引，不删旧表）。
+        if (oldVersion < 3 && newVersion >= 3) {
+            if (!preflightBackupOk) {
+                throw new SQLiteException("E_UPGRADE_BACKUP: v3 preflight backup missing/failed, refuse ALTER");
+            }
+            db.execSQL("CREATE TABLE IF NOT EXISTS content_kv ("
+                    + "key TEXT PRIMARY KEY,"
+                    + "kind TEXT NOT NULL,"
+                    + "json TEXT NOT NULL,"
+                    + "updated_at INTEGER NOT NULL,"
+                    + "revision INTEGER NOT NULL,"
+                    + "deleted INTEGER NOT NULL DEFAULT 0"
+                    + ")");
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_content_kv_kind_rev ON content_kv(kind,revision)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_content_kv_rev ON content_kv(revision)");
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_content_kv_updated ON content_kv(updated_at)");
+            db.execSQL("INSERT OR IGNORE INTO schema_meta(key,value_json,updated_at) VALUES('content_revision','0'," + System.currentTimeMillis() + ")");
+        }
     }
 
     private static boolean columnExists(SQLiteDatabase db, String table, String column) {
@@ -217,14 +247,14 @@ public class MomoSqliteOpenHelper extends SQLiteOpenHelper {
     /**
      * open 前 preflight：若 DB 仍是 v1，复制 db + -wal/-shm 到内部备份目录。
      * 不做 SQLite 查询/checkpoint，避免 onUpgrade 事务内 checkpoint 造成 SQLITE_LOCKED。
-     * 返回 false 时 onUpgrade 拒绝 ALTER，保持 v1。
+     * 返回 false 时 onUpgrade 拒绝 ALTER，保持旧版本。
      */
-    private static boolean preflightBackupV1(Context context) {
+    private static boolean preflightBackupBeforeUpgrade(Context context) {
         File source = context.getDatabasePath(DB_NAME);
         if (source == null || !source.exists()) return true; // 新装/无库，无需备份
-        if (readUserVersion(source) >= 2) return true; // 已 v2，无需备份
+        if (readUserVersion(source) >= DB_VERSION) return true; // 已当前版本，无需备份
         File dir = new File(context.getFilesDir(), "sqlite-backups");
-        File targetDir = new File(dir, "pre-v2-" + System.currentTimeMillis());
+        File targetDir = new File(dir, "pre-v3-" + System.currentTimeMillis());
         if (!targetDir.exists() && !targetDir.mkdirs()) return false;
         try {
             copyIfExists(source, new File(targetDir, source.getName()));

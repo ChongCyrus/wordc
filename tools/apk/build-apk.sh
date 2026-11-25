@@ -101,6 +101,13 @@ grep -E 'versionName|targetSdk|minSdk|package=' "$BUILD/AndroidManifest.xml" | s
 say "自签 keystore"
 mkdir -p "$SECRETS"
 chmod 700 "$SECRETS"
+# 发布安全：默认禁止静默生成新签名密钥；仅本地 bootstrap 显式 APK_ALLOW_GENERATE_KEYSTORE=1 可生成。
+if [ ! -f "$KEYSTORE" ] && [ "${APK_ALLOW_GENERATE_KEYSTORE:-0}" != "1" ]; then
+  die "签名 keystore 不存在：$KEYSTORE（release 必须使用固定 keystore；本地首次可用 APK_ALLOW_GENERATE_KEYSTORE=1）"
+fi
+if [ -f "$KEYSTORE" ] && [ -z "${APK_KEYSTORE_PASS:-}" ] && [ ! -f "$PASSFILE" ]; then
+  die "keystore 存在但口令文件不存在：$PASSFILE（拒绝生成随机口令）"
+fi
 if [ -n "${APK_KEYSTORE_PASS:-}" ]; then
   # CI：口令来自 secrets；写临时两行 passfile（apksigner 按行读取），签名后删除，不落盘常驻
   PASSFILE="$(mktemp "$SECRETS/.apk-pass.XXXXXX")"
@@ -126,9 +133,7 @@ if [ "$(wc -l <"$PASSFILE")" -lt 2 ]; then
 fi
 STORE_PASS="$(head -1 "$PASSFILE")"
 if [ ! -f "$KEYSTORE" ]; then
-  if [ -n "${APK_KEYSTORE:-}" ]; then
-    die "APK_KEYSTORE 指定的 keystore 不存在：$KEYSTORE"
-  fi
+  [ "${APK_ALLOW_GENERATE_KEYSTORE:-0}" = "1" ] || die "拒绝静默生成 keystore：$KEYSTORE"
   keytool -genkeypair -v -keystore "$KEYSTORE" -alias "$KEY_ALIAS" \
     -keyalg RSA -keysize 2048 -validity 10000 \
     -storepass "$STORE_PASS" -keypass "$STORE_PASS" \
@@ -207,6 +212,14 @@ if [ "$CI_PASS_TMP" = "1" ]; then
 fi
 
 # ---------- 8. 自检 ----------
+CERT_SHA="$(apksigner verify --print-certs "$BUILD/app-signed.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr -d ' ')"
+[ -n "$CERT_SHA" ] || die "无法读取 APK 签名证书 SHA-256"
+printf '%s\n' "$CERT_SHA" >"$BUILD/apk-signing-cert.txt"
+echo "签名证书 SHA-256：$CERT_SHA"
+if [ -n "${APK_CERT_SHA256:-}" ] && [ "$APK_CERT_SHA256" != "$CERT_SHA" ]; then
+  die "APK 证书指纹不匹配：期望 $APK_CERT_SHA256，实际 $CERT_SHA"
+fi
+
 say "自检：apksigner verify + aapt badging + assets 一致性"
 apksigner verify --verbose "$BUILD/app-signed.apk" | head -12
 echo "--- aapt dump badging ---"

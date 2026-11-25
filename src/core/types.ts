@@ -189,6 +189,8 @@ export interface Word {
   examCount?: number
   /** 章节（商业词表 '必考词 Unit 1'；大纲词表为分类名） */
   chapter?: string
+  /** 0.15：用户后续加进内置 deck 的词（不是打包正文），迁移/备份按可变内容处理 */
+  custom?: boolean
   /** MaiMemo voc_id（若从MaiMemo导入过），仅本机参考 */
   maimemoVocId?: string
   /** F6：用户自定义笔记（词级或含义级；不写入内容包，AI 应用不覆盖） */
@@ -409,8 +411,6 @@ export type SettingsMap = {
   'memory.cardFlashAnimation': boolean
   /** 0.3.86：每日自动备份（APK 静默写 auto/；默认 true） */
   'data.autoBackupEnabled': boolean
-  /** 0.12：自动备份内容（实验；默认关） */
-  'backup.autoContentEnabled': boolean
   /** 0.3.87：新词来源 manual=用户添加（默认）/ auto=按学习量自动排 */
   'study.newWordSource': 'manual' | 'auto'
   /** 0.3.91：添词默认方式 */
@@ -419,6 +419,12 @@ export type SettingsMap = {
   'study.addWordCount': number
   /** 0.3.92：是否允许 APK 空库自动导入预装内容（默认 false；手动导入始终可用） */
   'data.generatedAutoSeed': boolean
+  /** 0.12：内容快照自动增量备份（默认 false） */
+  'backup.autoContentEnabled': boolean
+  /** 0.13：内容 event log 加速；关闭退回快照 diff */
+  'backup.contentEventLogEnabled': boolean
+  /** 0.14：内容写源；迁移成功才切 sqlite */
+  'data.contentWriteSource': 'idb' | 'sqlite'
   /** 0.3.98：注释面显示词根词缀词源分解（默认 true） */
   'study.showRootEtymology': boolean
   /** 0.11.1：根缀卡样式 compact|standard（默认 compact） */

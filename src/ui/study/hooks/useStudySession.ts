@@ -894,6 +894,7 @@ export function useStudySession(options?: {
                 ),
               )
               if (next.stage === 'memory') {
+                if (sessionRef.current?.word.wordId !== wordId || submittingRef.current) return
                 applySession(next)
                 scheduleSnapshot()
                 return
@@ -982,6 +983,7 @@ export function useStudySession(options?: {
       const annotated = tapBoard(fresh)
       const next = openMemory(annotated)
       if (next.stage !== 'memory') return
+      if (sessionRef.current?.word.wordId !== wordId || submittingRef.current) return
       applySession(next)
       scheduleSnapshot()
     })()
@@ -1191,10 +1193,12 @@ export function useStudySession(options?: {
       }
       submittingRef.current = true
       setSubmitting(true)
+      const perfStart = typeof performance !== 'undefined' ? performance.now() : Date.now()
       const wordId = current.word.wordId
       const planBefore = planRef.current
       const browsing = browseRef.current != null
       const previousChoice = lastChoiceRef.current
+      let submitted = false
       try {
         // 回退浏览 → reRateInPlan（改判）；正常 → rateInPlan（task-44 抽出可 mock 的分支）
         const outcome = await submitRatingByMode<{
@@ -1215,23 +1219,21 @@ export function useStudySession(options?: {
             },
           },
         )
+
+        submitted = true
         if (browsing && !outcome.reverted) {
           toast('这条反馈已无法撤销，无法改判')
           return
         }
+        // rateInPlan/submitRatingSqlite 已在同一流程内把最新 plan 写入 IDB cache，
+        // 直接使用返回的 plan，避免每次评分再走 getTodayPlan（旧 plan 清理 + 原生查询）造成 1–2s 延迟。
         let planAfter: DailyPlan | null = outcome.plan
-        // 0.3.93：评分后回读最新 plan，避免使用事务前快照导致最后词 requeue 被误判完成
-        if (planBefore) {
+        if (typeof localStorage !== 'undefined') {
+          const perfMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - perfStart)
           try {
-            const fresh = await getTodayPlan({
-              deckId: planBefore.deckId,
-              dailyGoal: loadedSettings['study.dailyGoal'],
-              now: Date.now(),
-            })
-            if (fresh) planAfter = fresh
-          } catch {
-            /* 回读失败用 outcome.plan */
-          }
+            const prev = JSON.parse(localStorage.getItem('momo:rate-perf') ?? '[]') as number[]
+            localStorage.setItem('momo:rate-perf', JSON.stringify([...prev.slice(-19), perfMs]))
+          } catch { /* ignore */ }
         }
         // task-275：生产包 console 可能被 strip；写 localStorage 诊断供 QA dump
         try {
@@ -1299,7 +1301,8 @@ export function useStudySession(options?: {
         }
         await loadWordAt(planAfter.index, planAfter, loadedSettings)
       } catch (error) {
-        toast(`提交失败，请重试：${errorMessageOf(error)}`)
+        // 评分已成功但后续加载下一词失败时，不能说“提交失败”，否则用户会重复评分
+        toast(submitted ? `已保存，但加载下一词失败：${errorMessageOf(error)}` : `提交失败，请重试：${errorMessageOf(error)}`)
       } finally {
         submittingRef.current = false
         if (mountedRef.current) setSubmitting(false)
@@ -1424,7 +1427,7 @@ export function useStudySession(options?: {
     const wordId = sessionRef.current?.word.wordId
     if (!wordId) return
     const fresh = await getWord(wordId)
-    if (fresh && mountedRef.current) setWord(fresh)
+    if (fresh && mountedRef.current && sessionRef.current?.word.wordId === wordId) setWord(fresh)
   }, [])
 
   const saveUserNote = useCallback(

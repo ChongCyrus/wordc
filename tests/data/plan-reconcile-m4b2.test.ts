@@ -34,7 +34,7 @@ function install(stalePlan: Record<string, unknown>) {
       setTimeout(() => {
         const callback = (globalThis as unknown as { __momoSqliteResult?: (id: string, j: string) => void }).__momoSqliteResult
         if (req.method === 'health') {
-          callback?.(id, JSON.stringify({ ok: true, userVersion: 2, counts: { states: 1, plans: plans.length, settings: 1, review_logs: 0 } }))
+          callback?.(id, JSON.stringify({ ok: true, userVersion: 3, counts: { states: 1, plans: plans.length, settings: 1, review_logs: 0 } }))
           return
         }
         if (req.method === 'tx') {

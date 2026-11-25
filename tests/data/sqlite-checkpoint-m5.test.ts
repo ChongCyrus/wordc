@@ -27,7 +27,7 @@ describe('M5 sqlite checkpoint', () => {
         const id = `${req.id}-r${++seq}`
         setTimeout(() => {
           const cb = (globalThis as unknown as { __momoSqliteResult?: (id: string, j: string) => void }).__momoSqliteResult
-          if (req.method === 'health') cb?.(id, JSON.stringify({ ok: true, userVersion: 2, counts: { states, plans: 0, settings: 1 }, integrityOk: true, readOnly: false }))
+          if (req.method === 'health') cb?.(id, JSON.stringify({ ok: true, userVersion: 3, counts: { states, plans: 0, settings: 1 }, integrityOk: true, readOnly: false }))
           else if (req.method === 'tx') { states = 1; cb?.(id, JSON.stringify({ ok: true })) }
           else if (req.payload?.table === 'states') cb?.(id, JSON.stringify({ ok: true, rows: [{ word_id: 'w1', deck_id: 'd', phase: 'review', updated_at: 1 }] }))
           else if (req.payload?.table === 'settings') cb?.(id, JSON.stringify({ ok: true, rows: [{ key: 'study.dailyGoal', value_json: '30', updated_at: 1 }] }))
@@ -56,7 +56,7 @@ describe('M5 checkpoint timing', () => {
         const id = `${req.id}-r${++seq}`
         setTimeout(() => {
           const cb = (globalThis as unknown as { __momoSqliteResult?: (id: string, j: string) => void }).__momoSqliteResult
-          if (req.method === 'health') cb?.(id, JSON.stringify({ ok: true, userVersion: 2, counts: { states: 1, plans: 0, settings: 1 }, integrityOk: true, readOnly: false }))
+          if (req.method === 'health') cb?.(id, JSON.stringify({ ok: true, userVersion: 3, counts: { states: 1, plans: 0, settings: 1 }, integrityOk: true, readOnly: false }))
           else if (req.payload?.table === 'states') cb?.(id, JSON.stringify({ ok: true, rows: [{ word_id: 'w1', deck_id: 'd', phase: 'review', updated_at: 1 }] }))
           else if (req.payload?.table === 'settings') cb?.(id, JSON.stringify({ ok: true, rows: [{ key: 'k', value_json: '1', updated_at: 1 }] }))
           else cb?.(id, JSON.stringify({ ok: true, rows: [] }))

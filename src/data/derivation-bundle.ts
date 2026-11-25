@@ -8,6 +8,8 @@
  * - 不覆盖 ncMeaningIds / 用户笔记/助记；不改学习进度。
  */
 import { getDb } from './db'
+import { saveContentEntitiesChunked } from './content-write-source'
+import { wordOverlayOf } from './content-snapshot'
 import type { DerivationMap, Word } from '../core/types'
 import type { DerivationJsonLine } from './derivation-json'
 
@@ -233,7 +235,6 @@ export async function importDerivationBundle(
   void (opts.mode ?? 'merge') // 当前两模式均“只替换匹配项”；保留 API 供未来差异
   const parsed = parseDerivationBundle(input, { ...(opts.maxBytes != null ? { maxBytes: opts.maxBytes } : {}) })
   if (!parsed.ok) return { imported: 0, skipped: 0, failed: 0, errors: parsed.errors, skippedItems: [] }
-  const db = getDb()
   let imported = 0
   let skipped = 0
   let failed = 0
@@ -272,9 +273,18 @@ export async function importDerivationBundle(
     }
   }
   if (updates.size > 0) {
-    await db.transaction('rw', [db.words], async () => {
-      await db.words.bulkPut([...updates.values()])
+    // 0.14：统一内容写入口；sqlite 成功后才更新 IDB cache，失败不回写
+    const rows = [...updates.values()].map((word) => {
+      const overlay = wordOverlayOf(word as unknown as Record<string, unknown>)
+      return {
+        key: `word-overlay:${word.id}`,
+        kind: 'word-overlay' as const,
+        json: JSON.stringify(overlay),
+        updatedAt: Number((word.derivationMap as { updatedAt?: number } | undefined)?.updatedAt) || Date.now(),
+      }
     })
+    const saved = await saveContentEntitiesChunked(rows)
+    if (!saved.ok) return { imported: 0, skipped, failed: failed + 1, errors: [...errors, saved.error ?? '引申图导入写入失败'], skippedItems }
   }
   return { imported, skipped, failed, errors, skippedItems }
 }

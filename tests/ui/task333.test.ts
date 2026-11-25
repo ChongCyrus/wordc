@@ -19,8 +19,8 @@ describe('task-333 rc3 主题长按/词根缀源导入', () => {
     expect(toggle).toContain('if (longPressFiredRef.current)')
   })
 
-  it('词根缀源导入：bundle 校验→import→counts/error toast+刷新', () => {
-    expect(ie).toContain('全量 preBackup 在 Web 端会因 27MB 导出长时间阻塞')
+  it('词根缀源导入：preBackup→bundle 校验→import→counts/error toast+刷新', () => {
+    expect(ie).toContain('importRootEtymologyBundle(parsed')
     expect(ie).toContain("setBusy('导入词根缀源…')")
     expect(ie).toContain('disabled={busy !== null}')
     expect(ie).toContain('isRootEtymologyBundle(parsed)')

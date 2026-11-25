@@ -18,7 +18,7 @@ import { ConfirmDialog, ActionSheet } from './components/StudyOverlay'
 import { QuickSettingsSheet } from './components/QuickSettingsSheet'
 import { BackRevertNotice } from './components/BackRevertNotice'
 import { AiGeneratePanel } from '../ai/AiGeneratePanel'
-import { buildSafetyDiagnosticsText, getProgressCheckpointStatus } from '../../app/utils/auto-backup-service'
+import { buildSafetyDiagnosticsText } from '../../app/utils/auto-backup-service'
 import { datedFileName, saveBlobFile, saveResultMessage } from '../../app/utils/files'
 import { UserContentEditor } from './components/UserContent'
 import { SubwordDialog, type SubwordMeaning } from './components/SubwordDialog'
@@ -266,6 +266,7 @@ export default function StudyPage() {
   const [progressSaveState, setProgressSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [weightedModeBusy, setWeightedModeBusy] = useState(false)
   const [lastRating, setLastRating] = useState<Rating | null>(null)
+  const lastRatedWordIdRef = useRef<string | null>(null)
   const saveStateTimerRef = useRef<number | null>(null)
   const [rateCooldown, setRateCooldown] = useState(false)
   const speakTimerRef = useRef<number | null>(null)
@@ -463,36 +464,19 @@ export default function StudyPage() {
       if (cooldownTimerRef.current != null) window.clearTimeout(cooldownTimerRef.current)
       cooldownTimerRef.current = window.setTimeout(() => setRateCooldown(false), 400)
       setLastRating(rating)
+      lastRatedWordIdRef.current = study.word?.id ?? null
       setProgressSaveState('saving')
       if (saveStateTimerRef.current != null) window.clearTimeout(saveStateTimerRef.current)
+      // 评分成功即事实已入 SQLite/IDB；检查点只是额外副本，不能因检查点不可用/延迟把成功误报为失败
       void actions.rate(rating).then(
         () => {
-          const poll = (attempt: number) => {
-            void getProgressCheckpointStatus()
-              .then((status) => {
-                if (status.state === 'failed') {
-                  setProgressSaveState('error')
-                  return
-                }
-                if (status.state === 'saved') {
-                  setProgressSaveState('saved')
-                  saveStateTimerRef.current = window.setTimeout(() => setProgressSaveState('idle'), 2400)
-                  return
-                }
-                if (attempt < 4) {
-                  saveStateTimerRef.current = window.setTimeout(() => poll(attempt + 1), 700)
-                } else {
-                  setProgressSaveState('error')
-                }
-              })
-              .catch(() => setProgressSaveState('error'))
-          }
-          saveStateTimerRef.current = window.setTimeout(() => poll(0), 700)
+          setProgressSaveState('saved')
+          saveStateTimerRef.current = window.setTimeout(() => setProgressSaveState('idle'), 2400)
         },
         () => setProgressSaveState('error'),
       )
     },
-    [actions, rateCooldown, ratingLocked, study.submitting],
+    [actions, rateCooldown, ratingLocked, study.submitting, study.word?.id],
   )
 
   /* ---------- 退出 / 菜单 ---------- */
@@ -799,7 +783,9 @@ export default function StudyPage() {
             onSelect: () => {
               if (!session?.word.wordId) return
               if (!window.confirm('删除该词条？该操作不可撤销。')) return
-              void deleteWord(session.word.wordId).then(() => navigate(detailReturnTo, { replace: true }))
+              void deleteWord(session.word.wordId)
+                .then(() => navigate(detailReturnTo, { replace: true }))
+                .catch((error: unknown) => showToast(`删除失败：${error instanceof Error ? error.message : String(error)}`))
             },
           },
         ]
@@ -828,7 +814,14 @@ export default function StudyPage() {
       : []
     const part = parts.find((item) => normalizePartKey(item.type, item.text) === key)
     if (!wordId || !part) return
-    void recordPartClick(wordId, part as never).then(setPartStats).catch(() => undefined)
+    // 立即乐观 +1，快速连点不等待原生写；后台串行写失败再回读校正
+    setPartStats((prev) => {
+      const stat = prev[key] ?? { clicks: 0, encounters: 0 }
+      return { ...prev, [key]: { clicks: stat.clicks + 1, encounters: stat.encounters } }
+    })
+    void recordPartClick(wordId, part as never).catch(() => {
+      void getPartStats(wordId).then(setPartStats).catch(() => undefined)
+    })
   }
 
   const changeWeightedMemoryMode = async (mode: 'normal' | 'core' | 'root') => {
@@ -869,7 +862,8 @@ export default function StudyPage() {
               type="button"
               className="study-save-retry"
               onClick={() => {
-                if (lastRating) handleRate(lastRating)
+                // 只允许对“刚提交失败的那个词”重试；评分成功已切到下一词时重试会用旧评分错评新词
+                if (lastRating && lastRatedWordIdRef.current === study.word?.id) handleRate(lastRating)
               }}
             >
               保存失败，点此重试

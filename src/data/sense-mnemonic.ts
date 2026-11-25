@@ -4,6 +4,7 @@
  * 匹配：优先 label（当前 coreSenses 唯一 label），找不到再按 index 兜底；对不上的旧条目为 stale（不静默隐藏）。
  */
 import { getDb } from './db'
+import { saveWordOverlay } from './content-write-source'
 import { getSettings } from './settings.repo'
 import { getEffectiveContent } from './packs.repo'
 import { getTodayPlan } from './plans.repo'
@@ -129,7 +130,7 @@ export async function saveSenseMnemonic(wordId: string, input: SenseMnemonicInpu
   if (fallback >= 0) list[fallback] = next
   else list.push(next)
   word.senseMnemonics = list
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return next
 }
 
@@ -149,7 +150,7 @@ export async function clearSenseMnemonic(
   if (next.length === before.length) return false
   if (next.length > 0) word.senseMnemonics = next
   else delete word.senseMnemonics
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return true
 }
 
@@ -157,7 +158,7 @@ export async function clearAllSenseMnemonics(wordId: string): Promise<void> {
   const word = await getWordOrThrow(wordId)
   if (!word.senseMnemonics) return
   delete word.senseMnemonics
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
 }
 
 /**
@@ -212,7 +213,7 @@ export async function applySenseMnemonicSuggestions(
   }
   if (result.applied > 0) {
     word.senseMnemonics = list
-    await getDb().words.put(word)
+    await saveWordOverlay(word)
   }
   return result
 }

@@ -139,7 +139,9 @@ export async function saveStateCheckpoint(
 let checkpointTimer: ReturnType<typeof setTimeout> | null = null
 let checkpointBridge: AutoBackupBridge | null = null
 
-export function scheduleStateCheckpoint(bridge: AutoBackupBridge, delayMs = 2000): void {
+export function scheduleStateCheckpoint(bridge: AutoBackupBridge, delayMs = 8000): void {
+  // 学习页内不频繁做全量检查点；等离开/空闲后再写，避免与三键抢主线程
+  if (typeof window !== 'undefined' && window.location?.pathname === '/study') delayMs = Math.max(delayMs, 30000)
   checkpointBridge = bridge
   if (checkpointTimer) clearTimeout(checkpointTimer)
   checkpointTimer = setTimeout(() => {

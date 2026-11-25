@@ -55,9 +55,18 @@ export function AutoBackupStartupGate() {
     const schedule = () => {
       if (timer != null) return
       timer = setTimeout(() => {
-        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+        timer = undefined
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          schedule()
+          return
+        }
+        // 自动备份含 SQLite 全库 backup+integrity，绝不能在用户学习/评分时启动
+        if (typeof window !== 'undefined' && window.location?.pathname === '/study') {
+          schedule()
+          return
+        }
         start()
-      }, 3000)
+      }, 60_000)
     }
     schedule()
     const onVisibility = () => {

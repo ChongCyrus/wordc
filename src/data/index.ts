@@ -994,6 +994,103 @@ export { clearAllSqliteFacts } from './sqlite-clear'
 export { getImportStageDiagnostics } from './import-diagnostics'
 export { createFactsPreBackup } from './facts-prebackup'
 export type { FactsPreBackupResult } from './facts-prebackup'
+export {
+  buildContentSnapshot,
+  diffContentEntries,
+  buildContentIncrement,
+  validateContentIncrement,
+  CONTENT_SNAPSHOT_FORMAT,
+  CONTENT_INCREMENT_FORMAT,
+  CONTENT_SNAPSHOT_VERSION,
+} from './content-snapshot'
+export type {
+  ContentEntry,
+  ContentSnapshotManifest,
+  ContentEntity,
+  ContentTombstone,
+  ContentIncrementPackage,
+  ContentDelta,
+  BuildContentSnapshotOptions,
+  BuildContentIncrementOptions,
+} from './content-snapshot'
+export {
+  exportContentEntities,
+  buildContentBaselineFile,
+  saveContentBaselineFile,
+  saveContentIncrementFile,
+  restoreContentBaseline,
+  restoreContentIncrementChain,
+  saveContentBaselineChunked,
+  restoreContentBaselineIndexed,
+  getContentChainState,
+  setContentChainState,
+  markContentChainFailure,
+  markContentChainSuccess,
+  CONTENT_CHAIN_META_KEY,
+} from './content-snapshot'
+export type { ContentChainState, ContentBackupStorage, ContentBaselineFile } from './content-snapshot'
+export {
+  setContentBackupStorage,
+  createContentBaseline,
+  createContentIncrement,
+  listContentBackups,
+  restoreContentBackup,
+  getContentBackupStatus,
+  runContentAutoBackup,
+  consumeInterruptedContentRestore,
+  acknowledgeInterruptedContentRestore,
+} from './content-backup'
+export type { ContentBackupStatus, ContentBackupListItem } from './content-backup'
+export {
+  recordContentOp,
+  recordContentOpsAfterTx,
+  listContentOpsAfter,
+  getContentEventLogState,
+  markContentEventLogDirty,
+  resetContentEventLog,
+  isContentEventLogEnabled,
+  CONTENT_EVENT_LOG_KEY,
+} from './content-event-log'
+export type { ContentEventOp, ContentEventLogState, ContentOpKind } from './content-event-log'
+export {
+  CONTENT_SCHEMA_VERSION,
+  CONTENT_REVISION_KEY,
+  CONTENT_PAGE_SIZE,
+  readContentRevision,
+  readContentCounts,
+  assertContentSchemaVersion,
+  listContentByRevision,
+  writeContentRows,
+  getContentRow,
+  putContentRow,
+  deleteContentRow,
+} from './content-store'
+export type { ContentKind as ContentKvKind, ContentKvRow, ContentListResult, ContentWriteInput } from './content-store'
+export { buildContentMigrationPlan, runContentMigrationBatches, runContentMigrationShadow, runContentMigrationFormal, canSwitchContentWriteSource, finalizeContentWriteCoverage, getContentMigrationState, CONTENT_MIGRATION_STATE_KEY, ensureContentSourceV15, getContentSourceV15Status, CONTENT_SOURCE_V15_EVENT } from './content-migration-plan'
+export type { ContentMigrationStateView, EnsureContentSourceV15Result } from './content-migration-plan'
+export { switchContentWriteSource, rollbackContentWriteSource, resetContentWriteSourceForImport, discardStaleContentKv, reconcileInterruptedContentMigration, ensureContentSourceAfterImport, clearContentWriteSourceEmergency } from './content-switch'
+export type { ContentSourceAfterImportResult } from './content-switch'
+export { rebuildContentCacheFromSqlite } from './content-cache-rebuild'
+export type { ContentCacheRebuildResult, ContentCacheRebuildTestHooks } from './content-cache-rebuild'
+export {
+  getContentWriteSource,
+  getLegacyContentWriteSource,
+  isNativeContentSqliteRuntime,
+  isContentMigrationV15Done,
+  getContentMigrationV15State,
+  invalidateContentMigrationV15Cache,
+  saveWordOverlay,
+  saveContentEntitiesBatch,
+  saveContentEntitiesChunked,
+  ContentWriteError,
+  CONTENT_WRITE_SOURCE_KEY,
+  CONTENT_WRITE_SOURCE_EMERGENCY_KEY,
+  CONTENT_MIGRATION_V15_KEY,
+  CONTENT_V15_MIGRATION_STEP,
+} from './content-write-source'
+export type { ContentEntityRow, SaveContentEntitiesResult, ContentMigrationV15State, ContentMigrationV15Status, ContentMigrationV15From } from './content-write-source'
+export type { ContentWriteSource } from './content-write-source'
+export type { ContentMigrationBatch } from './content-migration-plan'
 export { withDataWriteLock, pendingDataWrites } from './write-lock'
 export { diffReplaceDeckWords } from './word-mutation'
 export type {

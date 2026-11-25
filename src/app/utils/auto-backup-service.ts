@@ -150,9 +150,14 @@ export async function getSettingsWriteDiagnostics(): Promise<{
   }
 }
 
-export async function createPreBackup(): Promise<{ ok: boolean; error?: string }> {
+export async function createPreBackup(): Promise<{ ok: boolean; error?: string; skipped?: 'web-no-auto-backup' }> {
   const bridge = createAutoBackupBridge()
   if (!bridge.isAvailable()) {
+    // Web/PWA 没有自动备份桥：数据在 IndexedDB；危险操作由 UI 做二次确认，不能直接卡死导入/删除
+    try {
+      const { isNativeContentSqliteRuntime } = await import('../../data/content-write-source')
+      if (!isNativeContentSqliteRuntime()) return { ok: true, skipped: 'web-no-auto-backup' }
+    } catch { /* fallthrough */ }
     return { ok: false, error: '当前环境无法自动备份，请先手动导出学习进度' }
   }
   try {

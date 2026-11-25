@@ -43,15 +43,9 @@ export async function clearAllSqliteFacts(): Promise<void> {
 /** 清空指定 facts 表（保留 settings/migration_state/client_ops），用于 facts-only 导入 replace。 */
 export async function clearSqliteFactsTables(tables: Array<'states' | 'plans' | 'review_logs'>): Promise<void> {
   if (!isSqliteAvailable()) throw new Error('SQLite 不可用')
-  const keyOf = (table: 'states' | 'plans' | 'review_logs'): string => table === 'states' ? 'word_id' : 'id'
-  const ops: unknown[] = []
-  for (const table of tables) {
-    const key = keyOf(table)
-    for (const value of await allKeys(table, key)) ops.push({ op: 'delete', table, where: { [key]: value } })
-  }
-  if (ops.length === 0) return
-  for (let i = 0; i < ops.length; i += 500) {
-    const tx = await sqliteTx(ops.slice(i, i + 500))
-    if (tx.ok === false) throw new Error(tx.message ?? `SQLite 清空 ${tables.join('/')} 失败`)
-  }
+  if (tables.length === 0) return
+  // P1-10：facts 三表用单 tx + all:true 原子清空（native 白名单仅 states/plans/review_logs）
+  const ops = tables.map((table) => ({ op: 'delete', table, all: true }))
+  const tx = await sqliteTx(ops)
+  if (tx.ok === false) throw new Error(tx.message ?? `SQLite 清空 ${tables.join('/')} 失败`)
 }

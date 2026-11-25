@@ -7,9 +7,14 @@ import { applyRatingToPlan } from './plan-core'
 import { buildInitialState } from './word-factory'
 import { getDb } from './db'
 import { isSqliteAvailable, sqliteQuery, sqliteTx } from './native-sqlite'
-import { mapSqlitePlanRow, mapSqliteReviewLogRow, mapSqliteStateRow } from './sqlite-read'
+import { SQLITE_SCHEMA_VERSION } from './sqlite-store'
+import { mapSqliteReviewLogRow, readPlanThroughCache, readStateThroughCache } from './sqlite-read'
 import { withDataWriteLock } from './write-lock'
 import { getLearningWriteSource, LearningWriteReadonlyError, LearningWriteRetryableError } from './learning-write-source'
+
+/** 进程内幂等重放缓存：同一 clientOpId 在本次会话重复提交不再走原生查询/事务。 */
+const ratingReplayCache = new Map<string, SubmitRatingSqliteResult>()
+const RATING_REPLAY_CACHE_MAX = 32
 
 export interface SubmitRatingSqliteOptions {
   planId?: string
@@ -115,20 +120,16 @@ export async function submitRatingSqlite(
     }
     if (!word) throw new Error(`词条不存在：${wordId}`)
     const opId = opts.clientOpId ?? `rating-${wordId}-${now}`
-    // 幂等重放
-    try {
-      const replay = await sqliteQuery({ table: 'client_ops', where: { op_id: opId }, limit: 1 }, 5_000)
-      const cached = ((replay.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
-      if (cached?.result_json) {
-        const parsed = JSON.parse(String(cached.result_json)) as SubmitRatingSqliteResult
-        return { ...parsed, idempotentReplay: true }
-      }
-    } catch {
-      /* 查询失败继续，由 tx/expect 处理 */
+    const replay = ratingReplayCache.get(opId)
+    if (replay) return { ...replay, idempotentReplay: true }
+    // 显式传入的 clientOpId 才做跨重启幂等回查；默认 opId 每次唯一，避免每次评分多一次原生查询
+    if (opts.clientOpId) {
+      const cached = await sqliteQuery({ table: 'client_ops', where: { op_id: opId }, limit: 1 }, 5_000).catch(() => null)
+      const row = ((cached?.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
+      if (row?.result_json) return { ...(JSON.parse(String(row.result_json)) as SubmitRatingSqliteResult), idempotentReplay: true }
     }
-    const stateResponse = await sqliteQuery({ table: 'states', where: { word_id: wordId }, limit: 1 }, 5_000)
-    const stateRaw = ((stateResponse.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
-    const existingState = stateRaw ? mapSqliteStateRow(stateRaw) : null
+    // 性能/安全：cache 可用时读 IDB；dirty 时自动回源 SQLite（readStateThroughCache 内含门禁）
+    const existingState = await readStateThroughCache(wordId, 'high')
     const stateBefore = existingState ? { ...existingState } : null
     const prev = existingState ?? buildInitialState(word, now)
     const result = scheduleNext(prev, rating, now, undefined, { scheduleMode: opts.scheduleMode === 'skip' ? 'skip' : 'normal' })
@@ -137,10 +138,9 @@ export async function submitRatingSqlite(
     delete logInput.id
     let nextPlan: DailyPlan | null = null
     if (opts.planId && opts.scheduleMode !== 'skip') {
-      const planResponse = await sqliteQuery({ table: 'plans', where: { id: opts.planId }, limit: 1 }, 5_000)
-      const planRaw = ((planResponse.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
-      if (planRaw) {
-        const plan = mapSqlitePlanRow(planRaw)
+      // 性能/安全：cache 可用时读 IDB；dirty 时自动回源 SQLite（readPlanThroughCache 内含门禁）
+      const plan = await readPlanThroughCache(opts.planId, 'high')
+      if (plan) {
         const failedLastTime = prev.lastRating === 'vague' || prev.lastRating === 'forgot'
         const forceOneMoreRecall = result.requeue === 'none' && result.completesToday && !result.longTermUpdate && failedLastTime && (prev.todayProgress ?? 0) < 1
         const forceRequeueOnRequeuedOccurrence = rating === 'familiar' && !result.longTermUpdate && failedLastTime && plan.sources[wordId] === 'requeue'
@@ -165,22 +165,25 @@ export async function submitRatingSqlite(
       requeue: result.requeue,
     }
     ops.push({ op: 'insert', table: 'client_ops', row: { op_id: opId, kind: 'submit-rating', at: now, result_json: JSON.stringify(persistedResult) } })
-    const expect = { userVersion: 2, ...(opts.epoch != null ? { dataEpoch: opts.epoch } : {}) }
-    let tx = await sqliteTx(ops, { expect })
+    const expect = { userVersion: SQLITE_SCHEMA_VERSION, ...(opts.epoch != null ? { dataEpoch: opts.epoch } : {}) }
+    let tx = await sqliteTx(ops, { expect, priority: 'high' })
     if (tx.ok === false && (tx as { code?: string }).code === 'E_CONFLICT') {
       // epoch 冲突：重试一次（事务未提交，安全）
-      tx = await sqliteTx(ops, { expect })
+      tx = await sqliteTx(ops, { expect, priority: 'high' })
     }
     if (tx.ok === false) {
       const code = (tx as { code?: string }).code
       if (code === 'E_CONFLICT' || code === 'E_BUSY') throw new LearningWriteRetryableError(tx.message ?? 'SQLite 繁忙，请重试')
       throw new Error(tx.message ?? '评分 SQLite 事务失败')
     }
+    // P0：tx 已提交，cache 写入前先标 dirty；若被杀/写失败，重启会回源 SQLite
+    const cacheMetaBefore = await (await import('./idb-cache')).getIdbCacheMeta().catch(() => null)
+    await (await import('./idb-cache')).markIdbCacheDirty('rating-tx-committed').catch(() => undefined)
     const date = localDateKey(now)
     // 按 client_op_id 查回 log id；写入 IDB cache，避免 stats/undo 读旧
     let cachedLog = persistedResult.log
     try {
-      const logResponse = await sqliteQuery({ table: 'review_logs', where: { client_op_id: opId }, limit: 1 }, 5_000)
+      const logResponse = await sqliteQuery({ table: 'review_logs', where: { client_op_id: opId }, limit: 1 }, 5_000, 'high')
       const logRaw = ((logResponse.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
       if (logRaw) cachedLog = mapSqliteReviewLogRow(logRaw) as unknown as ReviewLogV2
     } catch {
@@ -193,13 +196,20 @@ export async function submitRatingSqlite(
         if (cachedLog) await db.reviewLogs.put(cachedLog as never)
         await db.meta.put({ key: 'lastStudyDate', value: date, updatedAt: now })
       })
+      await (await import('./idb-cache')).clearIdbCacheDirty(cacheMetaBefore ?? { generation: 0, sqliteUserVersion: SQLITE_SCHEMA_VERSION, dirty: false }).catch(() => undefined)
     } catch {
       const { markIdbCacheDirty } = await import('./idb-cache')
       await markIdbCacheDirty('rating-cache-write-failed').catch(() => undefined)
     }
     const { notifySqliteFactsChanged } = await import('./sqlite-checkpoint')
     notifySqliteFactsChanged(2000)
-    return { ...persistedResult, log: cachedLog }
+    const finalResult = { ...persistedResult, log: cachedLog }
+    ratingReplayCache.set(opId, finalResult)
+    if (ratingReplayCache.size > RATING_REPLAY_CACHE_MAX) {
+      const oldest = ratingReplayCache.keys().next().value
+      if (oldest !== undefined) ratingReplayCache.delete(oldest)
+    }
+    return finalResult
   })
 }
 

@@ -35,6 +35,8 @@ export interface SqliteCallOptions {
   timeoutMs?: number
   maxBytes?: number
   tx?: boolean
+  /** 高优先级（用户交互评分/计划写）插队，避免被后台内容分页调用饿死 */
+  priority?: 'high' | 'normal'
   payload?: Record<string, unknown>
   path?: string
 }
@@ -185,28 +187,62 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-let callChain: Promise<unknown> = Promise.resolve()
+/**
+ * 0.15：所有 SQLite 调用仍严格串行，但分成 high/normal 两级。
+ * 评分/计划写走 high，可插到已排队但未执行的后台分页/内容写前面；
+ * 正在执行的单个调用不可抢占（native 无取消语义），因此后台也要避免超长单调用。
+ */
+type SqliteJob = { run: () => Promise<unknown>; resolve: (value: unknown) => void; reject: (error: unknown) => void; timer?: ReturnType<typeof setTimeout> }
+const highQueue: SqliteJob[] = []
+const normalQueue: SqliteJob[] = []
+let queueRunning = false
 
-/** 0.11.0 M4b-0：所有 SQLite 调用严格串行；E_BUSY/locked 指数退避重试，不冒泡成页面错误 */
+function pumpSqliteQueue(): void {
+  while (!queueRunning) {
+    const job = highQueue.shift() ?? normalQueue.shift()
+    if (!job) return
+    if (job.timer) clearTimeout(job.timer)
+    queueRunning = true
+    job.run().then(job.resolve, job.reject).finally(() => {
+      queueRunning = false
+      pumpSqliteQueue()
+    })
+    return
+  }
+}
+
 export function sqliteCall<T = unknown>(opts: SqliteCallOptions): Promise<SqliteResponse<T>> {
-  const run = callChain.then(
-    async (): Promise<SqliteResponse<T>> => {
-      let lastError: unknown
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        try {
-          return await performSqliteCall<T>(opts)
-        } catch (error) {
-          lastError = error
-          if (!isBusyError(error) || attempt >= 3) throw error
-          await sleep(100 * 2 ** attempt)
+  return new Promise<SqliteResponse<T>>((resolve, reject) => {
+    const timeoutMs = Math.max(1_000, Math.floor(opts.timeoutMs ?? 15_000))
+    // 排队总 deadline：避免长任务（backup/integrity）在前面时评分无限等
+    const queueMaxMs = opts.priority === 'high' ? timeoutMs : timeoutMs + 2_000
+    const job: SqliteJob = {
+      resolve: (value) => resolve(value as SqliteResponse<T>),
+      reject,
+      run: async () => {
+        let lastError: unknown
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          try {
+            return await performSqliteCall<T>(opts)
+          } catch (error) {
+            lastError = error
+            if (!isBusyError(error) || attempt >= 3) throw error
+            await sleep(100 * 2 ** attempt)
+          }
         }
-      }
-      throw lastError
-    },
-    async (): Promise<SqliteResponse<T>> => performSqliteCall<T>(opts),
-  )
-  callChain = run.then(() => undefined, () => undefined)
-  return run
+        throw lastError
+      },
+    }
+    job.timer = setTimeout(() => {
+      job.timer = undefined
+      const index = highQueue.indexOf(job) >= 0 ? highQueue : normalQueue
+      const at = index.indexOf(job)
+      if (at >= 0) index.splice(at, 1)
+      reject(new SqliteError('E_TIMEOUT', `SQLite 排队超时（>${queueMaxMs}ms，前面的长任务占用队列）`))
+    }, queueMaxMs)
+    ;(opts.priority === 'high' ? highQueue : normalQueue).push(job)
+    pumpSqliteQueue()
+  })
 }
 
 export function sqliteHealth(timeoutMs = 5_000): Promise<SqliteResponse> {
@@ -224,8 +260,9 @@ export function sqliteTx(ops: unknown[], opts: Omit<SqliteCallOptions, 'method' 
 export function sqliteQuery<T = unknown>(
   query: Record<string, unknown>,
   timeoutMs = 15_000,
+  priority: 'high' | 'normal' = 'normal',
 ): Promise<SqliteResponse<T>> {
-  return sqliteCall<T>({ method: 'query', payload: query, timeoutMs })
+  return sqliteCall<T>({ method: 'query', payload: query, timeoutMs, priority })
 }
 
 export function sqliteBackup(timeoutMs = 60_000): Promise<SqliteResponse> {

@@ -56,6 +56,8 @@ public class SqliteDao {
         }
         out.put("counts", counts);
         out.put("dataEpoch", getDataEpoch(db));
+        out.put("contentRevision", contentRevision(db));
+        out.put("contentRows", scalarLong(db, "SELECT COUNT(*) FROM content_kv"));
         File file = helper.appContext().getDatabasePath(MomoSqliteOpenHelper.DB_NAME);
         long size = file != null && file.exists() ? file.length() : 0;
         out.put("dbBytes", size);
@@ -184,6 +186,10 @@ public class SqliteDao {
             return db.update(table, cv, where.clause, where.args);
         }
         if ("delete".equals(action)) {
+            if (op.optBoolean("all", false)) {
+                // 仅 SqliteProtocol 白名单 facts 表会走到这里
+                return db.delete(table, null, null);
+            }
             Where where = buildWhere(op.getJSONObject("where"), null);
             return db.delete(table, where.clause, where.args);
         }
@@ -213,6 +219,201 @@ public class SqliteDao {
         } finally {
             db.endTransaction();
         }
+    }
+
+    private static final int CONTENT_MAX_ROWS = 500;
+    private static final int CONTENT_MAX_ROW_BYTES = 1024 * 1024;
+    private static final int CONTENT_MAX_TOTAL_BYTES = 8 * 1024 * 1024;
+
+    private long contentRevision(SQLiteDatabase db) {
+        android.database.Cursor cursor = null;
+        try {
+            cursor = db.rawQuery("SELECT value_json FROM schema_meta WHERE key='content_revision'", null);
+            if (cursor.moveToFirst()) {
+                String raw = cursor.getString(0);
+                return raw == null ? 0 : Long.parseLong(raw.trim());
+            }
+        } catch (Exception ignored) {
+            return 0;
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return 0;
+    }
+
+    private void setContentRevision(SQLiteDatabase db, long revision) {
+        ContentValues cv = new ContentValues();
+        cv.put("key", "content_revision");
+        cv.put("value_json", String.valueOf(revision));
+        cv.put("updated_at", System.currentTimeMillis());
+        db.insertWithOnConflict("schema_meta", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    private static String safeContentJson(JSONObject op) throws JSONException {
+        String json = op.optString("json", "");
+        if (json.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > CONTENT_MAX_ROW_BYTES) {
+            throw new IllegalArgumentException(SqliteProtocol.E_TOO_LARGE + ": content row > 1MB");
+        }
+        return json;
+    }
+
+    /** 0.14：按 prefix/kind/revision 列内容 KV；不经过 IDB。 */
+    public JSONObject contentList(JSONObject op) throws JSONException {
+        SQLiteDatabase db = db();
+        String prefix = op.optString("prefix", "");
+        String kind = op.optString("kind", "");
+        long fromRevision = op.optLong("fromRevision", -1);
+        long toRevision = op.optLong("toRevision", -1);
+        boolean includeDeleted = op.optBoolean("includeDeleted", false);
+        StringBuilder sql = new StringBuilder("SELECT key,kind,json,updated_at,revision,deleted FROM content_kv WHERE 1=1");
+        List<String> args = new ArrayList<String>();
+        if (!includeDeleted) sql.append(" AND deleted=0");
+        if (kind.length() > 0) { sql.append(" AND kind=?"); args.add(kind); }
+        if (prefix.length() > 0) {
+            sql.append(" AND key>=? AND key<?");
+            args.add(prefix);
+            args.add(prefix + "\uffff");
+        }
+        if (fromRevision >= 0) { sql.append(" AND revision>=?"); args.add(String.valueOf(fromRevision)); }
+        if (toRevision >= 0) { sql.append(" AND revision<=?"); args.add(String.valueOf(toRevision)); }
+        String orderBy = op.optString("orderBy", "revision");
+        if (!"key".equals(orderBy) && !"kind".equals(orderBy) && !"updated_at".equals(orderBy)
+                && !"revision".equals(orderBy) && !"deleted".equals(orderBy)) {
+            throw new IllegalArgumentException(SqliteProtocol.E_BAD_REQUEST + ": unsafe content orderBy " + orderBy);
+        }
+        sql.append(" ORDER BY ").append(orderBy);
+        String direction = op.optString("direction", "asc");
+        sql.append("desc".equalsIgnoreCase(direction) ? " DESC" : " ASC");
+        int limit = Math.max(1, Math.min(op.optInt("limit", 500), 1000));
+        int offset = Math.max(0, Math.min(op.optInt("offset", 0), 10_000_000));
+        sql.append(" LIMIT ").append(limit).append(" OFFSET ").append(offset);
+        Cursor cursor = db.rawQuery(sql.toString(), args.toArray(new String[0]));
+        JSONArray rows = new JSONArray();
+        try {
+            while (cursor.moveToNext()) rows.put(cursorRow(cursor));
+        } finally {
+            cursor.close();
+        }
+        JSONObject out = new JSONObject();
+        out.put("rows", rows);
+        out.put("count", rows.length());
+        out.put("limit", limit);
+        out.put("offset", offset);
+        out.put("hasMore", rows.length() == limit);
+        out.put("revision", contentRevision(db));
+        return out;
+    }
+
+    /** 批量按 key 读内容（恢复/缓存重建）。 */
+    public JSONObject contentGet(JSONObject op) throws JSONException {
+        JSONArray keys = op.optJSONArray("keys");
+        JSONArray rows = new JSONArray();
+        if (keys == null || keys.length() == 0) return new JSONObject().put("rows", rows);
+        if (keys.length() > CONTENT_MAX_ROWS) throw new IllegalArgumentException(SqliteProtocol.E_TOO_LARGE + ": too many keys");
+        StringBuilder sql = new StringBuilder("SELECT key,kind,json,updated_at,revision,deleted FROM content_kv WHERE key IN (");
+        List<String> args = new ArrayList<String>();
+        for (int i = 0; i < keys.length(); i++) {
+            if (i > 0) sql.append(',');
+            sql.append('?');
+            args.add(keys.getString(i));
+        }
+        sql.append(')');
+        Cursor cursor = db().rawQuery(sql.toString(), args.toArray(new String[0]));
+        try { while (cursor.moveToNext()) rows.put(cursorRow(cursor)); }
+        finally { cursor.close(); }
+        return new JSONObject().put("rows", rows);
+    }
+
+    /** 原子内容写入：校验 expectedRevision → upsert/tombstone → rev+1，单事务。 */
+    public JSONObject contentWrite(JSONObject op) throws JSONException {
+        JSONArray entries = op.optJSONArray("entries");
+        JSONArray deletes = op.optJSONArray("deletes");
+        int entryCount = entries == null ? 0 : entries.length();
+        int deleteCount = deletes == null ? 0 : deletes.length();
+        if (entryCount + deleteCount > CONTENT_MAX_ROWS) {
+            throw new IllegalArgumentException(SqliteProtocol.E_TOO_LARGE + ": too many content writes");
+        }
+        SQLiteDatabase db = db();
+        db.beginTransaction();
+        try {
+            long current = contentRevision(db);
+            long expected = op.optLong("expectedRevision", -1);
+            if (expected >= 0 && expected != current) {
+                throw new IllegalArgumentException(SqliteProtocol.E_CONFLICT + ": content revision " + current + " != " + expected);
+            }
+            long revision = current + 1;
+            long now = System.currentTimeMillis();
+            long totalBytes = 0;
+            int upserts = 0;
+            int tombstones = 0;
+            if (entries != null) {
+                for (int i = 0; i < entries.length(); i++) {
+                    JSONObject entry = entries.getJSONObject(i);
+                    String key = entry.optString("key", "");
+                    String kind = entry.optString("kind", "");
+                    if (key.length() == 0 || key.length() > 256 || kind.length() == 0 || kind.length() > 64) {
+                        throw new IllegalArgumentException(SqliteProtocol.E_BAD_REQUEST + ": bad content key/kind");
+                    }
+                    String json = safeContentJson(entry);
+                    totalBytes += json.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+                    if (totalBytes > CONTENT_MAX_TOTAL_BYTES) {
+                        throw new IllegalArgumentException(SqliteProtocol.E_TOO_LARGE + ": content batch > 8MB");
+                    }
+                    ContentValues cv = new ContentValues();
+                    cv.put("key", key);
+                    cv.put("kind", kind);
+                    cv.put("json", json);
+                    cv.put("updated_at", entry.optLong("updated_at", now));
+                    cv.put("revision", revision);
+                    cv.put("deleted", 0);
+                    if (db.insertWithOnConflict("content_kv", null, cv, SQLiteDatabase.CONFLICT_REPLACE) == -1) {
+                        throw new SQLiteException("content upsert failed: " + key);
+                    }
+                    upserts++;
+                }
+            }
+            if (deletes != null) {
+                for (int i = 0; i < deletes.length(); i++) {
+                    String key = deletes.getString(i);
+                    if (key == null || key.length() == 0) continue;
+                    ContentValues cv = new ContentValues();
+                    cv.put("deleted", 1);
+                    cv.put("revision", revision);
+                    cv.put("updated_at", now);
+                    db.update("content_kv", cv, "key=?", new String[]{key});
+                    tombstones++;
+                }
+            }
+            setContentRevision(db, revision);
+            db.setTransactionSuccessful();
+            JSONObject out = new JSONObject();
+            out.put("ok", true);
+            out.put("revision", revision);
+            out.put("upserts", upserts);
+            out.put("tombstones", tombstones);
+            out.put("deletes", tombstones);
+            return out;
+        } finally {
+            db.endTransaction();
+        }
+    }
+
+    /** 内容计数：total/byKind/deleted + 当前 revision。 */
+    public JSONObject contentCounts(JSONObject op) throws JSONException {
+        SQLiteDatabase db = db();
+        JSONObject out = new JSONObject();
+        JSONObject byKind = new JSONObject();
+        out.put("total", scalarLong(db, "SELECT COUNT(*) FROM content_kv"));
+        out.put("deleted", scalarLong(db, "SELECT COUNT(*) FROM content_kv WHERE deleted=1"));
+        Cursor cursor = db.rawQuery("SELECT kind,COUNT(*) FROM content_kv GROUP BY kind", null);
+        try {
+            while (cursor.moveToNext()) byKind.put(cursor.getString(0), cursor.getLong(1));
+        } finally {
+            cursor.close();
+        }
+        out.put("byKind", byKind);
+        out.put("revision", contentRevision(db));
+        return out;
     }
 
     public JSONObject backup(String name) throws IOException, JSONException {
@@ -474,6 +675,36 @@ public class SqliteDao {
         long leftovers = scalarLong(db,
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='__m1_self_test'");
         checks.put("tempTableDropped", leftovers == 0);
+        // 0.14：content_kv 事务回滚 + expectedRevision 冲突（不写用户内容）。
+        try {
+            long contentRev = contentRevision(db);
+            JSONObject stale = new JSONObject();
+            stale.put("expectedRevision", contentRev + 1000);
+            stale.put("entries", new JSONArray());
+            boolean conflict = false;
+            try { contentWrite(stale); } catch (IllegalArgumentException expected) {
+                conflict = String.valueOf(expected.getMessage()).startsWith(SqliteProtocol.E_CONFLICT);
+            }
+            checks.put("contentRevisionConflict", conflict);
+            db.beginTransaction();
+            try {
+                ContentValues cv = new ContentValues();
+                cv.put("key", "__content_self_test__");
+                cv.put("kind", "test");
+                cv.put("json", "{}");
+                cv.put("updated_at", System.currentTimeMillis());
+                cv.put("revision", contentRev + 1);
+                cv.put("deleted", 0);
+                db.insertWithOnConflict("content_kv", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+            } finally {
+                db.endTransaction();
+            }
+            boolean absent = scalarLong(db, "SELECT COUNT(*) FROM content_kv WHERE key='__content_self_test__'") == 0;
+            checks.put("contentTransactionRollback", absent && contentRevision(db) == contentRev);
+        } catch (Exception error) {
+            checks.put("contentRevisionConflict", false);
+            checks.put("contentTransactionRollback", false);
+        }
         JSONObject afterCounts = userTableCounts(db);
         checks.put("userTablesUntouched", beforeCounts.toString().equals(afterCounts.toString()));
         checks.put("beforeCounts", beforeCounts);
@@ -488,6 +719,8 @@ public class SqliteDao {
                 && checks.optBoolean("transactionSawInsert")
                 && checks.optBoolean("transactionRollback")
                 && checks.optBoolean("tempTableDropped")
+                && checks.optBoolean("contentRevisionConflict")
+                && checks.optBoolean("contentTransactionRollback")
                 && checks.optBoolean("userTablesUntouched")
                 && "FULL".equals(checks.optString("writeSynchronous")));
         out.put("checks", checks);

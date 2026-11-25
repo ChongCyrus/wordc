@@ -24,8 +24,8 @@ beforeEach(async () => {
 })
 
 describe('设置项默认值（SPEC §5，AC4）', () => {
-  it('全部设置 key 与其默认值（53 项：含 0.11.1 rootAffixCardStyle）', async () => {
-    expect(SETTING_KEYS).toHaveLength(53)
+  it('全部设置 key 与其默认值（56 项：含 0.11.1 rootAffixCardStyle / 0.14 内容自动备份）', async () => {
+    expect(SETTING_KEYS).toHaveLength(56)
     const settings = await getSettings()
     expect(settings['study.dailyGoal']).toBe(30)
     expect(settings['board.exampleCount']).toBe(2)

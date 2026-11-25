@@ -560,7 +560,11 @@ async function restoreAutoBackupInner(
     const report = await Promise.race([
       importTask,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`恢复超时（>${Math.round(timeoutMs / 1000)}s）`)), timeoutMs)
+        timer = setTimeout(() => {
+          // 先置取消信号，再 reject；避免 late import 在 catch 前继续写
+          timedOut = true
+          reject(new Error(`恢复超时（>${Math.round(timeoutMs / 1000)}s）`))
+        }, timeoutMs)
       }),
     ])
     if (timer) clearTimeout(timer)

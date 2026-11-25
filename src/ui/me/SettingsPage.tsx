@@ -68,6 +68,7 @@ import { PageShell } from '../components/PageShell'
 import { SearchFilterBar } from '../components/SearchFilterBar'
 import { SectionBand } from '../components/SectionBand'
 import { SettingRow } from '../components/SettingRow'
+import { ContentBackupSection } from './ContentBackupSection'
 import { Switch } from '../components/Switch'
 import { Stepper, Slider } from '../components/Stepper'
 import { SegmentedControl } from '../components/SegmentedControl'
@@ -733,6 +734,7 @@ export default function SettingsPage() {
 
       <SectionBand title="数据" />
       <div className="mm-list">
+        <ContentBackupSection />
         <SettingRow
           label="当前在学词库"
           hint={selectedDeck ? `${selectedDeck.wordCount} 词` : '未选择'}
@@ -779,18 +781,6 @@ export default function SettingsPage() {
           hint={importing ? '正在导入…' : '选择 .migration.json，默认合并'}
           chevron
           onClick={() => void handlePickMigrationImport()}
-        />
-        <SettingRow
-          label="自动备份内容（实验）"
-          hint="开启后先做一次完整基线备份，之后只做增量；内容备份在后台进行，不阻塞学习；失败不会影响学习进度。最近状态：即将支持（引擎未就绪）"
-          control={
-            <Switch
-              label="自动备份内容（实验）"
-              checked={s['backup.autoContentEnabled'] === true}
-              onChange={(checked) => void patch({ 'backup.autoContentEnabled': checked })}
-              disabled
-            />
-          }
         />
         <SettingRow
           label="清空全部数据"

@@ -20,7 +20,9 @@ describe('A3 staging import', () => {
       clearFacts: (async () => { calls.push('clear') }) as never,
       migrate: (async () => { calls.push('migrate'); return { ok: true, dryRun: false, counts: { states: 1, plans: 0, settings: 1, reviewLogs: 0 }, batches: 1 } }) as never,
       rebuildCache: (async () => { calls.push('rebuild'); return { ok: true, dryRun: false, delta: { states: 0, plans: 0, settings: 0, reviewLogs: 0 }, cacheCounts: { states: 1, plans: 0, settings: 1, reviewLogs: 0 }, sqliteCounts: { states: 1, plans: 0, settings: 1, reviewLogs: 0 } } }) as never,
-      health: async () => ({ ok: true, counts: { states: 1, plans: 0, settings: 1, review_logs: 0 } }),
+      // 0.14 G2：恢复成功后 resetContentWriteSourceForImport 会写入 data.contentWriteSource 设置行，
+      // 因此 settings 计数应按真实 IDB counts 动态返回（生产 staging 的 health 也是真实 SQLite counts）。
+      health: async () => { const db = (await import('../../src/data')).getDb(); return { ok: true, counts: { states: await db.states.count(), plans: await db.plans.count(), settings: await db.settings.count(), review_logs: await db.reviewLogs.count() } } },
     }
     const report = await importMigration(text, { strategy: 'replace', preBackup: async () => ({ ok: true }), sqliteStageImpl: impl })
     expect(report.ok).toBe(true)

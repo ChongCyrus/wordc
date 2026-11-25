@@ -34,7 +34,7 @@ function install(opts: { settings?: Row[]; failTx?: boolean; noCounts?: boolean 
       setTimeout(() => {
         const callback = (globalThis as unknown as { __momoSqliteResult?: (id: string, j: string) => void }).__momoSqliteResult
         if (req.method === 'health') {
-          callback?.(id, JSON.stringify(opts.noCounts ? { ok: true, userVersion: 2 } : { ok: true, userVersion: 2, counts: { states: 0, plans: 0, settings: rows.length, review_logs: 0 } }))
+          callback?.(id, JSON.stringify(opts.noCounts ? { ok: true, userVersion: 3 } : { ok: true, userVersion: 3, counts: { states: 0, plans: 0, settings: rows.length, review_logs: 0 } }))
           return
         }
         if (req.method === 'tx') {
@@ -88,7 +88,7 @@ describe('0.11.0 · M4b-1 settings write', () => {
     const mock = install({ settings: existing })
     // 模拟 cache meta v2 就绪
     const { writeIdbCacheMeta, getDataEpoch } = await import('../../src/data')
-    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 2, dirty: false, rebuiltAt: Date.now() })
+    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 3, dirty: false, rebuiltAt: Date.now() })
     let checkpoints = 0
     setSettingsCheckpointScheduler(() => { checkpoints += 1 })
     const enabled = await enableSettingsSqliteWrite({
@@ -131,7 +131,7 @@ describe('0.11.0 · M4b-1 settings write', () => {
   it('重启恢复 sqlite 模式；门禁失败回 idb + diag', async () => {
     await seed()
     const { writeIdbCacheMeta, getDataEpoch } = await import('../../src/data')
-    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 2, dirty: false, rebuiltAt: Date.now() })
+    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 3, dirty: false, rebuiltAt: Date.now() })
     install({ settings: [] })
     await persistSettingsWriteMode('sqlite')
     setSettingsWriteMode('idb')
@@ -148,7 +148,7 @@ describe('0.11.0 · M4b-1 settings write', () => {
   it('缺 counts 拒绝切换', async () => {
     await seed()
     const { writeIdbCacheMeta, getDataEpoch } = await import('../../src/data')
-    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 2, dirty: false, rebuiltAt: Date.now() })
+    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 3, dirty: false, rebuiltAt: Date.now() })
     install({ settings: [], noCounts: true })
     const result = await enableSettingsSqliteWrite({ preBackup: async () => ({ ok: true }) })
     expect(result.ok).toBe(false)
@@ -160,7 +160,7 @@ describe('0.11.0 · M4b-1 settings write', () => {
     const existingSettings = (await getDb().settings.toArray()).map((row) => ({ key: row.key, value: row.value }))
     const mock = install({ settings: existingSettings })
     const { writeIdbCacheMeta, getDataEpoch } = await import('../../src/data')
-    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 2, dirty: false, rebuiltAt: Date.now() })
+    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 3, dirty: false, rebuiltAt: Date.now() })
     const enabled = await enableSettingsSqliteWrite({ preBackup: async () => ({ ok: true }), expectedCounts: { states: 0, plans: 0, settings: existingSettings.length, reviewLogs: 0 } })
     expect(enabled.ok).toBe(true)
     await resetSettings()
@@ -175,7 +175,7 @@ describe('0.11.0 · M4b-1 settings write', () => {
     const existingSettings = (await getDb().settings.toArray()).map((row) => ({ key: row.key, value: row.value }))
     const mock = install({ settings: existingSettings })
     const { writeIdbCacheMeta, getDataEpoch } = await import('../../src/data')
-    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 2, dirty: false, rebuiltAt: Date.now() })
+    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 3, dirty: false, rebuiltAt: Date.now() })
     const enabled = await enableSettingsSqliteWrite({ preBackup: async () => ({ ok: true }), expectedCounts: { states: 0, plans: 0, settings: existingSettings.length, reviewLogs: 0 } })
     expect(enabled.ok).toBe(true)
     const result = await updateDailyGoalAndResync(31)
@@ -193,7 +193,7 @@ describe('0.11.0 · M4b-1 settings write', () => {
     const existingSettings = (await getDb().settings.toArray()).map((row) => ({ key: row.key, value: row.value }))
     const mock = install({ settings: existingSettings })
     const { writeIdbCacheMeta, getDataEpoch } = await import('../../src/data')
-    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 2, dirty: false, rebuiltAt: Date.now() })
+    await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: 3, dirty: false, rebuiltAt: Date.now() })
     const enabled = await enableSettingsSqliteWrite({ preBackup: async () => ({ ok: true }), expectedCounts: { states: 0, plans: 0, settings: existingSettings.length, reviewLogs: 0 } })
     expect(enabled.ok).toBe(true)
     const db = getDb()

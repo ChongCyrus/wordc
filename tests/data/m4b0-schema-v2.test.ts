@@ -54,7 +54,7 @@ afterEach(() => setSqliteTransport(null))
 describe('0.11.0 · M4b-0 schema v2', () => {
   it('v2 DDL 幂等包含 client_ops/client_op_id+唯一索引；门禁通过并升 cache meta=2', async () => {
     const ddl = SQLITE_DDL.join('\n')
-    expect(SQLITE_SCHEMA_VERSION).toBe(2)
+    expect(SQLITE_SCHEMA_VERSION).toBe(3)
     expect(ddl).toContain('CREATE TABLE IF NOT EXISTS client_ops')
     expect(ddl).toContain('client_op_id TEXT')
     expect(ddl).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_logs_client_op')
@@ -66,15 +66,15 @@ describe('0.11.0 · M4b-0 schema v2', () => {
       expectedCounts: { states: 241, plans: 1, settings: 11, reviewLogs: 0 },
     })
     expect(result.ok).toBe(true)
-    expect(result.userVersion).toBe(2)
+    expect(result.userVersion).toBe(3)
     expect(result.counts).toEqual({ states: 241, plans: 1, settings: 11, reviewLogs: 0 })
     expect(backups).toBe(1)
     expect(mock.calls).toEqual(['health', 'query'])
-    expect(await getIdbCacheMeta()).toMatchObject({ sqliteUserVersion: 2, dirty: false })
+    expect(await getIdbCacheMeta()).toMatchObject({ sqliteUserVersion: 3, dirty: false })
     // 重复执行：仍通过，不执行 DDL/ALTER
     const again = await ensureM4b0Schema({ expectedCounts: { states: 241, plans: 1, settings: 11, reviewLogs: 0 } })
     expect(again.ok).toBe(true)
-    expect(await getIdbCacheMeta()).toMatchObject({ sqliteUserVersion: 2, dirty: false })
+    expect(await getIdbCacheMeta()).toMatchObject({ sqliteUserVersion: 3, dirty: false })
   })
 
   it('备份失败拒绝；v1 未升级拒绝；counts 变化拒绝；migration 未 done 拒绝', async () => {

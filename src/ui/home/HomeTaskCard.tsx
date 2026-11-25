@@ -23,6 +23,8 @@ export interface HomeTaskCardProps {
   /** manual 模式：无计划时引导添加今日新单词 */
   manualMode?: boolean
   onAddWords?: () => void
+  addWordsDisabled?: boolean
+  addWordsLoading?: boolean
   /** 今日已学拆分（task-50；数据未就绪时不传，不渲染该行） */
   breakdown?: HomeTaskBreakdown
   /** 今日到期超出复习上限而顺延的数量（task-52；>0 时显示提示） */
@@ -53,6 +55,8 @@ export function HomeTaskCard({
   plannedTotal,
   manualMode = false,
   onAddWords,
+  addWordsDisabled = false,
+  addWordsLoading = false,
   breakdown,
   reviewBacklog,
   reviewCap,
@@ -149,8 +153,8 @@ export function HomeTaskCard({
       </div>
 
       {showAddWords ? (
-        <Button variant="primary" size="lg" block onClick={onAddWords}>
-          添加今日新单词
+        <Button variant="primary" size="lg" block disabled={addWordsDisabled} onClick={onAddWords}>
+          {addWordsLoading ? '内容迁移中…' : '添加今日新单词'}
         </Button>
       ) : showLearnButton ? (
         <Button

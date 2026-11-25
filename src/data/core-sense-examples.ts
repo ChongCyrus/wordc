@@ -1,6 +1,10 @@
-/** 0.3.72：本义代表 c / 本义例句（AI 预览确认后写库） */
+/**
+ * 0.3.72：本义代表 c / 本义例句（AI 预览确认后写库）。
+ * 0.14：写入口统一走 saveWordOverlay——sqlite 模式先写 content_kv（word-overlay），失败抛结构化错误且不回写 IDB；idb 模式行为不变。
+ */
 import { getDb } from './db'
 import { getEffectiveContent } from './packs.repo'
+import { saveWordOverlay } from './content-write-source'
 import type { CoreSenseExampleEntry, Example } from '../core'
 
 export type { CoreSenseExampleEntry } from '../core'
@@ -199,7 +203,7 @@ export async function saveCoreSenseExamples(
     if (fallback >= 0) list.splice(fallback, 1)
     if (list.length > 0) word.coreSenseExamples = list
     else delete word.coreSenseExamples
-    await getDb().words.put(word)
+    await saveWordOverlay(word)
     return null
   }
   const entry: CoreSenseExampleEntry = {
@@ -212,7 +216,7 @@ export async function saveCoreSenseExamples(
   if (fallback >= 0) list[fallback] = entry
   else list.push(entry)
   word.coreSenseExamples = list
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return entry
 }
 
@@ -225,7 +229,7 @@ export async function clearCoreSenseExamples(
   if (!target) {
     if (!word.coreSenseExamples) return
     delete word.coreSenseExamples
-    await getDb().words.put(word)
+    await saveWordOverlay(word)
     return
   }
   const label = target.label?.trim()
@@ -238,5 +242,5 @@ export async function clearCoreSenseExamples(
   )
   if (next.length > 0) word.coreSenseExamples = next
   else delete word.coreSenseExamples
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
 }

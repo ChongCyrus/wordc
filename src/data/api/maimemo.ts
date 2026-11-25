@@ -9,6 +9,8 @@
  */
 
 import type { ImportIssue, ImportReport, ReviewLog, Word, WordState } from '../../core'
+import { ContentWriteError, saveContentEntitiesChunked } from '../content-write-source'
+import { wordOverlayOf } from '../content-snapshot'
 import { getDb } from '../db'
 import { getLearningWriteSource } from '../learning-write-source'
 import { sqliteTx } from '../native-sqlite'
@@ -214,6 +216,27 @@ async function recordLastImport(result: MaimemoImportResult): Promise<void> {
 }
 
 /**
+ * 0.14 B5：墨墨导入回写的 `maimemoVocId` 属于内置词 overlay，统一走内容写源。
+ * - sqlite 模式：先写 content_kv（`saveContentEntitiesChunked` 内部保证成功后才更新 IDB cache）；
+ *   失败抛 `ContentWriteError`，**不回写 IDB**（避免 IDB/SQLite 双源）。
+ * - idb 模式：只更新 IDB cache，行为与旧版 `bulkPut` 等价。
+ * 学习 facts（states）不走这里，仍由调用处的原逻辑写。
+ */
+async function writeMaimemoWordOverlays(wordUpdates: readonly Word[]): Promise<void> {
+  if (wordUpdates.length === 0) return
+  const rows = wordUpdates.map((word) => ({
+    key: `word-overlay:${word.id}`,
+    kind: 'word-overlay' as const,
+    json: JSON.stringify(wordOverlayOf(word as unknown as Record<string, unknown>)),
+    updatedAt: Date.now(),
+  }))
+  const result = await saveContentEntitiesChunked(rows)
+  if (!result.ok) {
+    throw new ContentWriteError(result.error ?? '墨墨导入 overlay 写入失败', 'CONTENT_SQLITE_WRITE_FAILED')
+  }
+}
+
+/**
  * 把墨墨学习记录写成本地学习状态（**纯本地，不联网**）。
  * 手动粘贴 JSON 与 API 自动导入共用这条路径（SPEC §7.3 手动降级）。
  */
@@ -262,10 +285,12 @@ export async function importMaimemoRecords(records: unknown[]): Promise<MaimemoI
           const tx = await sqliteTx(ops)
           if (tx.ok === false) throw new Error(tx.message ?? '墨墨导入 SQLite 写入失败')
         }
+        // 0.14 B5：maimemoVocId 是内置词 overlay，走统一写源（content_kv 成功后才回写 IDB cache）。
+        // 放在 facts cache 之前：失败时直接抛错回滚 facts，IDB 一个字节都不写。
+        await writeMaimemoWordOverlays(wordUpdates)
         try {
-          await db.transaction('rw', db.states, db.words, db.meta, async () => {
+          await db.transaction('rw', db.states, db.meta, async () => {
             await bulkPutChunked(db.states, mapped.states)
-            if (wordUpdates.length > 0) await bulkPutChunked(db.words, wordUpdates)
           })
         } catch {
           const { markIdbCacheDirty } = await import('../idb-cache')
@@ -285,9 +310,10 @@ export async function importMaimemoRecords(records: unknown[]): Promise<MaimemoI
       }
     })
   }
-  await db.transaction('rw', db.states, db.words, db.meta, async () => {
+  // 0.14 B5：overlay 统一写源；idb 模式等价旧版 bulkPut，sqlite 模式先 content_kv 再 cache
+  await writeMaimemoWordOverlays(wordUpdates)
+  await db.transaction('rw', db.states, db.meta, async () => {
     await bulkPutChunked(db.states, mapped.states)
-    if (wordUpdates.length > 0) await bulkPutChunked(db.words, wordUpdates)
   })
   await recordLastImport(result)
   return result

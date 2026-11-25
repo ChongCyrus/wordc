@@ -28,10 +28,14 @@ public final class SqliteProtocol {
     public static final String E_BAD_REQUEST = "E_BAD_REQUEST";
 
     public static final Set<String> TABLES = new HashSet<String>(Arrays.asList(
-            "states", "plans", "settings", "review_logs", "client_ops", "diag", "schema_meta", "migration_state"
+            "states", "plans", "settings", "review_logs", "client_ops", "diag", "schema_meta", "migration_state", "content_kv"
+    ));
+    /** 0.15：允许 `all:true` 原子清空的事实表白名单（P1-10） */
+    public static final Set<String> CLEARABLE_TABLES = new HashSet<String>(Arrays.asList(
+            "states", "plans", "review_logs"
     ));
     public static final Set<String> METHODS = new HashSet<String>(Arrays.asList(
-            "health", "query", "exec", "tx", "backup", "restoreDb", "listBackups", "deleteBackup", "writeBackupManifest", "readBackupManifest", "integrity", "selfTest"
+            "health", "query", "exec", "tx", "contentList", "contentGet", "contentWrite", "contentCounts", "backup", "restoreDb", "listBackups", "deleteBackup", "writeBackupManifest", "readBackupManifest", "integrity", "selfTest"
     ));
 
     private SqliteProtocol() {}
@@ -113,6 +117,10 @@ public final class SqliteProtocol {
             validateColumns(patch);
         }
         if ("delete".equals(action)) {
+            if (op.optBoolean("all", false)) {
+                if (!CLEARABLE_TABLES.contains(table)) throw new IllegalArgumentException(E_UNSUPPORTED + ": delete all not allowed for " + table);
+                return;
+            }
             JSONObject where = op.optJSONObject("where");
             if (where == null || where.length() == 0) throw new IllegalArgumentException(E_BAD_REQUEST + ": delete where required");
             if (where.has("*")) throw new IllegalArgumentException(E_BAD_REQUEST + ": delete * not allowed");
@@ -145,6 +153,7 @@ public final class SqliteProtocol {
         if ("review_logs".equals(table)) return "id".equals(column);
         if ("client_ops".equals(table)) return "op_id".equals(column);
         if ("migration_state".equals(table)) return "step".equals(column);
+        if ("content_kv".equals(table)) return "key".equals(column) || "kind".equals(column) || "updated_at".equals(column) || "revision".equals(column) || "deleted".equals(column);
         return false;
     }
 }

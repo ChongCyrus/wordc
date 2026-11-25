@@ -33,6 +33,7 @@ import {
   saveResultMessage,
 } from '../../app/utils/files'
 import { BRAND } from '../../app/brand'
+import { mapContentError } from '../../app/utils/content-errors'
 import { PageShell } from '../components/PageShell'
 import { SectionBand } from '../components/SectionBand'
 import { SettingRow } from '../components/SettingRow'
@@ -89,7 +90,7 @@ export default function ImportExportPage() {
       if (report.ok) toast.success(reportText(report))
       else toast.error(reportText(report))
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '导入失败')
+      toast.error(mapContentError(error, '导入失败'))
     } finally {
       setBusy(null)
     }
@@ -123,7 +124,7 @@ export default function ImportExportPage() {
         toast.error(result.error ?? '恢复失败')
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '恢复失败')
+      toast.error(mapContentError(error, '恢复失败'))
     } finally {
       setBusy(null)
     }

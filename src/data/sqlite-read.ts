@@ -128,19 +128,19 @@ async function withIdbFallback<T>(sqliteRead: () => Promise<T>, idbRead: () => P
   }
 }
 
-async function queryRows(table: string, where: Record<string, unknown>, limit = 1): Promise<Record<string, unknown>[]> {
-  const response = await sqliteQuery({ table, where, limit }, 800)
+async function queryRows(table: string, where: Record<string, unknown>, limit = 1, priority: 'high' | 'normal' = 'normal'): Promise<Record<string, unknown>[]> {
+  const response = await sqliteQuery({ table, where, limit }, 800, priority)
   return (response.rows as Record<string, unknown>[] | undefined) ?? []
 }
 
 /** M2 只用 SQLite 回源，不写 cache/不迁移；无 SQLite 时回退 IDB */
-export async function readStateThroughCache(wordId: string): Promise<WordState | null> {
+export async function readStateThroughCache(wordId: string, priority: 'high' | 'normal' = 'normal'): Promise<WordState | null> {
   if (!isSqliteAvailable() || (await cacheUsable())) {
     return (await getDb().states.get(wordId)) ?? null
   }
   return withIdbFallback(
     async () => {
-      const rows = await queryRows('states', { word_id: wordId }, 1)
+      const rows = await queryRows('states', { word_id: wordId }, 1, priority)
       return rows[0] ? mapSqliteStateRow(rows[0]) : null
     },
     async () => (await getDb().states.get(wordId)) ?? null,
@@ -172,13 +172,13 @@ export async function readStatesThroughCache(wordIds?: readonly string[]): Promi
   )
 }
 
-export async function readPlanThroughCache(planId: string): Promise<DailyPlan | null> {
+export async function readPlanThroughCache(planId: string, priority: 'high' | 'normal' = 'normal'): Promise<DailyPlan | null> {
   if (!isSqliteAvailable() || (await cacheUsable())) {
     return (await getDb().plans.get(planId)) ?? null
   }
   return withIdbFallback(
     async () => {
-      const rows = await queryRows('plans', { id: planId }, 1)
+      const rows = await queryRows('plans', { id: planId }, 1, priority)
       return rows[0] ? mapSqlitePlanRow(rows[0]) : null
     },
     async () => (await getDb().plans.get(planId)) ?? null,

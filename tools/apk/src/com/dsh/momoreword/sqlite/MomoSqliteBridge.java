@@ -158,6 +158,18 @@ public class MomoSqliteBridge {
             if (ops == null) throw new IllegalArgumentException(SqliteProtocol.E_BAD_REQUEST + ": tx ops required");
             changes = dao.tx(ops);
             result = new JSONObject();
+        } else if ("contentList".equals(method)) {
+            JSONObject payload = req.optJSONObject("payload");
+            return flatten(req, method, dao.contentList(payload != null ? payload : req), 0);
+        } else if ("contentGet".equals(method)) {
+            JSONObject payload = req.optJSONObject("payload");
+            return flatten(req, method, dao.contentGet(payload != null ? payload : req), 0);
+        } else if ("contentWrite".equals(method)) {
+            JSONObject payload = req.optJSONObject("payload");
+            return flatten(req, method, dao.contentWrite(payload != null ? payload : req), 0);
+        } else if ("contentCounts".equals(method)) {
+            JSONObject payload = req.optJSONObject("payload");
+            return flatten(req, method, dao.contentCounts(payload != null ? payload : req), 0);
         } else if ("backup".equals(method)) {
             String backupName = req.optString("name", "");
             if (backupName.length() == 0) {

@@ -10,9 +10,10 @@ const hook = readFileSync(
 )
 
 describe('task-275 最后词 requeue 完成判断', () => {
-  it('评分后回读最新 plan 再判断完成；保留调试日志', () => {
-    expect(hook).toContain('const fresh = await getTodayPlan')
-    expect(hook).toContain('if (fresh) planAfter = fresh')
+  it('使用 rateInPlan 返回的最新 plan 判断完成；保留调试日志', () => {
+    // 性能优化：rateInPlan 已返回提交后最新 plan，不再每次评分调用 getTodayPlan
+    expect(hook).not.toContain('const fresh = await getTodayPlan')
+    expect(hook).toContain('let planAfter: DailyPlan | null = outcome.plan')
     expect(hook).toContain("console.debug('[rate]'")
     expect(hook).toContain('planAfter.index >= planAfter.wordIds.length')
     expect(hook).not.toContain('planAfter.completedAt != null ||')

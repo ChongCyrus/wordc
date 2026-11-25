@@ -1,6 +1,8 @@
 /** 0.4.0/task-284 C1：rootEtymology 独立 bundle 导出/导入（版本/checksum/merge/手改保护/预装预留） */
 import { computeChecksum, stableStringify } from './checksum'
 import { getDb } from './db'
+import { ContentWriteError, saveContentEntitiesChunked, saveWordOverlay } from './content-write-source'
+import { wordOverlayOf } from './content-snapshot'
 import type { RootEtymology, Word } from '../core/types'
 import { ROOT_ETYMOLOGY_VERSION, normalizeRootEtymologyParts } from './root-etymology'
 
@@ -140,6 +142,8 @@ export async function importRootEtymologyBundle(
       rows = []
     }
     const updates: Word[] = []
+    /** 0.14：需要清除 rootEtymology 的词（overlay 合并无法表达字段删除，走单条写入口） */
+    const clears: Word[] = []
     for (let index = 0; index < chunk.length; index += 1) {
       const item = chunk[index]
       try {
@@ -178,15 +182,46 @@ export async function importRootEtymologyBundle(
           ...(item.rootEtymologyCheckedAt != null ? { rootEtymologyCheckedAt: item.rootEtymologyCheckedAt } : {}),
           ...(item.rootEtymologyVersion ? { rootEtymologyVersion: item.rootEtymologyVersion } : {}),
         }
-        if (!incoming) delete next.rootEtymology
-        updates.push(next)
+        if (!incoming) {
+          delete next.rootEtymology
+          clears.push(next)
+        } else {
+          updates.push(next)
+        }
       } catch (error) {
         report.failed.push({ wordId: String(item?.wordId ?? '?'), reason: error instanceof Error ? error.message : String(error) })
       }
     }
-    if (updates.length > 0) {
+    // 0.14：统一内容写入口。sqlite 成功后才更新 IDB cache；失败停止且不回写 IDB。
+    let writeStopped = false
+    for (const word of clears) {
       try {
-        await db.words.bulkPut(updates)
+        await saveWordOverlay(word)
+        report.updated += 1
+      } catch (error) {
+        report.failed.push({ wordId: word.id, reason: error instanceof Error ? error.message : String(error) })
+        if (error instanceof ContentWriteError) {
+          writeStopped = true
+          report.issues.push({ level: 'error', message: `词根词源 bundle 写入失败，已停止：${error.message}` })
+          break
+        }
+      }
+    }
+    if (writeStopped) break
+    if (updates.length > 0) {
+      const overlayRows = updates.map((word) => ({
+        key: `word-overlay:${word.id}`,
+        kind: 'word-overlay' as const,
+        json: JSON.stringify(wordOverlayOf(word as unknown as Record<string, unknown>)),
+        updatedAt: (word.rootEtymology as { updatedAt?: number } | undefined)?.updatedAt ?? now,
+      }))
+      try {
+        const saved = await saveContentEntitiesChunked(overlayRows)
+        if (!saved.ok) {
+          report.failed.push({ wordId: `batch:${start}`, reason: saved.error ?? '词根词源导入写入失败' })
+          report.issues.push({ level: 'error', message: `词根词源 bundle 写入失败，已停止：${saved.error ?? '未知错误'}` })
+          break
+        }
         report.updated += updates.length
       } catch (error) {
         report.failed.push({ wordId: `batch:${start}`, reason: error instanceof Error ? error.message : String(error) })

@@ -1,5 +1,9 @@
-/** 0.3.73：本义串联助记（一段话串起全部本义；AI 预览确认后写库） */
+/**
+ * 0.3.73：本义串联助记（一段话串起全部本义；AI 预览确认后写库）。
+ * 0.14：写入口统一走 saveWordOverlay——sqlite 模式先写 content_kv（word-overlay），失败抛结构化错误且不回写 IDB；idb 模式行为不变。
+ */
 import { getDb } from './db'
+import { saveWordOverlay } from './content-write-source'
 import type { CoreSenseOverview } from '../core'
 
 export type { CoreSenseOverview } from '../core'
@@ -24,7 +28,7 @@ export async function saveCoreSenseOverview(
     updatedAt: Date.now(),
   }
   word.coreSenseOverview = overview
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return overview
 }
 
@@ -32,5 +36,5 @@ export async function clearCoreSenseOverview(wordId: string): Promise<void> {
   const word = await getDb().words.get(wordId)
   if (!word?.coreSenseOverview) return
   delete word.coreSenseOverview
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
 }

@@ -32,7 +32,9 @@ import { getDb } from './db'
 import { readStateThroughCache, readStatesThroughCache } from './sqlite-read'
 import { withDataWriteLock } from './write-lock'
 import { getLearningWriteSource, LearningWriteReadonlyError } from './learning-write-source'
-import { submitRatingSqlite } from './study-sqlite'
+import { buildStateSqliteRow, submitRatingSqlite } from './study-sqlite'
+import { sqliteTx } from './native-sqlite'
+import { withStatsWriteLock } from './stats-write-queue'
 import { getDataEpoch } from './data-epoch'
 import { scrubPlansForRemovedWords } from './word-mutation'
 import { applyRatingToPlan } from './plan-core'
@@ -410,14 +412,30 @@ async function submitRatingInner(
  * 进入注释面：该词**全部**含义 encounters += 1（每个词每次会话只调一次，UI 幂等）。
  * 传 meaningIds 时只给存在的含义计数。
  */
-export async function recordMeaningEncounters(
+async function writeMeaningStatsState(next: WordState): Promise<void> {
+  const db = getDb()
+  if (getLearningWriteSource() === 'sqlite') {
+    const tx = await sqliteTx([{ op: 'upsert', table: 'states', row: buildStateSqliteRow(next) }])
+    if (tx.ok === false) throw new Error(tx.message ?? 'meaningStats SQLite 写入失败')
+    try {
+      await db.states.put(next)
+    } catch {
+      const { markIdbCacheDirty } = await import('./idb-cache')
+      await markIdbCacheDirty('meaning-stats-cache-failed').catch(() => undefined)
+    }
+    return
+  }
+  await db.states.put(next)
+}
+
+export function recordMeaningEncounters(
   wordId: string,
   meaningIds: string[],
 ): Promise<WordState> {
-  const db = getDb()
-  const now = Date.now()
-  return db.transaction('rw', db.words, db.states, async (): Promise<WordState> => {
-    const prev = await loadOrCreateState(wordId, now)
+  return withStatsWriteLock(wordId, async () => {
+    const db = getDb()
+    const now = Date.now()
+    const prev = (await readStateThroughCache(wordId)) ?? (await loadOrCreateState(wordId, now))
     const word = await db.words.get(wordId)
     const valid = word
       ? meaningIds.filter((id) => word.meanings.some((meaning) => meaning.id === id))
@@ -427,20 +445,19 @@ export async function recordMeaningEncounters(
       meaningStats: applyMeaningEncounters(prev.meaningStats, valid.length > 0 ? valid : []),
       updatedAt: now,
     }
-    await db.states.put(next)
+    await writeMeaningStatsState(next)
     return next
   })
 }
 
 /** 注释面点击某含义：clicks += 1（可重复点击，clicks 可 > encounters） */
-export async function recordMeaningClick(
+export function recordMeaningClick(
   wordId: string,
   meaningId: string,
   now: number = Date.now(),
 ): Promise<WordState> {
-  const db = getDb()
-  return db.transaction('rw', db.words, db.states, async (): Promise<WordState> => {
-    const prev = await loadOrCreateState(wordId, now)
+  return withStatsWriteLock(wordId, async () => {
+    const prev = (await readStateThroughCache(wordId)) ?? (await loadOrCreateState(wordId, now))
     const next: WordState = {
       ...prev,
       meaningStats: {
@@ -449,7 +466,7 @@ export async function recordMeaningClick(
       },
       updatedAt: now,
     }
-    await db.states.put(next)
+    await writeMeaningStatsState(next)
     return next
   })
 }

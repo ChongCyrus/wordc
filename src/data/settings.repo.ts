@@ -26,7 +26,6 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   'study.dailyGoal': 30,
   // 0.3.86：每日自动备份（APK 静默；Web 仅提示）
   'data.autoBackupEnabled': true,
-  'backup.autoContentEnabled': false,
   // 0.3.87：新词来源（默认 manual=用户添加；auto=旧自动排新词）
   'study.newWordSource': 'manual',
   // 0.3.91：添词默认方式/数量
@@ -34,6 +33,9 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   'study.addWordCount': 20,
   // 0.3.92：默认不做自动预装导入（避免首启卡；手动按钮可用）
   'data.generatedAutoSeed': false,
+  'backup.autoContentEnabled': false,
+  'backup.contentEventLogEnabled': true,
+  'data.contentWriteSource': 'idb',
   // 0.3.98：默认显示词根词缀词源分解
   'study.showRootEtymology': true,
   'study.rootAffixCardStyle': 'compact',
@@ -157,11 +159,13 @@ const RULES: Record<SettingKey, Rule> = {
     strictType: true,
   },
   'data.autoBackupEnabled': { kind: 'boolean' },
-  'backup.autoContentEnabled': { kind: 'boolean' },
   'study.newWordSource': { kind: 'enum', values: ['manual', 'auto'] },
+  'data.contentWriteSource': { kind: 'enum', values: ['idb', 'sqlite'] },
   'study.addWordMode': { kind: 'enum', values: ['manual', 'random', 'order'] },
   'study.addWordCount': { kind: 'number', min: 1, max: 999, step: 1 },
   'data.generatedAutoSeed': { kind: 'boolean' },
+  'backup.autoContentEnabled': { kind: 'boolean' },
+  'backup.contentEventLogEnabled': { kind: 'boolean' },
   'study.showRootEtymology': { kind: 'boolean' },
   'study.rootAffixCardStyle': { kind: 'enum', values: ['compact', 'standard'] },
   'memory.rootAffixOnly': { kind: 'boolean' },
@@ -449,7 +453,8 @@ async function writeSettingsRowsSqlite(rows: SettingRecord[], now: number): Prom
   if (response.ok === false) throw new Error(response.message ?? 'settings SQLite 写入失败')
 }
 
-export async function updateSettings(patch: Partial<SettingsMap>): Promise<AppSettings> {
+export async function updateSettings(patch: Partial<SettingsMap>, opts: { allowContentWriteSource?: boolean } = {}): Promise<AppSettings> {
+  if ('data.contentWriteSource' in patch && opts.allowContentWriteSource !== true) throw new Error('data.contentWriteSource 只能通过 switchContentWriteSource 切换')
   const db = getDb()
   const now = Date.now()
   const built = buildSettingRows(patch, now)

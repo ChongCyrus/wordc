@@ -103,6 +103,9 @@ export function listValidSqliteBackups(bridge: AutoBackupBridge): Array<AutoBack
 /** 恢复前校验 manifest 与当前 SQLite counts 是否可恢复；只读/不一致拒绝 */
 export async function preflightSqliteRestore(manifest: SqliteBackupManifest): Promise<{ ok: boolean; error?: string }> {
   if (manifest.integrityOk !== true) return { ok: false, error: '备份 integrity 未通过' }
+  if (manifest.userVersion != null && Number(manifest.userVersion) !== SQLITE_SCHEMA_VERSION) {
+    return { ok: false, error: `备份 schema v${manifest.userVersion} 与当前 v${SQLITE_SCHEMA_VERSION} 不兼容` }
+  }
   if (!manifest.bytes || manifest.bytes <= 0) return { ok: false, error: '备份 0KB' }
   const health = await sqliteHealth(10_000)
   if (health.readOnly === true) return { ok: false, error: 'SQLite 只读恢复模式，拒绝恢复' }
@@ -166,6 +169,18 @@ async function restoreSqliteFactsBackupInner(
   const beforeCounts = extractSqliteCounts(beforeHealth as never) ?? undefined
   const path = input.path ?? input.manifest?.path
   if (!path) return { ok: false, error: '缺少备份路径', ...(beforeCounts ? { beforeCounts } : {}) }
+  // P1-1：restoreDb 是整库替换；先做一份当前 SQLite 快照，恢复后校验失败可回滚
+  let safety: Awaited<ReturnType<typeof createSqliteFactsBackup>> | null = null
+  try { safety = await createSqliteFactsBackup() } catch { safety = null }
+  const rollbackRestoredDb = async (): Promise<boolean> => {
+    const safetyPath = safety?.ok ? safety.manifest?.path : undefined
+    if (!safetyPath) return false
+    try {
+      const rolled = await callBackupBridge({ method: 'restoreDb' as never, payload: { path: safetyPath }, timeoutMs: 120_000 })
+      return rolled.ok !== false
+    } catch { return false }
+  }
+  let restored = false
   try {
     const response = await callBackupBridge({
       method: 'restoreDb' as never,
@@ -173,11 +188,18 @@ async function restoreSqliteFactsBackupInner(
       timeoutMs: 120_000,
     })
     if (response.ok === false) return { ok: false, error: response.message ?? 'native restoreDb 失败', ...(beforeCounts ? { beforeCounts } : {}) }
+    restored = true
     const health = await healthForRestore(10_000)
     const counts = extractSqliteCounts(health as never)
-    if (Number(health.userVersion ?? 0) !== SQLITE_SCHEMA_VERSION) return { ok: false, error: '恢复后 schema 版本不一致', ...(beforeCounts ? { beforeCounts } : {}) }
+    if (Number(health.userVersion ?? 0) !== SQLITE_SCHEMA_VERSION) {
+      const rolled = await rollbackRestoredDb()
+      return { ok: false, error: `恢复后 schema 版本不一致${rolled ? '，已回滚' : '；回滚失败，请立即从备份恢复'}`, ...(beforeCounts ? { beforeCounts } : {}) }
+    }
     const integrity = await integrityForRestore(30_000)
-    if (integrity.integrityOk === false) return { ok: false, error: '恢复后 integrity 失败', ...(beforeCounts ? { beforeCounts } : {}) }
+    if (integrity.integrityOk === false) {
+      const rolled = await rollbackRestoredDb()
+      return { ok: false, error: `恢复后 integrity 失败${rolled ? '，已回滚' : '；回滚失败，请立即从备份恢复'}`, ...(beforeCounts ? { beforeCounts } : {}) }
+    }
     if (input.manifest && counts) {
       if (
         counts.states !== input.manifest.counts.states ||
@@ -185,12 +207,29 @@ async function restoreSqliteFactsBackupInner(
         counts.settings !== input.manifest.counts.settings ||
         counts.reviewLogs !== input.manifest.counts.reviewLogs
       ) {
-        return { ok: false, error: '恢复后 counts 与 manifest 不一致', counts, ...(beforeCounts ? { beforeCounts } : {}) }
+        const rolled = await rollbackRestoredDb()
+        return { ok: false, error: `恢复后 counts 与 manifest 不一致${rolled ? '，已回滚' : '；回滚失败，请立即从备份恢复'}`, counts, ...(beforeCounts ? { beforeCounts } : {}) }
       }
     }
+    // P0：恢复后 SQLite 已换库，IDB cache/epoch 必须失效，否则重启仍读旧 plan/state
+    try {
+      const { bumpDataEpoch } = await import('./data-epoch')
+      await bumpDataEpoch('sqlite-facts-restored')
+      const { markIdbCacheDirty } = await import('./idb-cache')
+      await markIdbCacheDirty('sqlite-facts-restored')
+      // P1-3：恢复旧 facts DB 可能丢失 v15 durable marker；不能再用旧 IDB mirror 假装内容已迁移
+      const { hasDurableContentMigrationV15Marker, invalidateContentMigrationV15Cache, CONTENT_MIGRATION_V15_KEY } = await import('./content-write-source')
+      if (!(await hasDurableContentMigrationV15Marker())) {
+        await (await import('./db')).getDb().meta.delete(CONTENT_MIGRATION_V15_KEY).catch(() => undefined)
+        invalidateContentMigrationV15Cache()
+        const { persistContentWriteSource } = await import('./content-write-source')
+        await persistContentWriteSource('idb').catch(() => undefined)
+      }
+    } catch { /* 恢复本身已成功，cache 失效失败由下次启动对账兜底 */ }
     return { ok: true, ...(counts ? { counts } : {}), ...(beforeCounts ? { beforeCounts } : {}) }
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error), ...(beforeCounts ? { beforeCounts } : {}) }
+    const rolled = restored ? await rollbackRestoredDb() : false
+    return { ok: false, error: `${error instanceof Error ? error.message : String(error)}${rolled ? '（已回滚）' : ''}`, ...(beforeCounts ? { beforeCounts } : {}) }
   }
 }
 

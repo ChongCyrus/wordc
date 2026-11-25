@@ -1,5 +1,9 @@
-/** 0.3.72：本义词组（AI 预览确认后写库；按 coreSenseIndex+label，stale 保留可见可清） */
+/**
+ * 0.3.72：本义词组（AI 预览确认后写库；按 coreSenseIndex+label，stale 保留可见可清）。
+ * 0.14：写入口统一走 saveWordOverlay——sqlite 模式先写 content_kv（word-overlay），失败抛结构化错误且不回写 IDB；idb 模式行为不变。
+ */
 import { getDb } from './db'
+import { saveWordOverlay } from './content-write-source'
 import { getEffectiveContent } from './packs.repo'
 import type { CoreSensePhraseEntry } from '../core'
 
@@ -104,7 +108,7 @@ export async function saveCoreSensePhrases(
     if (fallback >= 0) list.splice(fallback, 1)
     if (list.length > 0) word.coreSensePhrases = list
     else delete word.coreSensePhrases
-    await getDb().words.put(word)
+    await saveWordOverlay(word)
     return null
   }
   const entry: CoreSensePhraseEntry = {
@@ -117,7 +121,7 @@ export async function saveCoreSensePhrases(
   if (fallback >= 0) list[fallback] = entry
   else list.push(entry)
   word.coreSensePhrases = list
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return entry
 }
 
@@ -130,7 +134,7 @@ export async function clearCoreSensePhrases(
   if (!target) {
     if (!word.coreSensePhrases) return
     delete word.coreSensePhrases
-    await getDb().words.put(word)
+    await saveWordOverlay(word)
     return
   }
   const label = target.label?.trim()
@@ -143,5 +147,5 @@ export async function clearCoreSensePhrases(
   )
   if (next.length > 0) word.coreSensePhrases = next
   else delete word.coreSensePhrases
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
 }

@@ -57,8 +57,10 @@ function normalizeMeaningId(word: Word, meaningId: string | undefined): string |
   return level
 }
 
+import { saveWordOverlay } from './content-write-source'
+
 async function saveWordFields(word: Word): Promise<void> {
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
 }
 
 // ============ 笔记 ============

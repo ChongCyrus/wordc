@@ -3,6 +3,8 @@
  * 存 Word 本机字段，不进 packItems、不改学习进度；AI apply/reapply 不覆盖。
  */
 import { getDb } from './db'
+import { saveWordOverlay, saveContentEntitiesChunked } from './content-write-source'
+import { wordOverlayOf } from './content-snapshot'
 import type { DerivationMap, Word } from '../core/types'
 
 export type { DerivationMap } from '../core/types'
@@ -57,7 +59,7 @@ export async function saveDerivationMap(wordId: string, patch: DerivationMapInpu
     updatedAt: Date.now(),
   }
   word.derivationMap = next
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return next
 }
 
@@ -65,6 +67,52 @@ export async function deleteDerivationMap(wordId: string): Promise<boolean> {
   const word = await getWordOrThrow(wordId)
   if (!word.derivationMap) return false
   delete word.derivationMap
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return true
+}
+
+
+export interface SaveDerivationMapsBatchResult { ok: boolean; written: number; revision: number; error?: string }
+
+/**
+ * 0.14：批量保存引申图（≤500/批）。
+ * - sqlite 模式：content_kv 成功后才更新 IDB cache；失败不回写，返回错误
+ * - idb 模式：只写 IDB cache，行为等价原有逐条保存
+ */
+export async function saveDerivationMapsBatch(
+  entries: ReadonlyArray<{ wordId: string; patch: DerivationMapInput }>,
+): Promise<SaveDerivationMapsBatchResult> {
+  if (entries.length === 0) return { ok: true, written: 0, revision: 0 }
+  if (entries.length > 500) return { ok: false, written: 0, revision: 0, error: '单批超过 500 条' }
+  const db = getDb()
+  const ids = entries.map((entry) => entry.wordId)
+  const words = await db.words.bulkGet(ids)
+  const rows: Array<{ key: string; kind: 'word-overlay'; json: string; updatedAt: number }> = []
+  for (let i = 0; i < entries.length; i += 1) {
+    const word = words[i]
+    if (!word) return { ok: false, written: 0, revision: 0, error: `单词不存在：${ids[i]}` }
+    const patch = entries[i]!.patch
+    const existing = word.derivationMap
+    const rootLabel = patch.rootLabel !== undefined ? String(patch.rootLabel).trim() : existing?.rootLabel
+    const text = patch.text !== undefined ? String(patch.text).trim() : existing?.text
+    const mermaid = patch.mermaid !== undefined ? String(patch.mermaid).trim() : existing?.mermaid
+    const source: DerivationMap['source'] = patch.source === 'ai' ? 'ai' : patch.source === 'manual' ? 'manual' : existing?.source ?? 'manual'
+    const rawLines = patch.lines !== undefined ? patch.lines : existing?.lines
+    const maxMeaning = word.meanings.length
+    const lines = (rawLines ?? [])
+      .map((line) => ({ text: String(line.text ?? '').trim(), meaningIndexes: [...new Set(line.meaningIndexes ?? [])].filter((index) => Number.isInteger(index) && index >= 1 && index <= maxMeaning).sort((a, b) => a - b) }))
+      .filter((line) => line.text.length > 0 && line.meaningIndexes.length > 0)
+    if (!rootLabel && !text && !mermaid && lines.length === 0) return { ok: false, written: 0, revision: 0, error: '引申图内容不能为空' }
+    const map: DerivationMap = {
+      ...(rootLabel ? { rootLabel } : {}),
+      ...(text ? { text } : {}),
+      ...(mermaid ? { mermaid } : {}),
+      ...(lines.length > 0 ? { lines } : {}),
+      source,
+      updatedAt: Date.now(),
+    }
+    const next: Word = { ...word, derivationMap: map }
+    rows.push({ key: `word-overlay:${word.id}`, kind: 'word-overlay', json: JSON.stringify(wordOverlayOf(next as unknown as Record<string, unknown>)), updatedAt: map.updatedAt })
+  }
+  return saveContentEntitiesChunked(rows)
 }

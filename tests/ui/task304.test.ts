@@ -27,7 +27,7 @@ describe('task-304 0.10.0 数据安全 UI 骨架', () => {
     expect(me).toContain('仅空库自动恢复')
     expect(me).toContain('restoreCheckpoint')
     expect(study).toContain('从最新可靠备份恢复')
-    expect(study).toContain('getProgressCheckpointStatus')
+    expect(study).toContain('保存失败')
     expect(study).toContain('去我的→数据恢复')
     expect(me).toContain('setAutoBackups(listAutoBackupsForUi())')
     expect(me).toContain('autoRestoreListLoading')

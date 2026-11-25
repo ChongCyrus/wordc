@@ -142,6 +142,8 @@ function normalizeTags(raw: string[] | undefined, extras: string[]): string[] {
 }
 
 export interface BuildWordOptions {
+  /** 0.15：用户新增词（内置 deck 也按可变内容迁移/备份） */
+  custom?: boolean
   /** 覆盖 wordId（迁移包保留文件 id 用；默认按 §1.4 重算） */
   wordId?: string
   /** 覆盖 order（默认取 input.order，缺省 0） */
@@ -200,6 +202,7 @@ export function buildWord(input: RawWordInput, deckId: string, opts: BuildWordOp
   const word: Word = {
     id: wordId,
     deckId,
+    ...(opts.custom ? { custom: true } : {}),
     headword,
     headwordLower: normalizeHeadword(headword),
     meanings,

@@ -1,5 +1,6 @@
 /** 0.3.61：不常考含义标记 + 学习/记忆过滤。注释面仍显示全部，只有记忆/加权记忆可隐藏。 */
 import { getDb } from './db'
+import { ContentWriteError, saveWordOverlay } from './content-write-source'
 import type { Meaning, Word } from '../core/types'
 
 async function getWordOrThrow(wordId: string): Promise<Word> {
@@ -21,7 +22,7 @@ export async function setRareMeaningIds(wordId: string, meaningIds: string[]): P
   const next = [...new Set(meaningIds)].filter((id) => valid.has(id))
   if (next.length > 0) word.rareMeaningIds = next
   else delete word.rareMeaningIds
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return next
 }
 
@@ -157,7 +158,7 @@ export async function setRareCoreSenses(
   }
   if (list.length > 0) word.rareCoreSenses = list
   else delete word.rareCoreSenses
-  await getDb().words.put(word)
+  await saveWordOverlay(word)
   return list
 }
 
@@ -372,7 +373,8 @@ export async function applyRareMarkResults(
   const failed: Array<{ wordId: string; error: string }> = []
   let checked = 0
   let updated = 0
-  for (const item of items) {
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+    const item = items[itemIndex]!
     if (item.error) {
       failed.push({ wordId: item.wordId, error: item.error })
       continue
@@ -410,11 +412,19 @@ export async function applyRareMarkResults(
         rareMarkCheckedAt: now,
         rareMarkVersion: version,
       }
-      await db.words.put(next)
+      await saveWordOverlay(next)
       checked += 1
       if (nextMeanings.length > 0 || nextCore.length > 0) updated += 1
     } catch (error) {
       failed.push({ wordId: item.wordId, error: error instanceof Error ? error.message : String(error) })
+      // 0.14：SQLite 失败即事实源不可写，停止后续词（其余按失败返回），不回写 IDB
+      if (error instanceof ContentWriteError) {
+        const rest = items.slice(itemIndex + 1)
+        for (const remaining of rest) {
+          failed.push({ wordId: remaining.wordId, error: `已停止：${error.message}` })
+        }
+        break
+      }
     }
   }
   return { checked, updated, failed }

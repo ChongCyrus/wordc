@@ -39,11 +39,14 @@ async function writePlanSqlite(plan: DailyPlan, opts: { clientOpId?: string; kin
   }
   const ops: unknown[] = [{ op: 'upsert', table: 'plans', row: planRow(plan) }]
   if (opts.clientOpId) ops.push({ op: 'insert', table: 'client_ops', row: { op_id: opts.clientOpId, kind: opts.kind ?? 'plan-only', at: Date.now(), result_json: JSON.stringify({ planId: plan.id, index: plan.index, wordIdsLength: plan.wordIds.length }) } })
-  const tx = await sqliteTx(ops)
+  const tx = await sqliteTx(ops, { priority: 'high' })
   if (tx.ok === false) throw new LearningWriteRetryableError(tx.message ?? 'plan SQLite 写失败')
+  const metaBefore = await (await import('./idb-cache')).getIdbCacheMeta().catch(() => null)
+  await (await import('./idb-cache')).markIdbCacheDirty('plan-tx-committed').catch(() => undefined)
   try {
     await getDb().plans.put(plan)
     notifyPlanUpdated()
+    await (await import('./idb-cache')).clearIdbCacheDirty(metaBefore ?? { generation: 0, sqliteUserVersion: 3, dirty: false }).catch(() => undefined)
   } catch {
     const { markIdbCacheDirty } = await import('./idb-cache')
     await markIdbCacheDirty('plan-cache-write-failed').catch(() => undefined)
@@ -56,7 +59,7 @@ export async function savePlanSqlite(plan: DailyPlan, clientOpId?: string): Prom
 
 export async function setPlanIndexSqlite(planId: string, index: number, now = Date.now()): Promise<DailyPlan> {
   return withDataWriteLock(async () => {
-    const response = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000)
+    const response = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000, 'high')
     const raw = ((response.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
     if (!raw) throw new Error('plan 不存在')
     const plan = mapSqlitePlanRow(raw)
@@ -68,7 +71,7 @@ export async function setPlanIndexSqlite(planId: string, index: number, now = Da
 
 export async function completePlanSqlite(planId: string, now = Date.now()): Promise<DailyPlan> {
   return withDataWriteLock(async () => {
-    const response = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000)
+    const response = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000, 'high')
     const raw = ((response.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
     if (!raw) throw new Error('plan 不存在')
     const plan = mapSqlitePlanRow(raw)
@@ -105,11 +108,11 @@ export async function appendWordsToTodayPlanSqlite(
   return withDataWriteLock(async () => {
     const settings = await (await import('./settings.repo')).getSettings()
     const deckId = settings['data.selectedDeckId']
-    if (!deckId) throw new Error('未选择词库')
+      if (!deckId) throw new Error('未选择词库')
     const { planIdOf } = await import('./plan-core')
     const { localDateKey } = await import('../core')
     const planId = planIdOf(localDateKey(now), deckId)
-    const response = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000)
+    const response = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000, 'high')
     const raw = ((response.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
     const db = getDb()
     const plan = raw ? mapSqlitePlanRow(raw) : null
@@ -142,11 +145,11 @@ export async function removeUnlearnedAutoNewWordsSqlite(now = Date.now()): Promi
   return withDataWriteLock(async () => {
     const settings = await (await import('./settings.repo')).getSettings()
     const deckId = settings['data.selectedDeckId']
-    if (!deckId) throw new Error('未选择词库')
+      if (!deckId) throw new Error('未选择词库')
     const { planIdOf } = await import('./plan-core')
     const { localDateKey } = await import('../core')
     const planId = planIdOf(localDateKey(now), deckId)
-    const response = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000)
+    const response = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000, 'high')
     const raw = ((response.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
     const plan = raw ? mapSqlitePlanRow(raw) : null
     if (!plan) throw new Error('今日计划不存在')
@@ -184,7 +187,7 @@ export async function undoLastRatingSqlite(input: {
     const db = getDb()
     const { localDateKey } = await import('../core')
     const today = localDateKey(now)
-    const logsResponse = await sqliteQuery({ table: 'review_logs', where: { word_id: input.wordId }, limit: 50 }, 5_000)
+    const logsResponse = await sqliteQuery({ table: 'review_logs', where: { word_id: input.wordId }, limit: 50 }, 5_000, 'high')
     const logs = ((logsResponse.rows as Array<Record<string, unknown>> | undefined) ?? []).map(mapSqliteReviewLogRow)
     const candidate = logs
       .filter((log) => {
@@ -196,7 +199,7 @@ export async function undoLastRatingSqlite(input: {
     const stateBefore = (candidate as { stateBefore?: WordState | null }).stateBefore ?? null
     const logId = (candidate as { id?: number }).id
     const planId = input.planId
-    const planResponse = planId ? await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000) : { ok: true, rows: [] as unknown[] }
+    const planResponse = planId ? await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000, 'high') : { ok: true, rows: [] as unknown[] }
     const planRaw = ((planResponse.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
     const plan = planRaw ? mapSqlitePlanRow(planRaw) : null
     const ops: unknown[] = []
@@ -219,7 +222,7 @@ export async function undoLastRatingSqlite(input: {
     }
     const opId = input.clientOpId ?? `undo-${input.wordId}-${logId ?? now}`
     try {
-      const replay = await sqliteQuery({ table: 'client_ops', where: { op_id: opId }, limit: 1 }, 5_000)
+      const replay = await sqliteQuery({ table: 'client_ops', where: { op_id: opId }, limit: 1 }, 5_000, 'high')
       if (((replay.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]) {
         return nextPlan ? { state: restoredState, plan: nextPlan, ...(logId != null ? { logId } : {}) } : null
       }
@@ -227,7 +230,7 @@ export async function undoLastRatingSqlite(input: {
       /* continue */
     }
     ops.push({ op: 'insert', table: 'client_ops', row: { op_id: opId, kind: 'undo-rating', at: now, result_json: JSON.stringify({ wordId: input.wordId, logId: logId ?? null }) } })
-    const tx = await sqliteTx(ops)
+    const tx = await sqliteTx(ops, { priority: 'high' })
     if (tx.ok === false) throw new LearningWriteRetryableError(tx.message ?? 'undo SQLite 失败')
     try {
       await db.transaction('rw', db.states, db.plans, async () => {
@@ -259,7 +262,7 @@ export async function reRateInPlanSqlite(input: {
     const today = localDateKey(now)
     const opId = input.clientOpId ?? `rerate-${input.wordId}-${now}`
     try {
-      const replay = await sqliteQuery({ table: 'client_ops', where: { op_id: opId }, limit: 1 }, 5_000)
+      const replay = await sqliteQuery({ table: 'client_ops', where: { op_id: opId }, limit: 1 }, 5_000, 'high')
       const cached = ((replay.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
       if (cached?.result_json) {
         const parsed = JSON.parse(String(cached.result_json)) as { state: WordState; plan: DailyPlan }
@@ -270,7 +273,7 @@ export async function reRateInPlanSqlite(input: {
     }
     const word = await db.words.get(input.wordId)
     if (!word) throw new Error(`词条不存在：${input.wordId}`)
-    const logsResponse = await sqliteQuery({ table: 'review_logs', where: { word_id: input.wordId }, limit: 50 }, 5_000)
+    const logsResponse = await sqliteQuery({ table: 'review_logs', where: { word_id: input.wordId }, limit: 50 }, 5_000, 'high')
     const logs = ((logsResponse.rows as Array<Record<string, unknown>> | undefined) ?? []).map(mapSqliteReviewLogRow) as unknown as Array<ReviewLogV2 & { id?: number; reviewedAt: number; stateBefore?: WordState | null }>
     const candidate = logs
       .filter((log) => localDateKey(Number(log.reviewedAt ?? 0)) === today && log.corrected !== true)
@@ -278,7 +281,7 @@ export async function reRateInPlanSqlite(input: {
     if (!candidate) return null
     const planId = input.planId
     if (!planId) return null
-    const planResponse = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000)
+    const planResponse = await sqliteQuery({ table: 'plans', where: { id: planId }, limit: 1 }, 5_000, 'high')
     const planRaw = ((planResponse.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
     if (!planRaw) return null
     const plan = mapSqlitePlanRow(planRaw)
@@ -321,12 +324,12 @@ export async function reRateInPlanSqlite(input: {
       resultJson: JSON.stringify(persisted),
     })
     const ops: unknown[] = [...undoOps, ...submitOps]
-    const tx = await sqliteTx(ops)
+    const tx = await sqliteTx(ops, { priority: 'high' })
     if (tx.ok === false) throw new LearningWriteRetryableError(tx.message ?? 'reRate SQLite 事务失败')
     // 3) 一次性 cache 同步（states/plan/log + 旧 log corrected）
     let cachedLog: ReviewLogV2 = { ...logInput, id: 0 } as ReviewLogV2
     try {
-      const logResponse = await sqliteQuery({ table: 'review_logs', where: { client_op_id: opId }, limit: 1 }, 5_000)
+      const logResponse = await sqliteQuery({ table: 'review_logs', where: { client_op_id: opId }, limit: 1 }, 5_000, 'high')
       const logRaw = ((logResponse.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
       if (logRaw) cachedLog = mapSqliteReviewLogRow(logRaw) as unknown as ReviewLogV2
     } catch {
