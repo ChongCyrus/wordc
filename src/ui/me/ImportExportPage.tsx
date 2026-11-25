@@ -96,6 +96,29 @@ export default function ImportExportPage() {
     }
   }
 
+  const importProgressReplace = async () => {
+    try {
+      const file = await pickTextFile('.json,application/json')
+      if (!file) return
+      const text = await readFileAsText(file)
+      if (!window.confirm('替换导入会覆盖本机学习状态与复习日志，但会先自动备份当前数据。继续？')) return
+      setBusy('替换导入中…')
+      const report = await importMigration(text, {
+        strategy: 'replace',
+        preBackup: async () => {
+          const r = await createFactsPreBackup(createAutoBackupBridge())
+          return { ok: r.ok, ...(r.error ? { error: r.error } : {}) }
+        },
+      })
+      if (report.ok) toast.success('替换导入完成，请重启验证：' + reportText(report))
+      else toast.error(reportText(report))
+    } catch (error) {
+      toast.error(mapContentError(error, '替换导入失败'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const exportLatestBackup = () => {
     const latest = listAutoBackupsForUi()[0]
     if (!latest) {
@@ -290,6 +313,7 @@ export default function ImportExportPage() {
         <SettingRow label="导出学习进度" hint="轻量包：词库 + 学习状态 + 设置" value={busy === '导出中…' ? '导出中…' : undefined} disabled={busy !== null} chevron onClick={() => void saveExport(false)} />
         <SettingRow label="完整备份（含引申图/内容包）" hint="体积大、较慢；含额外内容" value={busy === '完整备份…' ? '备份中…' : undefined} disabled={busy !== null} chevron onClick={() => void saveExport(true)} />
         <SettingRow label="导入学习进度" hint="轻量/完整包；会先自动备份" value={busy === '导入中…' ? '导入中…' : undefined} disabled={busy !== null} chevron onClick={() => void importProgress()} />
+        <SettingRow label="导入并替换（含复习日志）" hint="完整替换本机学习状态/复习日志；会先自动备份；用于回滚旧备份" value={busy === '替换导入中…' ? '替换导入中…' : undefined} disabled={busy !== null} chevron onClick={() => void importProgressReplace()} />
       </div>
       <SectionBand title="自动备份" />
       <div className="mm-list">

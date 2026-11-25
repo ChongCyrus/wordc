@@ -199,6 +199,19 @@ export default function DebugPage() {
           onClick={() => void run(() => migrateIdbToSqlite({ dryRun: true, batchSize: 200 }))}
         />
         <SettingRow
+          label="强制 IDB→SQLite facts 迁移（修复写源）"
+          hint="把当前 IDB states/plans/settings/logs 写入 SQLite，再修复写源；仅数据恢复用"
+          chevron
+          onClick={() =>
+            void run(async () => {
+              const migrated = await migrateIdbToSqlite({ dryRun: false, batchSize: 200 })
+              const repaired = await repairLearningWriteSource()
+              setWriteSource(getLearningWriteSource())
+              return { migrated, repaired, writeSource: getLearningWriteSource() }
+            })
+          }
+        />
+        <SettingRow
           label="M4b2 plan 修复演练（dryRun）"
           hint="扫描 plan 字段问题"
           chevron
