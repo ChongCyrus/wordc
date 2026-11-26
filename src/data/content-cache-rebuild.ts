@@ -57,12 +57,20 @@ export async function rebuildContentCacheFromSqlite(opts: { testHooks?: ContentC
     const rows: ContentKvRow[] = []
     const seen = new Set<string>()
     const { listContentRowsPage } = await import('./content-store')
-    for (let offset = 0; offset < 1_000_000; offset += 500) {
+    for (let offset = 0; offset < 1_000_000; offset += 1000) {
       const page = await listContentRowsPage({ offset, limit: 500, includeDeleted: true, orderBy: 'key' })
       if (!page.ok) throw new Error(page.error ?? '读取 content_kv 失败')
       let added = 0
-      for (const row of page.rows) if (!seen.has(row.key)) { seen.add(row.key); rows.push(row); added += 1 }
-      if (page.hasMore && added === 0) throw new Error('contentList 分页无进展（added=0），拒绝截断重建')
+      let dup = 0
+      for (const row of page.rows) {
+        if (!seen.has(row.key)) { seen.add(row.key); rows.push(row); added += 1 } else dup += 1
+      }
+      if (page.hasMore && added === 0) {
+        // 0.18.1：带上下文，避免只报“无进展”无法定位
+        throw new Error(
+          `contentList 分页无进展（offset=${offset} rows=${page.rows.length} dup=${dup} added=${added} firstKey=${String(page.rows[0]?.key).slice(0, 60)} hasMore=${page.hasMore}）`,
+        )
+      }
       if (!page.hasMore || page.rows.length === 0) break
     }
     const custom = rows.filter((row) => row.deleted === 0 && (row.kind === 'deck' || row.kind === 'word' || row.kind === 'pack' || row.kind === 'pack-item' || row.kind === 'content-reject' || row.kind === 'meta'))
@@ -114,5 +122,34 @@ export async function rebuildContentCacheFromSqlite(opts: { testHooks?: ContentC
     try { if (hooks?.restoreCache) await hooks.restoreCache(); else await restoreCache(backup) } catch (rollback) { rollbackError = rollback instanceof Error ? rollback.message : String(rollback) }
     await getDb().meta.put({ key: 'contentCacheRebuild.diag', value: { at: Date.now(), ok: false, error: message, rollbackError }, updatedAt: Date.now() }).catch(() => undefined)
     return { ok: false, rows: 0, revision: 0, error: rollbackError ? `${message}；旧 cache 恢复失败：${rollbackError}` : message }
+  }
+}
+
+/**
+ * 0.18.3：seed 后的轻量增量应用。
+ * 不清 IDB、不重灌内置词，只把 content_kv 的行按页 apply 到 cache。
+ * 用于「seed 直写 SQLite」场景，避免完整重建时清库+重灌 1.2 万词导致原生队列超时。
+ */
+export async function applyContentKvToIdbCacheLight(): Promise<{ ok: boolean; rows: number; error?: string }> {
+  const { listContentRowsPage } = await import('./content-store')
+  const { applyContentCache } = await import('./content-write-source')
+  const seen = new Set<string>()
+  let applied = 0
+  try {
+    for (let offset = 0; offset < 1_000_000; offset += 500) {
+      // 0.18.5：分页提到 1000（原生上限），把桥往返次数减半
+      const page = await listContentRowsPage({ offset, limit: 1000, includeDeleted: false, orderBy: 'key' })
+      if (!page.ok) return { ok: false, rows: applied, error: page.error ?? '读取 content_kv 失败' }
+      const rows = page.rows.filter((row) => !seen.has(row.key))
+      for (const row of rows) seen.add(row.key)
+      if (rows.length > 0) {
+        await applyContentCache(rows.map((row) => ({ key: row.key, kind: row.kind, json: row.json, updatedAt: row.updatedAt })))
+        applied += rows.length
+      }
+      if (!page.hasMore || page.rows.length === 0) break
+    }
+    return { ok: true, rows: applied }
+  } catch (error) {
+    return { ok: false, rows: applied, error: error instanceof Error ? error.message : String(error) }
   }
 }

@@ -23,7 +23,7 @@ async function diag(value: unknown): Promise<void> {
 async function finalizeRepair(): Promise<RecoverWriteSourceResult> {
   const rebuilt = await rebuildIdbCacheFromSqlite({ unsafe: true, skipWriteLock: true })
   if (!rebuilt.ok) return { ok: false, mode: 'failed', error: rebuilt.error ?? rebuilt.conflict ?? 'cache 重建失败' }
-  const health = await sqliteHealth(10_000)
+  const health = await sqliteHealth(30_000)
   const counts = extractSqliteCounts(health as never)
   if (!counts || counts.states <= 0) return { ok: false, mode: 'failed', error: 'SQLite states 为空，无法修复写源' }
   await persistLearningWriteSource('sqlite')
@@ -39,7 +39,7 @@ export async function repairLearningWriteSource(): Promise<RecoverWriteSourceRes
   if (!isSqliteAvailable()) return { ok: false, mode: 'failed', error: 'SQLite 不可用' }
   return withDataWriteLock(async () => {
     try {
-      const health = await sqliteHealth(10_000)
+      const health = await sqliteHealth(30_000)
       if (Number(health.userVersion ?? 0) !== SQLITE_SCHEMA_VERSION) return { ok: false, mode: 'failed', error: `schema 不是 v${SQLITE_SCHEMA_VERSION}` }
       const integrity = await sqliteIntegrity(30_000)
       if (integrity.integrityOk === false) return { ok: false, mode: 'failed', error: 'SQLite integrity 失败' }

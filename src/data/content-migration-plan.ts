@@ -668,6 +668,36 @@ async function markContentCacheReady(): Promise<void> {
   await writeIdbCacheMeta({ generation, sqliteUserVersion: SQLITE_SCHEMA_VERSION, dirty: false, rebuiltAt: Date.now() }).catch(() => undefined)
 }
 
+/**
+ * 0.16.8：真空库快速判定（不做全量哈希/计划）。
+ * 条件：content_kv 无 live 行 + IDB 无任何可变内容（自定义 deck/词、overlay、pack/packItem/reject）。
+ */
+async function detectFastFreshContent(): Promise<boolean> {
+  const db = getDb()
+  const counts = await readContentCounts().catch(() => null)
+  if (!counts) return false
+  const liveKv = Math.max(0, Number(counts.total) - Number(counts.deleted))
+  if (liveKv > 0) return false
+  const [packs, packItems, rejects] = await Promise.all([
+    db.packs.count(),
+    db.packItems.count(),
+    db.contentRejects.count(),
+  ])
+  if (packs > 0 || packItems > 0 || rejects > 0) return false
+  const builtinDeckIds = new Set(DECK_SOURCES.map((source) => source.deckId))
+  const customDecks = await db.decks
+    .filter((deck) => !builtinDeckIds.has(deck.id) && !deck.builtinKey && deck.source !== 'builtin')
+    .count()
+  if (customDecks > 0) return false
+  const customWords = await db.words.filter((word) => word.custom === true || !builtinDeckIds.has(word.deckId)).count()
+  if (customWords > 0) return false
+  const overlayWords = await db.words
+    .filter((word) => Object.keys(wordOverlayOf(word as unknown as Record<string, unknown>)).length > 0)
+    .count()
+  if (overlayWords > 0) return false
+  return true
+}
+
 export async function ensureContentSourceV15(opts: {
   preBackup?: () => Promise<void | { ok: boolean; error?: string }>
   shouldAbort?: () => boolean
@@ -744,6 +774,14 @@ export async function ensureContentSourceV15(opts: {
         await writeContentMigrationV15State({ status: 'done', at: Date.now(), from, attempt, finishedAt: Date.now(), counts: { total: counts.total, revision: counts.revision } })
         await markContentCacheReady()
         return { ok: true, source: 'sqlite', from }
+      }
+      // B2) 0.16.8 真空库快路径：无任何可变内容时直接 done，避免全量哈希/计划卡主线程
+      if (await detectFastFreshContent()) {
+        from = 'fresh'
+        await persistContentWriteSource('sqlite').catch(() => undefined)
+        await writeContentMigrationV15State({ status: 'done', at: Date.now(), from, attempt, finishedAt: Date.now(), counts: { total: 0, revision: 0, idbContent: 0 } })
+        await markContentCacheReady()
+        return { ok: true, source: 'sqlite', from, migrated: true, written: 0 }
       }
       // C) 锁内一次快照：先补齐 0.14 遗留自定义词标记，再计算 IDB 指纹 + 迁移计划
       await backfillLegacyCustomBuiltinWordsForV15().catch(() => 0)

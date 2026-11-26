@@ -38,7 +38,7 @@ export async function buildIdbRollbackCache(opts: {
   }
   const rebuilt = await rebuildIdbCacheFromSqlite({ unsafe: true })
   if (!rebuilt.ok) return { ok: false, error: `IDB 回退缓存重建失败：${rebuilt.error ?? rebuilt.conflict ?? '未知'}` }
-  const health = await sqliteHealth(5_000)
+  const health = await sqliteHealth(30_000)
   const sqliteCounts = extractSqliteCounts(health as never)
   const counts = await idbCounts()
   if (!sqliteCounts || counts.states !== sqliteCounts.states || counts.plans !== sqliteCounts.plans || counts.settings !== sqliteCounts.settings || counts.reviewLogs !== sqliteCounts.reviewLogs) {
@@ -158,7 +158,7 @@ async function applyIdbDeltaToSqliteInner(opts: { preBackup?: () => Promise<void
   try {
     const { sqliteHealth } = await import('./native-sqlite')
     const { extractSqliteCounts } = await import('./sqlite-store')
-    const health = await sqliteHealth(5_000)
+    const health = await sqliteHealth(30_000)
     const sqliteCounts = extractSqliteCounts(health as never)
     const idb = await getDb()
     const counts = await Promise.all([idb.states.count(), idb.plans.count(), idb.settings.count(), idb.reviewLogs.count()])

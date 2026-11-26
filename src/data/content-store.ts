@@ -7,7 +7,8 @@ import { sqliteCall, sqliteHealth } from './native-sqlite'
 export const CONTENT_SCHEMA_VERSION = 3
 export const CONTENT_REVISION_KEY = 'content_revision'
 export const CONTENT_PAGE_SIZE = 200
-const TIMEOUT = 15_000
+// 0.16.10：原生 SQLite 单线程串行，首启 seeding/导入期间查询会排队；读类调用放宽到 60s 避免假超时
+const TIMEOUT = 60_000
 
 export type ContentKind = 'deck' | 'word' | 'word-overlay' | 'pack' | 'pack-item' | 'content-reject' | 'meta'
 
@@ -94,9 +95,19 @@ export async function deleteContentRow(key: string, kind: ContentKind): Promise<
 
 /** F1：content_kv 需要 schema v3；旧库明确拒绝（不降级/不删库） */
 export async function assertContentSchemaVersion(): Promise<{ ok: boolean; userVersion: number; error?: string }> {
-  const health = await sqliteHealth(10_000)
+  const health = await sqliteHealth(60_000)
   const userVersion = Number(health.userVersion ?? 0)
   if (userVersion < CONTENT_SCHEMA_VERSION) return { ok: false, userVersion, error: `SQLite schema v${userVersion} 过低，content_kv 需要 v${CONTENT_SCHEMA_VERSION}，请先迁移` }
   if (userVersion > CONTENT_SCHEMA_VERSION) return { ok: false, userVersion, error: `SQLite schema v${userVersion} 高于当前 App 支持 v${CONTENT_SCHEMA_VERSION}（E_DOWNGRADE），请升级 App，不删库` }
   return { ok: true, userVersion }
+}
+
+/** 0.17：从 APK 内置 seed 库一次性灌入 content_kv（原生单事务；失败整体回滚）。 */
+export async function seedContentFromAsset(asset = 'pwa/seed/content.db'): Promise<{ ok: boolean; inserted: number; contentRows: number; revision: number; error?: string }> {
+  try {
+    const result = await sqliteCall({ method: 'contentSeed' as never, payload: { asset }, timeoutMs: 120_000 } as never) as { ok?: boolean; inserted?: number; contentRows?: number; revision?: number; message?: string }
+    return { ok: result.ok !== false, inserted: Number(result.inserted ?? 0), contentRows: Number(result.contentRows ?? 0), revision: Number(result.revision ?? 0), ...(result.ok === false ? { error: result.message ?? 'seed 失败' } : {}) }
+  } catch (error) {
+    return { ok: false, inserted: 0, contentRows: 0, revision: 0, error: error instanceof Error ? error.message : String(error) }
+  }
 }

@@ -56,10 +56,10 @@ export async function createSqliteFactsBackup(name?: string): Promise<CreateSqli
     try { const db = await import('./db'); await db.getDb().meta.put({ key: 'sqliteBackup.createDiag', value: { at: Date.now(), ...((value as object) ?? {}) }, updatedAt: Date.now() }) } catch { /* ignore */ }
   }
   const removeBroken = async (target: string) => {
-    await sqliteCall({ method: 'deleteBackup' as never, payload: { name: target }, timeoutMs: 5_000 }).catch(() => undefined)
+    await sqliteCall({ method: 'deleteBackup' as never, payload: { name: target }, timeoutMs: 30_000 }).catch(() => undefined)
   }
   try {
-    const health = await sqliteHealth(10_000)
+    const health = await sqliteHealth(30_000)
     if (Number(health.userVersion ?? 0) !== SQLITE_SCHEMA_VERSION) return { ok: false, error: `schema 不是 v${SQLITE_SCHEMA_VERSION}` }
     if (health.readOnly === true) return { ok: false, error: 'SQLite 只读恢复模式，拒绝备份' }
     const healthCounts = extractSqliteCounts(health as never) ?? { states: 0, plans: 0, settings: 0, reviewLogs: 0 }
@@ -160,7 +160,7 @@ export async function preflightSqliteRestore(manifest: SqliteBackupManifest, opt
   }
   if (opts.allowEmpty !== true && Number(manifest.counts?.states ?? 0) === 0) return { ok: false, error: '该备份 states=0（空库备份，可能是清空后/启动时产生），不是有效进度备份，已拒绝恢复' }
   if (!manifest.bytes || manifest.bytes <= 0) return { ok: false, error: '备份 0KB' }
-  const health = await sqliteHealth(10_000)
+  const health = await sqliteHealth(30_000)
   if (health.readOnly === true) return { ok: false, error: 'SQLite 只读恢复模式，拒绝恢复' }
   if (Number(health.userVersion ?? 0) !== SQLITE_SCHEMA_VERSION) return { ok: false, error: 'schema 版本不一致' }
   return { ok: true }
@@ -169,7 +169,7 @@ export async function preflightSqliteRestore(manifest: SqliteBackupManifest, opt
 /** 读取当前 SQLite facts manifest（用于自动备份/诊断） */
 export async function getSqliteFactsManifest(): Promise<SqliteBackupManifest | null> {
   try {
-    const health = await sqliteHealth(5_000)
+    const health = await sqliteHealth(30_000)
     const counts = extractSqliteCounts(health as never)
     if (!counts) return null
     return {
@@ -358,7 +358,7 @@ const MANIFEST_KEY = (name: string) => `sqliteBackup.manifest:${name}`
 
 export async function listSqliteBackupFiles(): Promise<SqliteBackupFileEntry[]> {
   try {
-    const response = await sqliteCall({ method: 'listBackups' as never, timeoutMs: 10_000 })
+    const response = await sqliteCall({ method: 'listBackups' as never, timeoutMs: 30_000 })
     const rows = (response as unknown as { backups?: Array<Record<string, unknown>> }).backups ?? []
     return rows
       .map((row) => ({
@@ -378,7 +378,7 @@ export async function listSqliteBackupFiles(): Promise<SqliteBackupFileEntry[]> 
 
 export async function deleteSqliteBackupFile(name: string): Promise<boolean> {
   try {
-    const response = await sqliteCall({ method: 'deleteBackup' as never, payload: { name }, timeoutMs: 5_000 })
+    const response = await sqliteCall({ method: 'deleteBackup' as never, payload: { name }, timeoutMs: 30_000 })
     return response.ok !== false
   } catch {
     return false
@@ -388,7 +388,7 @@ export async function deleteSqliteBackupFile(name: string): Promise<boolean> {
 export async function saveSqliteBackupManifest(manifest: SqliteBackupManifest): Promise<void> {
   const text = JSON.stringify(manifest)
   try {
-    const response = await sqliteCall({ method: 'writeBackupManifest' as never, payload: { name: manifest.name, manifest: text }, timeoutMs: 10_000 })
+    const response = await sqliteCall({ method: 'writeBackupManifest' as never, payload: { name: manifest.name, manifest: text }, timeoutMs: 30_000 })
     if (response.ok !== false) {
       // 兼容清理旧 IDB meta
       await deleteOldIdbManifest(manifest.name)
@@ -406,7 +406,7 @@ async function deleteOldIdbManifest(name: string): Promise<void> {
 
 export async function getSqliteBackupManifest(name: string): Promise<SqliteBackupManifest | null> {
   try {
-    const response = await sqliteCall({ method: 'readBackupManifest' as never, payload: { name }, timeoutMs: 5_000 })
+    const response = await sqliteCall({ method: 'readBackupManifest' as never, payload: { name }, timeoutMs: 30_000 })
     const text = (response as unknown as { manifest?: string }).manifest
     if (typeof text === 'string') {
       // native 可读但 manifest 为空：表示无 sidecar，不得回退陈旧 IDB manifest

@@ -132,6 +132,22 @@
 - 长 API 推送失败不要整段重来：先查远端 ref 是否已更新；push-incremental 可重入。
 - 不要在公开仓库/代理处泄露 token；token 只从 `.secrets/github-token` 读入环境变量。
 
+## 7.2 云端弹性执行方案（待配置，用户后续安排）
+
+用户决策（2026-11-26）：>3 秒的任务尽量上云，Agent 只做调度；优先按量/弹性，不先买固定 ECS。
+
+推荐顺序：
+1. **GitHub Actions**：仓库 CI/构建/测试首选；公开仓库免费，私有仓库有免费分钟数；REST API 可 dispatch、查 run、下载 artifact/log。
+2. **函数计算 FC**：<15 分钟、无 Docker 的小任务；按 CU/调用/秒计费；HTTP/异步触发 + SDK/OpenAPI；日志走 SLS；冷启动数秒。
+3. **弹性容器实例 ECI**：Docker/长任务、按秒计费；OpenAPI 创建容器组、查状态、日志；产物走 OSS；无闲置成本。
+4. **ECS 按量 + 节省停机/抢占式**：只有需要常驻 Linux/交互式环境时才用；停机只收云盘；OpenAPI + SSH/RunCommand。
+5. **无影**：仅在需要图形桌面时考虑；不适合无头构建机。
+
+调度形态：
+- 本地 Agent 提交 job（命令/镜像/文件）→ FC/ECI/ECS → 状态/日志轮询 → 产物回传 OSS。
+- 优先一次性容器任务，避免长期养机。
+- 所有云端凭证用 RAM 最小权限 + 环境变量/密钥文件，不进仓库。
+
 ## 8. 常用路径
 
 - 0.16 worktree：`.agents/worktrees/next-0.16`

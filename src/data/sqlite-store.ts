@@ -184,7 +184,7 @@ export function sqliteStoreIntegrity(): Promise<SqliteResponse> {
   return sqliteIntegrity()
 }
 export function sqliteStorePing(): Promise<SqliteResponse> {
-  return sqliteCall({ method: 'health', timeoutMs: 5_000 })
+  return sqliteCall({ method: 'health', timeoutMs: 30_000 })
 }
 
 

@@ -22,6 +22,16 @@ export type AppSettings = SettingsMap
 export type SettingValue = SettingsMap[SettingKey]
 
 /** 设置项默认值（SPEC §5 表，逐字） */
+/** 私版构建（VITE_PRIVATE_PACKS=1）默认开启预生成内容自动预装；公开版关闭 */
+function isPrivateGeneratedAutoSeed(): boolean {
+  try {
+    const env = (import.meta as unknown as { env?: { VITE_PRIVATE_PACKS?: string } }).env
+    return env?.VITE_PRIVATE_PACKS === '1'
+  } catch {
+    return false
+  }
+}
+
 export const SETTINGS_DEFAULTS: AppSettings = {
   'study.dailyGoal': 30,
   // 0.3.86：每日自动备份（APK 静默；Web 仅提示）
@@ -31,8 +41,9 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   // 0.3.91：添词默认方式/数量
   'study.addWordMode': 'manual',
   'study.addWordCount': 20,
-  // 0.3.92：默认不做自动预装导入（避免首启卡；手动按钮可用）
-  'data.generatedAutoSeed': false,
+  // 0.16.2：私版构建（VITE_PRIVATE_PACKS=1）默认自动预装预生成内容（本义助记/词根缀源/引申图）；
+  // 公开版仍保持 false，避免首启卡与体积膨胀。
+  'data.generatedAutoSeed': isPrivateGeneratedAutoSeed(),
   'backup.autoContentEnabled': false,
   'backup.contentEventLogEnabled': true,
   'data.contentWriteSource': 'idb',
@@ -381,7 +392,7 @@ export async function restoreSettingsWriteMode(): Promise<SettingsWriteMode> {
   }
   try {
     if (!isSqliteAvailable()) throw new Error('SQLite bridge 不可用')
-    const health = await sqliteHealth(5_000)
+    const health = await sqliteHealth(30_000)
     if (Number(health.userVersion ?? 0) !== SQLITE_SCHEMA_VERSION) throw new Error(`schema=${String(health.userVersion ?? 0)}`)
     const cache = await getIdbCacheMeta()
     if (!cache || cache.dirty || cache.sqliteUserVersion !== SQLITE_SCHEMA_VERSION) throw new Error('IDB cache 未就绪')
@@ -499,7 +510,7 @@ export async function enableSettingsSqliteWrite(opts: {
     const backup = await opts.preBackup()
     if (backup && backup.ok === false) return { ok: false, error: `预备份失败，拒绝切换：${backup.error ?? '未知'}` }
   }
-  const health = await sqliteHealth(5_000)
+  const health = await sqliteHealth(30_000)
   if (Number(health.userVersion ?? 0) !== SQLITE_SCHEMA_VERSION) {
     return { ok: false, error: `SQLite schema 不是 v${SQLITE_SCHEMA_VERSION}` }
   }

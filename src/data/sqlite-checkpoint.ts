@@ -44,7 +44,7 @@ async function queryAll(table: string, key: string, limit = 500): Promise<unknow
 
 export async function buildSqliteFactsCheckpoint(): Promise<SqliteFactsCheckpoint | null> {
   if (!isSqliteAvailable()) return null
-  const health = await sqliteHealth(5_000)
+  const health = await sqliteHealth(30_000)
   if (Number(health.userVersion ?? 0) !== SQLITE_SCHEMA_VERSION) return null
   const counts = (health as unknown as { counts?: Record<string, number> }).counts
   if (!counts) return null
@@ -110,7 +110,7 @@ export async function flushSqliteFactsCheckpoint(bridge?: AutoBackupBridge): Pro
 
 export async function restoreSqliteFactsCheckpointIfEmpty(bridge: AutoBackupBridge): Promise<{ ok: boolean; restoredStates?: number; error?: string }> {
   if (!bridge.isAvailable()) return { ok: false, error: '自动备份不可用' }
-  const health = await sqliteHealth(5_000)
+  const health = await sqliteHealth(30_000)
   const currentStates = Number((health as unknown as { counts?: Record<string, number> }).counts?.states ?? 0)
   if (currentStates > 0) return { ok: false, error: 'SQLite states 非空，不自动恢复' }
   const text = bridge.read(SQLITE_CHECKPOINT_LATEST)
@@ -124,7 +124,7 @@ export async function restoreSqliteFactsCheckpointIfEmpty(bridge: AutoBackupBrid
     for (const row of checkpoint.settings) ops.push({ op: 'upsert', table: 'settings', row })
     const tx = await sqliteTx(ops)
     if (tx.ok === false) return { ok: false, error: tx.message ?? '恢复写入失败' }
-    const after = await sqliteHealth(5_000)
+    const after = await sqliteHealth(30_000)
     const restoredStates = Number((after as unknown as { counts?: Record<string, number> }).counts?.states ?? 0)
     return { ok: true, restoredStates }
   } catch (error) {

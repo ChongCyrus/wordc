@@ -140,7 +140,8 @@ export async function writeContentMigrationV15State(state: ContentMigrationV15St
             error: state.error ?? null,
           },
         }],
-        { timeoutMs: 10_000 },
+        // 0.17.1：首启 seeding/seed 灌入期间原生队列会排队，10s 容易假超时导致 v15 失败
+        { timeoutMs: 60_000 },
       )
       if (tx.ok === false) throw new Error(tx.message ?? 'SQLite migration_state 写入失败')
       // done 的 durable 写成功即生效（SQLite 是权威读）
@@ -252,12 +253,40 @@ export interface SaveContentEntitiesResult { ok: boolean; written: number; revis
 export async function applyContentCache(rows: ContentEntityRow[]): Promise<void> {
   const db = getDb()
   // 先写非 overlay 内容（deck/word/pack/...），最后应用 overlay，避免被 word 正文覆盖
+  // 0.18.4：按表批量写（此前逐条 await put，1.3 万条会拖几分钟）
+  const putsByTable = new Map<string, unknown[]>()
+  const deletesByTable = new Map<string, string[]>()
   for (const row of rows.filter((item) => item.kind !== 'word-overlay')) {
     const id = row.key.replace(/^(deck|word|pack|pack-item|content-reject|meta):/, '')
-    if (row.kind === 'meta') { if (row.deleted) await db.meta.delete(id); else await db.meta.put({ key: id, value: JSON.parse(row.json), updatedAt: Date.now() }); continue }
-    const table = row.kind === 'deck' ? db.decks : row.kind === 'word' ? db.words : row.kind === 'pack' ? db.packs : row.kind === 'pack-item' ? db.packItems : db.contentRejects
-    if (row.deleted) await table.delete(id)
-    else await table.put(JSON.parse(row.json) as never)
+    if (row.kind === 'meta') {
+      if (row.deleted) await db.meta.delete(id)
+      else await db.meta.put({ key: id, value: JSON.parse(row.json), updatedAt: Date.now() })
+      continue
+    }
+    const tableName = row.kind
+    if (row.deleted) {
+      const list = deletesByTable.get(tableName) ?? []
+      list.push(id)
+      deletesByTable.set(tableName, list)
+    } else {
+      const list = putsByTable.get(tableName) ?? []
+      list.push(JSON.parse(row.json))
+      putsByTable.set(tableName, list)
+    }
+  }
+  const tableOf = (kind: string) =>
+    kind === 'deck' ? db.decks : kind === 'word' ? db.words : kind === 'pack' ? db.packs : kind === 'pack-item' ? db.packItems : db.contentRejects
+  for (const [kind, values] of putsByTable) {
+    const table = tableOf(kind)
+    for (let i = 0; i < values.length; i += 500) {
+      await (table.bulkPut as (items: unknown[]) => Promise<unknown>)(values.slice(i, i + 500))
+    }
+  }
+  for (const [kind, ids] of deletesByTable) {
+    const table = tableOf(kind)
+    for (let i = 0; i < ids.length; i += 500) {
+      await (table.bulkDelete as (keys: string[]) => Promise<unknown>)(ids.slice(i, i + 500))
+    }
   }
   const overlays = rows.filter((row) => row.kind === 'word-overlay' && !row.deleted)
   if (overlays.length > 0) {
@@ -278,10 +307,15 @@ export async function applyContentCache(rows: ContentEntityRow[]): Promise<void>
   }
 }
 
-/** B1/B2 统一批量：≤500/批；SQLite 成功后才写 IDB cache；失败不回写 */
+/** 0.18.4：单批回到 500 条（大请求会撑爆 JS↔native 桥；性能靠编译语句而非更大批） */
+export const CONTENT_BATCH_MAX_ROWS = 500
+/** 单批 JSON 字节上限（原生硬上限 8MB，这里留一半余量给 key/kind/开销） */
+export const CONTENT_BATCH_MAX_BYTES = 4 * 1024 * 1024
+
+/** B1/B2 统一批量：≤2000/批；SQLite 成功后才写 IDB cache；失败不回写 */
 export async function saveContentEntitiesBatch(rows: readonly ContentEntityRow[]): Promise<SaveContentEntitiesResult> {
   if (rows.length === 0) return { ok: true, written: 0, revision: 0 }
-  if (rows.length > 500) return { ok: false, written: 0, revision: 0, error: '单批超过 500 条' }
+  if (rows.length > CONTENT_BATCH_MAX_ROWS) return { ok: false, written: 0, revision: 0, error: `单批超过 ${CONTENT_BATCH_MAX_ROWS} 条` }
   const source = await getContentWriteSource()
   if (source === 'idb') {
     await applyContentCache([...rows])
@@ -297,14 +331,31 @@ export async function saveContentEntitiesBatch(rows: readonly ContentEntityRow[]
   return { ok: true, written: rows.length, revision: result.revision }
 }
 
-/** 按 500 自动切批；部分失败停止并返回已写 */
+/** 按「行数 + 字节」双阈值自动切批；部分失败停止并返回已写 */
 export async function saveContentEntitiesChunked(rows: readonly ContentEntityRow[]): Promise<SaveContentEntitiesResult> {
   let written = 0; let revision = 0
-  for (let i = 0; i < rows.length; i += 500) {
-    const result = await saveContentEntitiesBatch(rows.slice(i, i + 500))
+  let batch: ContentEntityRow[] = []
+  let batchBytes = 0
+  const flush = async (): Promise<SaveContentEntitiesResult | null> => {
+    if (batch.length === 0) return null
+    const result = await saveContentEntitiesBatch(batch)
+    batch = []
+    batchBytes = 0
     revision = result.revision || revision
-    if (!result.ok) return { ok: false, written, revision, error: result.error }
+    if (!result.ok) return result
     written += result.written
+    return null
   }
+  for (const row of rows) {
+    const size = row.json.length + row.key.length + 32
+    if (batch.length >= CONTENT_BATCH_MAX_ROWS || (batchBytes + size) > CONTENT_BATCH_MAX_BYTES) {
+      const failed = await flush()
+      if (failed) return { ok: false, written, revision, error: failed.error }
+    }
+    batch.push(row)
+    batchBytes += size
+  }
+  const failed = await flush()
+  if (failed) return { ok: false, written, revision, error: failed.error }
   return { ok: true, written, revision }
 }

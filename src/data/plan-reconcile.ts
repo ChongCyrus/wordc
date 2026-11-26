@@ -60,7 +60,7 @@ export async function reconcileTodayPlanToSqlite(opts: ReconcilePlanOptions = {}
   if (!isSqliteAvailable()) return { ok: false, dryRun, changed: false, error: 'SQLite 不可用' }
   const query = opts.sqliteQueryImpl ?? ((q: Record<string, unknown>) => sqliteQuery(q, 5_000))
   const tx = opts.sqliteTxImpl ?? ((ops: unknown[]) => sqliteTx(ops))
-  const health = opts.sqliteHealthImpl ?? (() => sqliteHealth(5_000))
+  const health = opts.sqliteHealthImpl ?? (() => sqliteHealth(30_000))
   const execute = async (): Promise<ReconcilePlanResult> => {
     const settings = await getSettings()
     const deckId = opts.deckId === undefined ? settings['data.selectedDeckId'] : opts.deckId

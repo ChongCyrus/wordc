@@ -220,7 +220,7 @@ async function runAutoBackupSqlite(
   const now = opts.now ?? Date.now()
   let counts: { states: number; plans: number; settings: number; reviewLogs: number }
   try {
-    const health = await sqliteHealth(10_000)
+    const health = await sqliteHealth(30_000)
     const extracted = extractSqliteCounts(health as never)
     if (!extracted) return { mode: 'error', learnedCount: 0, progressAnomaly: false, error: 'SQLite health 缺少 counts' }
     counts = extracted
@@ -656,7 +656,7 @@ export async function runSqliteFactsAutoBackup(
   if (!bridge.isAvailable()) return { mode: 'unavailable', learnedCount: 0, progressAnomaly: false }
   try {
     // 0.16 D-P0：空库（清空后/恢复前）不得创建空自动备份，否则会覆盖/挤掉用户的有效备份。
-    const preHealth = await sqliteHealth(10_000).catch(() => null)
+    const preHealth = await sqliteHealth(30_000).catch(() => null)
     const preCounts = preHealth ? extractSqliteCounts(preHealth as never) : null
     if (!preCounts || Number(preCounts.states ?? 0) === 0) {
       return { mode: 'skipped', learnedCount: 0, progressAnomaly: false }

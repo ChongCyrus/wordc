@@ -655,7 +655,14 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
   ])
   const selectedDeckId = settings['data.selectedDeckId']
   const resolvedList: Array<{ index: number; result: ReturnType<typeof resolveWithIndexes> }> = []
-  file.items.forEach((item, index) => {
+  // 0.16.9：resolve 阶段按块让出主线程，避免 2 万+ 条目一次性同步执行卡住 UI / 定时器
+  const RESOLVE_YIELD_EVERY = 400
+  for (let index = 0; index < file.items.length; index += 1) {
+    if (index > 0 && index % RESOLVE_YIELD_EVERY === 0) {
+      opts.onProgress?.({ phase: 'resolve', done: index, total: file.items.length })
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    }
+    const item = file.items[index]!
     const hasSemantics = Boolean((item.coreSenses?.length ?? 0) > 0 || (item.meaningMap?.length ?? 0) > 0)
     const result = resolveWithIndexes(
       item,
@@ -680,7 +687,7 @@ export async function importPack(input: string | Blob, opts: ResolveOptions = {}
     } else {
       resolvedList.push({ index, result })
     }
-  })
+  }
   opts.onProgress?.({ phase: 'resolve', done: file.items.length, total: file.items.length })
   const skipped: SkipRecord[] = resolvedList.filter((entry) => !entry.result.ok).map((entry) => (entry.result as { ok: false; skip: SkipRecord }).skip)
   // 已有条目 hash（含 skipped，保证幂等；重复导入不会产生新包）
@@ -1458,6 +1465,11 @@ export async function dedupePacks(): Promise<DedupePacksResult> {
   if (removableIds.length > 0) result.removed = (await deletePacks(removableIds)).removed
   result.kept = packs.length - result.removed
   return result
+}
+
+/** 0.16.5：对外暴露的 pack 计数刷新（断点续传后同步 status/counts） */
+export async function refreshPackCounts(packId: string): Promise<void> {
+  await refreshPack(packId, Date.now())
 }
 
 /** 重新统计 pack 状态/计数（在事务内调用） */

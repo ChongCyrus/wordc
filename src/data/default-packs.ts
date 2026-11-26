@@ -23,6 +23,7 @@ import {
   pruneLegacySemanticsPacks,
   pruneSupersededBuiltinSemanticsPacks,
   reapplyPack,
+  refreshPackCounts,
 } from './packs.repo'
 import type { ReapplyProgress } from './packs.repo'
 
@@ -122,6 +123,10 @@ export interface EnsureDefaultPacksOptions {
   baseUrl?: string
   /** 是否含私版商业词表包（默认读 `VITE_PRIVATE_PACKS`；测试可显式传） */
   includePrivate?: boolean
+  /** 仅导入这些 id（配合 force 用于后台补导入） */
+  onlyIds?: readonly string[]
+  /** 推迟导入这些 id（首启先让语义/本义就绪，体积大的例句包后台补） */
+  deferIds?: readonly string[]
   /** 进度回调（导入/补审/重应用；供 UI 进度条） */
   onProgress?: (progress: {
     path: string
@@ -167,7 +172,11 @@ export async function ensureDefaultContentPacks(
     }
   }
 
-  const entries = getDefaultContentPacks(opts.includePrivate)
+  const entries = getDefaultContentPacks(opts.includePrivate).filter(
+    (entry) =>
+      (!opts.onlyIds || opts.onlyIds.includes(entry.id)) &&
+      (!opts.deferIds || !opts.deferIds.includes(entry.id)),
+  )
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch?.bind(globalThis)
   if (!fetchImpl) {
     return {
@@ -322,4 +331,34 @@ export async function ensureDefaultContentPacks(
     }
   }
   return { ok: allOk, skippedVersion: false, imported: importedTotal, applied: appliedTotal, packs, issues }
+}
+
+/**
+ * 0.16.5：断点续传。启动时把「已导入但未应用完」的内容包继续应用。
+ * 场景：首启导入被系统冻结/杀进程打断，pack 处于 reviewing 且仍有 approved/pending 条目。
+ * 幂等：applyApproved 只处理 approved，已 applied 的不会重复写入。
+ */
+export async function resumeIncompletePacks(opts: {
+  onProgress?: EnsureDefaultPacksOptions['onProgress']
+} = {}): Promise<{ resumed: number; applied: number; packs: string[] }> {
+  const db = getDb()
+  const packs = await db.packs.toArray()
+  const packIds: string[] = []
+  let applied = 0
+  for (const pack of packs) {
+    const counts = pack.counts
+    if (!counts) continue
+    const unfinished = (counts.approved ?? 0) > 0 || (counts.pending ?? 0) > 0
+    if (!unfinished) continue
+    packIds.push(pack.id)
+    const items = await db.packItems.where('packId').equals(pack.id).toArray()
+    const pendingIds = items.filter((item) => item.status === 'pending').map((item) => item.id)
+    if (pendingIds.length > 0) await approveItems(pack.id, pendingIds)
+    const result = await applyApproved(pack.id, {
+      onProgress: (progress) => opts.onProgress?.({ path: pack.id, phase: 'apply', done: progress.done, total: progress.total }),
+    })
+    applied += result.applied
+    await refreshPackCounts(pack.id).catch(() => undefined)
+  }
+  return { resumed: packIds.length, applied, packs: packIds }
 }

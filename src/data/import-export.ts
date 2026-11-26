@@ -54,8 +54,8 @@ import { makeIssue, parseDeckFile, parseMigrationFile } from './schema'
 import { applyImportedSettings, getSettings } from './settings.repo'
 import type { RawWordInput } from './word-factory'
 
-export const GENERATOR = 'wordc@0.16.1'
-export const APP_VERSION = '0.16.1'
+export const GENERATOR = 'wordc@0.18.5'
+export const APP_VERSION = '0.18.5'
 
 /** 迁移包导出选项 */
 export interface ExportOptions {
@@ -1138,7 +1138,7 @@ async function importMigrationSqliteStagingInner(input: string | File, opts: Imp
       const rebuilt = await rebuildCache({ unsafe: true, skipWriteLock: true })
       mark('rebuild', 'cache 重建完成')
       if (!rebuilt.ok) throw new Error(`导入后 cache 重建失败：${rebuilt.error ?? rebuilt.conflict ?? '未知'}`)
-      const health = stage.health ? await stage.health() : await (await import('./native-sqlite')).sqliteHealth(10_000)
+      const health = stage.health ? await stage.health() : await (await import('./native-sqlite')).sqliteHealth(30_000)
       const counts = (health as unknown as { counts?: Record<string, number> }).counts ?? {}
       const db = getDb()
       const [states, plans, settings, logs] = await Promise.all([db.states.count(), db.plans.count(), db.settings.count(), db.reviewLogs.count()])
@@ -1249,7 +1249,7 @@ async function collectStagingFailureDiag(args: {
   ])
   let sqlite: Record<string, number> | null = null
   try {
-    const health = await (await import('./native-sqlite')).sqliteHealth(5_000)
+    const health = await (await import('./native-sqlite')).sqliteHealth(30_000)
     const counts = (health as unknown as { counts?: Record<string, number> }).counts ?? {}
     sqlite = {
       states: Number(counts.states ?? -1),
@@ -1449,7 +1449,7 @@ async function importMigrationSqliteInner(input: string | File, opts: ImportOpti
       if (!rebuilt.ok) throw new Error(`导入后 cache 重建失败：${rebuilt.error ?? rebuilt.conflict ?? '未知'}`)
       mark('rebuild', 'cache 重建完成')
       await writeImportStageNow('verify')
-      const health = await (await import('./native-sqlite')).sqliteHealth(10_000)
+      const health = await (await import('./native-sqlite')).sqliteHealth(30_000)
       const counts = (health as unknown as { counts?: Record<string, number> }).counts ?? {}
       const [idbStates, idbPlans, idbSettings, idbLogs] = await Promise.all([db.states.count(), db.plans.count(), db.settings.count(), db.reviewLogs.count()])
       if (Number(counts.states ?? -1) !== idbStates || Number(counts.plans ?? -1) !== idbPlans || Number(counts.settings ?? -1) !== idbSettings || Number(counts.review_logs ?? -1) !== idbLogs) {

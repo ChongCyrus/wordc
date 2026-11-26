@@ -233,7 +233,7 @@ export async function bootstrapM2ReadCache(): Promise<M2BootstrapResult> {
   }
   const epoch = await getDataEpoch()
   try {
-    const health = await sqliteHealth(5_000)
+    const health = await sqliteHealth(30_000)
     const payload = health.data as { counts?: { states?: number }; states?: number } | undefined
     const sqliteStates = Number(
       (health as unknown as { counts?: { states?: number } }).counts?.states

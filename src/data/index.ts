@@ -40,6 +40,7 @@ export {
   ensureDefaultContentPacks,
   getDefaultContentPacks,
   isPrivatePacksEnabled,
+  resumeIncompletePacks,
 } from './default-packs'
 export type {
   DefaultContentPackEntry,
@@ -1065,6 +1066,7 @@ export {
   CONTENT_PAGE_SIZE,
   readContentRevision,
   readContentCounts,
+  seedContentFromAsset,
   assertContentSchemaVersion,
   listContentByRevision,
   writeContentRows,
@@ -1077,13 +1079,14 @@ export { buildContentMigrationPlan, runContentMigrationBatches, runContentMigrat
 export type { ContentMigrationStateView, EnsureContentSourceV15Result } from './content-migration-plan'
 export { switchContentWriteSource, rollbackContentWriteSource, resetContentWriteSourceForImport, discardStaleContentKv, reconcileInterruptedContentMigration, ensureContentSourceAfterImport, clearContentWriteSourceEmergency } from './content-switch'
 export type { ContentSourceAfterImportResult } from './content-switch'
-export { rebuildContentCacheFromSqlite } from './content-cache-rebuild'
+export { rebuildContentCacheFromSqlite, applyContentKvToIdbCacheLight } from './content-cache-rebuild'
 export type { ContentCacheRebuildResult, ContentCacheRebuildTestHooks } from './content-cache-rebuild'
 export {
   getContentWriteSource,
   getLegacyContentWriteSource,
   isNativeContentSqliteRuntime,
   isContentMigrationV15Done,
+  hasDurableContentMigrationV15Marker,
   getContentMigrationV15State,
   invalidateContentMigrationV15Cache,
   saveWordOverlay,

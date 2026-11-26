@@ -36,7 +36,7 @@ export async function ensureLegacyIdbMigratedToSqlite(opts: {
       return { mode: 'skipped', error: 'readonly' }
     }
     try {
-      const health = await sqliteHealth(5_000)
+      const health = await sqliteHealth(30_000)
       const counts = extractSqliteCounts(health as never)
       const sqliteEmpty = !counts || (counts.states === 0 && counts.plans === 0 && counts.settings === 0 && counts.reviewLogs === 0)
       if (!sqliteEmpty) {
@@ -114,7 +114,7 @@ export async function ensureLegacyIdbMigratedToSqlite(opts: {
         await writeDiag({ at: Date.now(), ok: false, error: cache.error ?? cache.conflict ?? 'cache 重建失败', counts: idb })
         return { mode: 'failed', counts: idb, error: cache.error ?? 'cache 重建失败' }
       }
-      const after = await sqliteHealth(5_000)
+      const after = await sqliteHealth(30_000)
       const afterCounts = extractSqliteCounts(after as never)
       if (
         !afterCounts ||

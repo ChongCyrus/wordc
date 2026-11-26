@@ -72,7 +72,7 @@ export async function restoreLearningWriteSource(): Promise<LearningWriteSource>
     // 0.16：恢复 SQLite facts 后 meta 可能仍是 readonly；若 SQLite 有事实而 IDB cache 空，
     // 以 SQLite 为准强制重建 cache 并恢复写源，避免用户看到空库/永久只读。
     try {
-      const health = await sqliteHealth(5_000)
+      const health = await sqliteHealth(30_000)
       const counts = extractSqliteCountsFromHealth(health)
       const idbStates = await getDb().states.count()
       if (counts && counts.states > 0 && idbStates === 0) {
@@ -95,7 +95,7 @@ export async function restoreLearningWriteSource(): Promise<LearningWriteSource>
     // 仅在无显式写源、无 rollback manifest、migration_state=done 时自动收尾为 sqlite。
     if (wanted == null) {
       try {
-        const health = await sqliteHealth(5_000)
+        const health = await sqliteHealth(30_000)
         const counts = extractSqliteCountsFromHealth(health)
         const sqliteHasFacts = counts && (counts.states > 0 || counts.plans > 0 || counts.settings > 0 || counts.reviewLogs > 0)
         const rollback = await getDb().meta.get('rollback.manifest')
@@ -124,7 +124,7 @@ export async function restoreLearningWriteSource(): Promise<LearningWriteSource>
   const diag: LearningWriteRestoreDiag = { at: Date.now(), wanted, bridge: isSqliteAvailable() }
   try {
     if (!diag.bridge) throw new Error('SQLite bridge 不可用')
-    const health = await sqliteHealth(5_000)
+    const health = await sqliteHealth(30_000)
     diag.health = {
       ok: health.ok !== false,
       userVersion: Number(health.userVersion ?? 0),
@@ -203,7 +203,7 @@ export async function enableLearningSqliteWrite(opts: {
       const backup = await opts.preBackup()
       if (backup && backup.ok === false) return { ok: false, error: `预备份失败：${backup.error ?? '未知'}` }
     }
-    const health = await sqliteHealth(5_000)
+    const health = await sqliteHealth(30_000)
     if (Number(health.userVersion ?? 0) !== SQLITE_SCHEMA_VERSION) return { ok: false, error: `schema 不是 v${SQLITE_SCHEMA_VERSION}` }
     const cache = await getIdbCacheMeta()
     if (!cache || cache.dirty || cache.sqliteUserVersion !== SQLITE_SCHEMA_VERSION) return { ok: false, error: 'IDB cache 未就绪' }
@@ -319,7 +319,7 @@ export function requestSourceRecovery(_reason: string): Promise<LearningWriteSou
 export async function diagnoseAndRecoverSqliteSource(): Promise<SqliteSourceRecoveryDiag> {
   if (!isSqliteAvailable()) return { recovered: false, reason: 'sqlite-unavailable', writeSource: learningWriteSource }
   try {
-    const health = await sqliteHealth(5_000)
+    const health = await sqliteHealth(30_000)
     const counts = extractSqliteCountsFromHealth(health)
     const sqliteStates = Number(counts?.states ?? 0)
     const idbStates = await getDb().states.count()
