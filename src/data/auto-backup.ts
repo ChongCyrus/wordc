@@ -54,7 +54,7 @@ export function cleanupAutoBackups(bridge: AutoBackupBridge, keep: number = AUTO
   let removed = 0
   const entries = bridge
     .list()
-    .filter((entry) => entry.name.endsWith('.migration.json'))
+    .filter((entry) => /\.migration\.json(\.gz)?$/.test(entry.name))
     .sort((a, b) => b.mtime - a.mtime)
   for (const entry of entries) {
     if (entry.size > 0) continue
@@ -62,7 +62,7 @@ export function cleanupAutoBackups(bridge: AutoBackupBridge, keep: number = AUTO
   }
   const alive = bridge
     .list()
-    .filter((entry) => entry.name.endsWith('.migration.json') && entry.size > 0)
+    .filter((entry) => /\.migration\.json(\.gz)?$/.test(entry.name) && entry.size > 0 && !entry.name.replace(/^auto-backup-/, '').startsWith('pre-restore-') && !entry.name.includes('checkpoint-'))
     .sort((a, b) => b.mtime - a.mtime)
   const cap = Math.max(1, Math.floor(keep))
   for (const entry of alive.slice(cap)) {
@@ -158,12 +158,12 @@ function byteLength(text: string): number {
 function backupFileName(now: number): string {
   // 0.10.0：时间戳文件名，避免覆盖唯一的好备份；prune 保留最近 N 份
   const time = new Date(now).toTimeString().slice(0, 8).replace(/:/g, '')
-  return `auto-backup-${localDateKey(now)}-${time}.migration.json`
+  return `auto-backup-${localDateKey(now)}-${time}-${String(now % 1000).padStart(3, '0')}.migration.json`
 }
 
 function partialBackupFileName(now: number): string {
   const time = new Date(now).toTimeString().slice(0, 8).replace(/:/g, '')
-  return `auto-backup-${localDateKey(now)}-${time}.partial`
+  return `auto-backup-${localDateKey(now)}-${time}-${String(now % 1000).padStart(3, '0')}.partial`
 }
 
 /** 异常检测：DB 无学习状态但 flag 表明曾有过进度 */
@@ -243,7 +243,9 @@ async function runAutoBackupSqlite(
   }
   try {
     report('exporting')
-    const created = await createSqliteFactsBackup()
+    // D-P0-4：自动 SQLite 备份用独立前缀，不占手动 sqlite-backup-* 配额。
+    const autoName = `sqlite-auto-backup-${new Date(now).toISOString().replace(/[:.]/g, '-')}.db`
+    const created = await createSqliteFactsBackup(autoName)
     if (!created.ok || !created.manifest) {
       const error = created.error ?? 'SQLite facts 备份失败'
       bridge.appendDiagLog(`[backup] sqlite failed: ${error}`)
@@ -251,16 +253,25 @@ async function runAutoBackupSqlite(
       return { mode: 'error', learnedCount, progressAnomaly: false, error }
     }
     const manifest = created.manifest
+    // 0.16 防御：任何路径产生的空库备份都不保留（避免覆盖/挤掉有效备份）
+    if (Number(manifest.counts.states ?? 0) === 0) {
+      await deleteSqliteBackupFile(manifest.name).catch(() => undefined)
+      await deleteSqliteBackupManifest(manifest.name).catch(() => undefined)
+      return { mode: 'skipped', learnedCount: 0, progressAnomaly: false }
+    }
     await saveSqliteBackupManifest(manifest)
     report('saving')
     const files = await listSqliteBackupFiles()
     const keep = AUTO_BACKUP_KEEP
-    // 自动备份列表同时包含 SQLite .db 与旧 migration JSON；按总份数保留 7，避免 UI 10+ 份。
+    // D-P0-4：只裁剪自动备份（sqlite-auto-* / auto-backup-*.migration），不删手动 sqlite 备份、
+    // pre-restore、checkpoint、content、partial；最新有效自动备份始终保留。
+    const autoSqlite = files.filter((file) => file.name.startsWith('sqlite-auto-backup-') || file.name.startsWith('sqlite-safety-'))
     const legacy = bridge.list()
-      .filter((entry) => /\.migration\.json(\.gz)?$/.test(entry.name) && entry.size > 0)
+      .filter((entry) => /^auto-backup-.*\.migration\.json(\.gz)?$/.test(entry.name) && entry.size > 0)
+      .filter((entry) => !entry.name.includes('checkpoint-') && !entry.name.includes('content-') && !entry.name.includes('pre-restore-') && !entry.name.includes('.partial'))
       .map((entry) => ({ name: entry.name, mtime: entry.mtime, kind: 'migration' as const }))
     const combined = [
-      ...files.map((file) => ({ name: file.name, mtime: file.mtime, kind: 'sqlite' as const })),
+      ...autoSqlite.map((file) => ({ name: file.name, mtime: file.mtime, kind: 'sqlite' as const })),
       ...legacy,
     ].sort((a, b) => b.mtime - a.mtime)
     let pruned = 0
@@ -378,6 +389,23 @@ async function runAutoBackupImpl(
     if (!saved.ok) {
       const error = saved.error ?? '原生保存失败'
       bridge.appendDiagLog(`[backup] save failed: ${error}`)
+      await writeRunStatus({ status: 'failed', phase: 'failed', startedAt, finishedAt: Date.now(), bytes, name, error })
+      return { mode: 'error', learnedCount, progressAnomaly: false, error }
+    }
+    // D-P0-2：正式备份写后回读校验（长度/JSON/format），避免半截包进入恢复列表。
+    const formalName = saved.name ?? name
+    const formalRead = bridge.read(formalName)
+    let formalValid = false
+    if (formalRead && byteLength(formalRead) === bytes) {
+      try {
+        const parsed = JSON.parse(formalRead) as { format?: unknown }
+        formalValid = typeof parsed?.format === 'string'
+      } catch { formalValid = false }
+    }
+    if (!formalValid) {
+      bridge.delete(formalName)
+      const error = '备份正式文件回读校验失败，已删除该文件并保留旧备份'
+      bridge.appendDiagLog(`[backup] ${error}`)
       await writeRunStatus({ status: 'failed', phase: 'failed', startedAt, finishedAt: Date.now(), bytes, name, error })
       return { mode: 'error', learnedCount, progressAnomaly: false, error }
     }
@@ -519,18 +547,25 @@ async function restoreAutoBackupInner(
   if (!opts.skipPreBackup) {
     reportProgress('pre-backup')
     try {
-      const current = await exportMigrationText()
+      const current = await exportMigrationText({ includeDerivationMaps: true, includeContentPacks: true, includeReviewLogs: true })
       const maxBytes = opts.maxBytes ?? AUTO_BACKUP_MAX_BYTES
       if (byteLength(current) > maxBytes) {
         const error = `当前数据超过 ${(maxBytes / 1024 / 1024).toFixed(0)}MB，已取消恢复（避免无法回滚）`
         await writeRestoreStatus({ status: 'failed', name, startedAt: now, finishedAt: Date.now(), error })
         return { ok: false, name, error }
       }
-      preRestoreName = `pre-restore-${localDateKey(now)}-${String(now % 100000).padStart(5, '0')}.migration.json`
+      preRestoreName = `pre-restore-${localDateKey(now)}-${String(now % 100000).padStart(5, '0')}-${String(now % 1000).padStart(3, '0')}.migration.json`
       const saved = await bridge.save(current, preRestoreName)
       if (!saved.ok) {
         bridge.appendDiagLog(`[restore] pre-backup failed: ${saved.error ?? 'unknown'}`)
         const error = `恢复前备份当前数据失败：${saved.error ?? '未知错误'}`
+        await writeRestoreStatus({ status: 'failed', name, startedAt: now, finishedAt: Date.now(), error })
+        return { ok: false, name, error }
+      }
+      const preRead = bridge.read([saved.name, preRestoreName].find((candidate): candidate is string => Boolean(candidate)) ?? preRestoreName)
+      if (preRead == null || preRead.length !== current.length) {
+        bridge.appendDiagLog('[restore] pre-backup readback failed')
+        const error = '恢复前备份回读校验失败，已取消恢复'
         await writeRestoreStatus({ status: 'failed', name, startedAt: now, finishedAt: Date.now(), error })
         return { ok: false, name, error }
       }
@@ -546,7 +581,9 @@ async function restoreAutoBackupInner(
   try {
     reportProgress('parse')
     const importTask = (opts.importImpl ?? importMigration)(text, {
-      strategy: 'merge',
+      // D-P0-1：从自动备份恢复的语义是回到备份点，必须 replace 才能恢复 reviewLogs/settings；
+      // pre-restore 回滚同样 replace。合并语义另设入口，不能作为默认。
+      strategy: 'replace',
       shouldAbort: () => timedOut,
       skipWriteLock: true,
       onProgress: (progress) => {
@@ -618,7 +655,18 @@ export async function runSqliteFactsAutoBackup(
   const now = opts.now ?? Date.now()
   if (!bridge.isAvailable()) return { mode: 'unavailable', learnedCount: 0, progressAnomaly: false }
   try {
+    // 0.16 D-P0：空库（清空后/恢复前）不得创建空自动备份，否则会覆盖/挤掉用户的有效备份。
+    const preHealth = await sqliteHealth(10_000).catch(() => null)
+    const preCounts = preHealth ? extractSqliteCounts(preHealth as never) : null
+    if (!preCounts || Number(preCounts.states ?? 0) === 0) {
+      return { mode: 'skipped', learnedCount: 0, progressAnomaly: false }
+    }
     const backup = await createSqliteFactsBackup()
+    if (backup.ok && backup.manifest && Number(backup.manifest.counts.states ?? 0) === 0) {
+      await deleteSqliteBackupFile(backup.manifest.name).catch(() => undefined)
+      await deleteSqliteBackupManifest(backup.manifest.name).catch(() => undefined)
+      return { mode: 'skipped', learnedCount: 0, progressAnomaly: false }
+    }
     if (!backup.ok || !backup.manifest) {
       const error = backup.error ?? 'SQLite facts 备份失败'
       bridge.appendDiagLog(`[backup-sqlite] failed: ${error}`)

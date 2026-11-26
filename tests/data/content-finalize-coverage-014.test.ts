@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import { finalizeContentWriteCoverage, getDb, getContentMigrationState, rebuildContentCacheFromSqlite, resetDatabase, setSqliteTransport } from '../../src/data'
@@ -25,7 +26,7 @@ describe('0.14 finalize coverage', () => {
     expect((await finalizeContentWriteCoverage()).ok).toBe(false)
   })
   it('C2 overlay counts 不一致→失败并恢复旧 cache', async () => {
-    await resetDatabase(); await persistContentWriteSource('sqlite'); counts(0)
+    await resetDatabase(); await primeLegacySqliteContentSource(); counts(0)
     const db = getDb()
     await db.meta.put({ key: 'contentMigrationState', value: { status: 'ready' }, updatedAt: Date.now() })
     await db.decks.put({ id: 'old', name: 'old', source: 'custom', wordCount: 1, version: 1, isDefault: false, createdAt: 1, updatedAt: 1 } as never)

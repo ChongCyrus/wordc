@@ -919,11 +919,15 @@ export type {
 export {
   getLearningWriteSource,
   restoreLearningWriteSource,
+  requestSourceRecovery,
+  shouldReloadForSourceRecovery,
   getLearningWriteDiagnostics,
   enableLearningSqliteWrite,
   revertLearningWriteSourceToIdb,
   persistLearningWriteSource,
   assertIdbMutationAllowed,
+  recoverReadonlySourceFromSqlite,
+  diagnoseAndRecoverSqliteSource,
   LearningWriteRetryableError,
   LearningWriteReadonlyError,
   LEARNING_WRITE_SOURCE_KEY,
@@ -941,7 +945,7 @@ export {
   LEGACY_UPGRADE_DIAG_KEY,
 } from './upgrade-migration'
 export type { LegacyUpgradeResult } from './upgrade-migration'
-export { submitRatingSqlite } from './study-sqlite'
+export { submitRatingSqlite, flushRatingCacheWarmup, getRatingCacheDebugEvents } from './study-sqlite'
 export { reRateInPlanSqlite } from './plan-sqlite'
 export type { SubmitRatingSqliteOptions, SubmitRatingSqliteResult } from './study-sqlite'
 export {
@@ -964,6 +968,9 @@ export {
   preflightSqliteRestore,
   getSqliteFactsManifest,
   restoreSqliteFactsBackup,
+  isRestorableBackup,
+  createSafetySnapshot,
+  deleteSafetySnapshot,
   SQLITE_BACKUP_PREFIX,
 } from './sqlite-backup'
 export type { SqliteBackupManifest, CreateSqliteBackupResult, SqliteBackupFileEntry } from './sqlite-backup'

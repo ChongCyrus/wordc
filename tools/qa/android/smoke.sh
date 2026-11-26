@@ -1,6 +1,6 @@
 #!/system/bin/sh
 # 0.15 Android 真机 shell smoke：uiautomator dump + input tap，不依赖无障碍服务
-PKG=com.wordc.app
+PKG="${MOMO_PKG:-com.wordc.app.qa}"
 OUT=下载/qa
 XML=下载/qa/ui.xml
 mkdir -p "$OUT"
@@ -40,7 +40,7 @@ shot() { screencap -p "$OUT/${1:-screen}-$(date +%s).png"; }
 
 start_app() {
   am force-stop "$PKG"
-  am start -n "$PKG/.MainActivity" >/dev/null 2>&1
+  am start -n "$PKG/com.wordc.app.MainActivity" >/dev/null 2>&1
   wait_text '今日任务' 40
 }
 

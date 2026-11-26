@@ -1,4 +1,5 @@
 import './test-utils'
+import { primeIdbCacheReady } from './test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import { hashContentValue } from '../../src/data/content-snapshot'
 import {
@@ -40,7 +41,7 @@ async function hashRows(kind: 'content' | 'learning'): Promise<string> {
 }
 describe('0.14 final gate: 覆盖安装/重启数据保留（无旧版迁移）', () => {
   it('0.14→0.14 重启/覆盖后 learning facts 与内容都保留', async () => {
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     const db = getDb()
     await db.meta.put({ key: CONTENT_MIGRATION_STATE_KEY, value: { status: 'ready', writeCoverageComplete: true, idbFingerprint: { version: 1 }, revision: 10 }, updatedAt: Date.now() })
     mockKv()

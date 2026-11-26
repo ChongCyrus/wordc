@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -130,7 +131,7 @@ describe('0.14 backup source = content_kv revision', () => {
     await resetDatabase()
     // IDB cache 里是旧内容（stale）
     await createDeck({ name: 'idb-deck', words: [{ headword: 'idbword', meanings: [{ cn: '义' }] }] })
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await markMigrationReady()
     const deck = { id: 'kv-deck', name: '来自 KV', source: 'custom', wordCount: 1, version: 1, isDefault: false, createdAt: 1, updatedAt: 9 }
     const word = { id: 'kv-word', deckId: 'kv-deck', headword: 'kvword', headwordLower: 'kvword', meanings: [], examples: [], mnemonics: [], phrases: [], tags: [], order: 1, createdAt: 1, updatedAt: 9 }
@@ -172,7 +173,7 @@ describe('0.14 backup source = content_kv revision', () => {
     const idbSnapshot = await buildContentSnapshot({ revision: 1 })
     const kvRows = await kvRowsFromIdb()
     installNativeStore(kvRows)
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await markMigrationReady()
     const kvSnapshot = await buildContentSnapshot({ revision: 1 })
     expect(COMPACT(kvSnapshot.entries)).toEqual(COMPACT(idbSnapshot.entries))
@@ -186,7 +187,7 @@ describe('0.14 backup source = content_kv revision', () => {
     // kv 行与 IDB cache 初始一致
     const initialRows = await kvRowsFromIdb()
     const { rows } = installNativeStore(initialRows)
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await markMigrationReady()
     const snapshot1 = await buildContentSnapshot({ revision: 1 })
     const baselineFile = await buildContentBaselineFile(snapshot1)
@@ -231,7 +232,7 @@ describe('0.14 backup source = content_kv revision', () => {
   it('v15 迁移未完成（pending）走 IDB；done 后不再依赖旧 migration ready', async () => {
     await resetDatabase()
     await createDeck({ name: 'not-ready', words: [{ headword: 'idbword2', meanings: [{ cn: '义' }] }] })
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: 'contentMigrationV15', value: { status: 'running' }, updatedAt: Date.now() })
     installNativeStore([{ key: 'deck:kv-only', kind: 'deck', json: JSON.stringify({ id: 'kv-only', name: 'KV', updatedAt: 1 }), updated_at: 1, revision: 1, deleted: 0 }])
     const snapshot = await buildContentSnapshot({ revision: 1 })
@@ -248,7 +249,7 @@ describe('0.14 backup source = content_kv revision', () => {
     await resetDatabase()
     await createDeck({ name: 'stale', words: [{ headword: 'stale-original', meanings: [{ cn: '义' }] }] })
     const { rows: store } = installNativeStore(await kvRowsFromIdb())
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await markMigrationReady()
     const before = await buildContentSnapshot({ revision: 1 })
     // 只改 content_kv，IDB cache 保持 stale
@@ -269,7 +270,7 @@ describe('0.14 backup source = content_kv revision', () => {
     await createDeck({ name: 'bodies', words: [{ headword: 'idb-old', meanings: [{ cn: '旧' }] }] })
     await getDb().meta.put({ key: 'userNote:body', value: 'idb-body', updatedAt: 3 })
     const { rows: store, calls } = installNativeStore(await kvRowsFromIdb())
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await markMigrationReady()
     // 只改 content_kv 正文，IDB cache 保持 stale
     const wordRow = [...store.values()].find((row) => row.kind === 'word')!
@@ -301,7 +302,7 @@ describe('0.14 backup source = content_kv revision', () => {
       deleted: 0,
     }))
     const { rows: store, calls } = installNativeStore(rows)
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await markMigrationReady()
     const entries = rows.map((row) => ({ type: 'meta', key: row.key.slice('meta:'.length), hash: 'h', updatedAt: row.updated_at }))
     const entities = await exportContentEntities(entries)
@@ -323,7 +324,7 @@ describe('0.14 backup source = content_kv revision', () => {
     await resetDatabase()
     await createDeck({ name: 'chain-bodies', words: [{ headword: 'idb-old', meanings: [{ cn: '旧' }] }] })
     const { rows: store } = installNativeStore(await kvRowsFromIdb())
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await markMigrationReady()
     // kv 正文改掉，IDB 保持 stale
     const wordRow = [...store.values()].find((row) => row.kind === 'word')!
@@ -339,7 +340,7 @@ describe('0.14 backup source = content_kv revision', () => {
     expect(snapshotAfterBaseline.snapshotId).toBe(snapshot1.snapshotId)
     await persistContentWriteSource('idb')
     expect((await getDb().words.toArray())[0]!.headword).toBe('kv-first')
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await markMigrationReady()
     // 增量：只改 kv 新增 note，IDB 不同步；正文仍必须来自 kv
     store.set('meta:userNote:inc', { key: 'meta:userNote:inc', kind: 'meta', json: '"inc-body"', updated_at: 70, revision: 999, deleted: 0 })

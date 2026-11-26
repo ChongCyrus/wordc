@@ -1,7 +1,7 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import { consumeInterruptedContentRestore, getDb, rebuildContentCacheFromSqlite, resetDatabase } from '../../src/data'
-import { persistContentWriteSource } from '../../src/data/content-write-source'
 
 describe('0.15 P1-4 内容恢复 journal', () => {
   afterEach(() => {
@@ -11,7 +11,7 @@ describe('0.15 P1-4 内容恢复 journal', () => {
   it('检测中断 marker：标 interrupted、cache dirty，拒绝从半替换 kv 重建', async () => {
     await resetDatabase()
     ;(globalThis as unknown as { MomoBridge?: { isNativeApp?: () => string } }).MomoBridge = { isNativeApp: () => 'momo-apk' }
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: 'content.restore.stageNow', value: { id: 'base-x', at: Date.now() }, updatedAt: Date.now() })
     const result = await consumeInterruptedContentRestore()
     expect(result.interrupted).toBe(true)

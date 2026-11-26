@@ -1,4 +1,5 @@
 import './test-utils'
+import { primeIdbCacheReady, primeLegacySqliteContentSource, resetContentSourceToIdb } from './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { beforeEach, afterEach, describe, expect, it } from 'vitest'
 import {
@@ -113,6 +114,8 @@ function mockSqlite(opts: { fail?: boolean } = {}): MockSqliteState {
 }
 
 async function importInIdb(file: PackFileV1): Promise<string> {
+  // C-04：meta 缺失时 settings 读回源 SQLite（mock 空行）→ selectedDeckId 读不到 → 词库匹配失败
+  await primeIdbCacheReady()
   await persistContentWriteSource('idb')
   const imported = await importPack(JSON.stringify(file))
   expect(imported.ok, imported.issues.map((issue) => issue.message).join('; ')).toBe(true)
@@ -127,11 +130,13 @@ async function approveAllInIdb(packId: string): Promise<string[]> {
 }
 
 async function switchToSqlite(): Promise<void> {
-  await persistContentWriteSource('sqlite')
+  // C-04 后 settings 读路径 cache meta 缺失会 fail-closed 回源 SQLite（mock 无 settings）→ 写源被判 idb
+  await primeLegacySqliteContentSource()
 }
 
 beforeEach(async () => {
   await resetDatabase()
+  await resetContentSourceToIdb()
 })
 
 afterEach(() => {

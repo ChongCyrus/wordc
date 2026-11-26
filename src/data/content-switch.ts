@@ -210,7 +210,7 @@ async function tombstoneStaleContentKvEntities(idbContentKeys?: readonly string[
     if (kinds.has('content-reject')) for (const reject of await db.contentRejects.toArray()) current.add(`content-reject:${reject.id}`)
     if (kinds.has('word-overlay')) {
       for (const word of await db.words.toArray()) {
-        if (word.rootEtymology || word.userNotes || word.userMnemonics || word.derivationMap) current.add(`word-overlay:${word.id}`)
+        { const { WORD_OVERLAY_FIELDS } = await import('./content-snapshot'); if (WORD_OVERLAY_FIELDS.some((field) => (word as unknown as Record<string, unknown>)[field] !== undefined)) current.add(`word-overlay:${word.id}`) }
       }
     }
     if (kinds.has('meta')) {

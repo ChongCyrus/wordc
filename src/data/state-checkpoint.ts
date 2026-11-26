@@ -1,6 +1,7 @@
 /** 0.10.0/P0：学习状态检查点（states/plans/settings，不含 words，体积小、可频繁写） */
 import { computeChecksum, stableStringify } from './checksum'
 import { getDb } from './db'
+import { withDataWriteLock } from './write-lock'
 import type { DailyPlan } from './plan.types'
 import type { WordState } from '../core/types'
 import type { SettingRecord } from '../core'
@@ -40,11 +41,20 @@ export interface StateCheckpointStatus {
   restored?: { states: number; plans: number; settings: number }
 }
 
+function checkpointBase(name: string): string {
+  return name.replace(/^auto-backup-/, '').replace(/\.gz$/, '')
+}
+
+function isCheckpointName(name: string): boolean {
+  return /^checkpoint-(latest|\d+)\.state\.json$/.test(checkpointBase(name))
+}
+
 function checkpointNames(bridge: AutoBackupBridge): string[] {
-  return bridge
-    .list()
-    .map((entry) => entry.name)
-    .filter((name) => /^checkpoint-(latest|\d+)\.state\.json$/.test(name))
+  return bridge.list().map((entry) => entry.name).filter(isCheckpointName)
+}
+
+function actualCheckpointName(bridge: AutoBackupBridge, base: string): string | undefined {
+  return checkpointNames(bridge).find((name) => checkpointBase(name) === base)
 }
 
 /** 删除所有检查点文件（清空数据/恢复后使用） */
@@ -95,32 +105,34 @@ export async function saveStateCheckpoint(
   try {
     if (!bridge.isAvailable()) return { state: 'failed', error: '当前环境不支持检查点' }
     const { text, checkpoint } = await buildStateCheckpoint(now)
-    const existing = checkpointNames(bridge).filter((name) => name !== STATE_CHECKPOINT_LATEST)
-    // 旧 latest 先轮换为 checkpoint-1，其余顺延
     const names = checkpointNames(bridge)
-    if (names.includes(STATE_CHECKPOINT_LATEST)) {
-      const old = bridge.read(STATE_CHECKPOINT_LATEST)
-      if (old) {
-        for (let i = STATE_CHECKPOINT_KEEP - 1; i >= 1; i -= 1) {
-          const from = `checkpoint-${i}.state.json`
-          const to = `checkpoint-${i + 1}.state.json`
-          const content = bridge.read(from)
-          if (content) bridge.save(content, to)
-        }
-        bridge.save(old, 'checkpoint-1.state.json')
-      }
+    const latestActual = actualCheckpointName(bridge, STATE_CHECKPOINT_LATEST)
+    const oldContents: Array<{ base: string; text: string }> = []
+    for (const name of names) {
+      const base = checkpointBase(name)
+      const textContent = bridge.read(name)
+      if (textContent) oldContents.push({ base, text: textContent })
     }
+    // 删除旧检查点（实际名含 auto-backup- 前缀/.gz），用实际内容重建轮换，避免命名失配
+    for (const name of names) bridge.delete(name)
+    const sortedOld = oldContents.filter((item) => item.base !== STATE_CHECKPOINT_LATEST).sort((a, b) => a.base.localeCompare(b.base))
+    let index = STATE_CHECKPOINT_KEEP
+    for (const item of sortedOld.slice(0, STATE_CHECKPOINT_KEEP - 1)) {
+      const savedOld = await bridge.save(item.text, `checkpoint-${index}.state.json`)
+      if (!savedOld.ok) { void savedOld; }
+      index -= 1
+    }
+    const latestOld = oldContents.find((item) => item.base === STATE_CHECKPOINT_LATEST)
+    if (latestOld?.text) await bridge.save(latestOld.text, 'checkpoint-1.state.json')
     const saved = await bridge.save(text, STATE_CHECKPOINT_LATEST)
     if (!saved.ok) {
       await writeStatus({ state: 'failed', at: now, error: saved.error ?? '保存检查点失败' })
       return { state: 'failed', at: now, error: saved.error ?? '保存检查点失败' }
     }
-    // 只保留 latest + 3 份历史
-    for (const name of checkpointNames(bridge)) {
-      const match = name.match(/^checkpoint-(\d+)\.state\.json$/)
-      if (match && Number(match[1]) > STATE_CHECKPOINT_KEEP) bridge.delete(name)
-    }
-    void existing
+    const savedLatest = actualCheckpointName(bridge, STATE_CHECKPOINT_LATEST) ?? STATE_CHECKPOINT_LATEST
+    const keepNames = new Set([savedLatest, ...Array.from({ length: STATE_CHECKPOINT_KEEP }, (_, i) => actualCheckpointName(bridge, `checkpoint-${i + 1}.state.json`)).filter(Boolean)])
+    for (const name of checkpointNames(bridge)) if (!keepNames.has(name)) bridge.delete(name)
+    void latestActual
     const status: StateCheckpointStatus = { state: 'saved', at: now, counts: checkpoint.counts }
     await writeStatus(status)
     return status
@@ -174,7 +186,13 @@ function parseCheckpoint(text: string): StateCheckpoint {
 }
 
 /** 启动自动恢复：仅当 states=0 且 latest 检查点有效时合并 states/plans/settings（不写 words） */
-export async function restoreStateCheckpointIfEmpty(
+export function restoreStateCheckpointIfEmpty(
+  bridge: AutoBackupBridge,
+): Promise<StateCheckpointStatus & { skipped?: boolean }> {
+  return withDataWriteLock(() => restoreStateCheckpointIfEmptyInner(bridge))
+}
+
+async function restoreStateCheckpointIfEmptyInner(
   bridge: AutoBackupBridge,
 ): Promise<StateCheckpointStatus & { skipped?: boolean }> {
   try {

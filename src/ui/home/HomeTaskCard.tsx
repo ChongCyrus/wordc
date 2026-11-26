@@ -65,12 +65,13 @@ export function HomeTaskCard({
 }: HomeTaskCardProps) {
   const view = homeActionView(state)
   const progressTotal = plannedTotal ?? dailyGoal
-  const pct = percentOf(todayReviewed, progressTotal)
+  const isDone = state.kind === 'done' || state.kind === 'done-with-overdue'
+  // 回炉会让 plan.wordIds 含重复词，todayReviewed 是唯一已学；完成态必须显示 100% 而非 11/13
+  const pct = isDone && progressTotal > 0 ? 100 : percentOf(todayReviewed, progressTotal)
+  const shownDone = isDone && progressTotal > 0 ? progressTotal : todayReviewed
   const emptyPlan = progressTotal === 0
   const showAddWords = manualMode && emptyPlan && Boolean(onAddWords)
   const showLearnButton = view.target === 'study'
-  const isDone = state.kind === 'done' || state.kind === 'done-with-overdue'
-
   return (
     <Card>
       {/* task-50：KPI 行固定三项（待复习/待新学/今日已学），不随 6 态变化 */}
@@ -139,7 +140,7 @@ export function HomeTaskCard({
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
           <span className="mm-caption">
-            今日 {todayReviewed} / {progressTotal}
+            今日 {shownDone} / {progressTotal}
           </span>
           <span className="mm-caption">{pct}%</span>
         </div>

@@ -1,4 +1,5 @@
 import './test-utils'
+import { primeIdbCacheReady, primeLegacySqliteContentSource } from './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 /**
  * 0.14 QA P0：清空数据必须清 content_kv（否则重建 cache 内容复活）；facts-only 迁移自定义 deck/words 写 content_kv。
@@ -160,7 +161,8 @@ function installNativeMock() {
 }
 
 async function useContentSqlite(): Promise<void> {
-  await persistContentWriteSource('sqlite')
+  // C-04 后 settings 读路径 cache meta 缺失会 fail-closed 回源 SQLite，写源会被判成 idb
+  await primeLegacySqliteContentSource()
 }
 
 /** 重建 cache 的门禁：写源=sqlite 且 contentMigrationState=ready */
@@ -170,7 +172,7 @@ async function enableCacheRebuild(): Promise<void> {
 }
 
 beforeEach(async () => {
-  await resetDatabase()
+  await resetDatabase(); await primeIdbCacheReady()
 })
 
 afterEach(async () => {
@@ -227,8 +229,10 @@ describe('0.14 QA P0 clearAllData：清 content_kv', () => {
     expect(mock.rows.size).toBe(502) // deck + 501 words
     mock.failContentWriteAt(2) // 清空第 2 批失败
     const error = await clearAllData({ unsafe: true }).catch((reason: unknown) => reason)
-    expect((error as { code?: string }).code).toBe('CONTENT_SQLITE_WRITE_FAILED')
+    // 0.16（4d60f6c）：clearAllData 失败统一包成 Error（原 code 只保留在 message 里）；
+    // 本 mock 未实现 restoreDb，安全快照回滚会报失败，因此 message 带“安全快照回滚失败”。
     expect(String((error as Error).message)).toMatch(/清空 content_kv 失败/)
+    expect(String((error as Error).message)).toMatch(/安全快照回滚失败/)
     // 已清批次被快照恢复，全部回到 deleted=0；IDB 未被清空
     expect([...mock.rows.values()].every((row) => row.deleted === 0)).toBe(true)
     expect(await getDb().decks.get(deck.id)).toBeTruthy()
@@ -240,7 +244,7 @@ describe('0.14 QA P0 importMigration facts-only：自定义 deck/words 写 conte
   it('迁移后内容写 content_kv；重建 cache 保留自定义 deck/word', async () => {
     const deck = await createDeck({ name: 'facts 迁移库', words: [{ headword: 'alpha', meanings: [{ cn: '甲' }] }] })
     const migrationText = JSON.stringify(await buildMigrationFile())
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     await useContentSqlite()
     const mock = installNativeMock()
 
@@ -264,7 +268,7 @@ describe('0.14 QA P0 importMigration facts-only：自定义 deck/words 写 conte
   it('内容写 content_kv 失败：结构化错误且 IDB 不写自定义 deck/word', async () => {
     const deck = await createDeck({ name: 'facts 失败库', words: [{ headword: 'alpha', meanings: [{ cn: '甲' }] }] })
     const migrationText = JSON.stringify(await buildMigrationFile())
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     await useContentSqlite()
     const mock = installNativeMock()
     mock.failContentWriteAt(1)
@@ -280,7 +284,7 @@ describe('0.14 G1 importMigration 主路径：自定义 deck/words 写 content_k
   it('迁移后 content_kv 有 deck:/word:；重建 cache 保留自定义 deck/word', async () => {
     const deck = await createDeck({ name: '主迁移库', words: [{ headword: 'alpha', meanings: [{ cn: '甲' }] }] })
     const migrationText = JSON.stringify(await buildMigrationFile())
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     await useContentSqlite()
     const mock = installNativeMock()
     const report = await importMigration(migrationText, { force: true })
@@ -300,7 +304,7 @@ describe('0.14 G1 importMigration 主路径：自定义 deck/words 写 content_k
   it('content 写失败：结构化错误且 IDB 不写自定义 deck/word', async () => {
     const deck = await createDeck({ name: '主迁移失败库', words: [{ headword: 'alpha', meanings: [{ cn: '甲' }] }] })
     const migrationText = JSON.stringify(await buildMigrationFile())
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     await useContentSqlite()
     const mock = installNativeMock()
     mock.failContentWriteAt(1)
@@ -318,7 +322,7 @@ describe('0.14 G2 恢复包写源：强制 idb + 清迁移状态', () => {
     await persistContentWriteSource('sqlite')
     await getDb().meta.put({ key: 'contentMigrationState', value: { status: 'ready', writeCoverageComplete: true }, updatedAt: Date.now() })
     const migrationText = JSON.stringify(await buildMigrationFile())
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
 
     const report = await importMigration(migrationText, { force: true })
     expect(report.ok, report.issues.map((issue) => issue.message).join('; ')).toBe(true)
@@ -350,7 +354,7 @@ describe('0.14 QA 闭环 B-G2/B-G3/packs 分批 + S2', () => {
 
   it('B-G2：replace 只 tombstone 差集，同一批 entries/deletes 无同 key', async () => {
     const migrationText = await buildMigrationWithPacks(1)
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     await useContentSqlite()
     // 本机已有同 id pack（应 upsert 而非 tombstone）与额外 item/reject（差集，应 tombstone）
     await getDb().packs.put({
@@ -375,7 +379,7 @@ describe('0.14 QA 闭环 B-G2/B-G3/packs 分批 + S2', () => {
 
   it('B-G3：contentPacks content_kv 写后 IDB 事务失败 → 快照补偿 content_kv', async () => {
     const migrationText = await buildMigrationWithPacks(1)
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     await useContentSqlite()
     const mock = installNativeMock()
     const failingHook = () => { throw new Error('mock idb transaction fail') }
@@ -387,7 +391,7 @@ describe('0.14 QA 闭环 B-G2/B-G3/packs 分批 + S2', () => {
 
   it('packs 第 2 批失败：结构化失败 + 已写批次补偿 + IDB 不写', async () => {
     const migrationText = await buildMigrationWithPacks(501)
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     await useContentSqlite()
     const mock = installNativeMock()
     mock.failContentWriteAt(2)
@@ -404,7 +408,7 @@ describe('0.14 QA 闭环 B-G2/B-G3/packs 分批 + S2', () => {
     await persistContentWriteSource('sqlite')
     await getDb().meta.put({ key: 'contentMigrationState', value: { status: 'ready', writeCoverageComplete: true }, updatedAt: Date.now() })
     const migrationText = JSON.stringify(await buildMigrationFile())
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     await useContentSqlite()
     installNativeMock()
     const report = await importMigrationSqlite(migrationText, { preBackup: async () => ({ ok: true }) })

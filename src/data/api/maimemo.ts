@@ -276,8 +276,8 @@ export async function importMaimemoRecords(records: unknown[]): Promise<MaimemoI
   }
   if (getLearningWriteSource() === 'sqlite') {
     return withDataWriteLock(async () => {
-      const { createSqliteFactsBackup, restoreSqliteFactsBackup } = await import('../sqlite-backup')
-      const backup = await createSqliteFactsBackup()
+      const { createSafetySnapshot, deleteSafetySnapshot, restoreSqliteFactsBackup } = await import('../sqlite-backup')
+      const backup = await createSafetySnapshot()
       if (!backup.ok || !backup.manifest) throw new Error(backup.error ?? '墨墨导入前 SQLite 备份失败')
       try {
         const ops = mapped.states.map((state) => ({ op: 'upsert', table: 'states', row: buildStateSqliteRow(state) }))
@@ -298,12 +298,13 @@ export async function importMaimemoRecords(records: unknown[]): Promise<MaimemoI
         }
         try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('momo:plan-updated', { detail: { reason: 'maimemo-import' } })) } catch { /* ignore */ }
         await recordLastImport(result)
+        await deleteSafetySnapshot(backup.manifest).catch(() => undefined)
         return result
       } catch (error) {
         try {
           await restoreSqliteFactsBackup(
             { ...(backup.manifest.path ? { path: backup.manifest.path } : {}), manifest: backup.manifest },
-            { preBackup: async () => ({ ok: true }), skipWriteLock: true },
+            { preBackup: async () => ({ ok: true }), skipWriteLock: true, allowEmptySafety: true },
           )
         } catch { /* restore failure: 保留备份供手动恢复 */ }
         throw error

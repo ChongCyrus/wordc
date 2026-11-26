@@ -13,6 +13,7 @@
 import { addDays, familiarity, getCurrentWordId as coreGetCurrentWordId, localDateKey, startOfLocalDay } from '../core'
 import type { Rating, Word, WordState } from '../core'
 import { getDb } from './db'
+import { withDataWriteLock } from './write-lock'
 import { mapSqlitePlanRow, readPlanFromSqliteRaw, readPlanThroughCache } from './sqlite-read'
 import { completePlanSqlite, clearPlanSqlite, setPlanIndexSqlite, savePlanSqlite, appendWordsToTodayPlanSqlite, removeUnlearnedAutoNewWordsSqlite, undoLastRatingSqlite, reRateInPlanSqlite, assertComplexPlanWriteSupported } from './plan-sqlite'
 import { getLearningWriteSource } from './learning-write-source'
@@ -532,7 +533,7 @@ export async function cleanupOldPlans(opts: { keepDays?: number; now?: number } 
   const keepDays = Math.max(0, Math.floor(opts.keepDays ?? 7))
   const now = opts.now ?? Date.now()
   const cutoff = localDateKey(addDays(startOfLocalDay(now), -keepDays))
-  return clearOldPlans(cutoff)
+  return withDataWriteLock(() => clearOldPlans(cutoff))
 }
 
 // ============ 今日已学拆分（task-49，派生数据） ============
@@ -673,7 +674,11 @@ async function healPlanCacheForRead(planId: string, now: number): Promise<DailyP
 }
 
 /** 0.11.0 M4b-1：启动时自愈 IDB plan（不动 SQLite/不恢复旧快照）；plan 单源留 M4b2 */
-export async function healTodayPlanAfterStartup(now: number = Date.now()): Promise<DailyPlan | null> {
+export function healTodayPlanAfterStartup(now: number = Date.now()): Promise<DailyPlan | null> {
+  return withDataWriteLock(() => healTodayPlanAfterStartupInner(now))
+}
+
+async function healTodayPlanAfterStartupInner(now: number = Date.now()): Promise<DailyPlan | null> {
   const settings = await getSettings()
   const deckId = settings['data.selectedDeckId']
   if (!deckId) return null
@@ -1034,6 +1039,7 @@ export async function updateDailyGoalAndResync(
   const plan = await db.plans.get(planIdOf(localDateKey(now), deckId))
   if (!plan) return empty
   const result = await recomputePlanForGoal({ planId: plan.id, newGoal, now })
+  if (getLearningWriteSource() === 'sqlite') await savePlanSqlite(result.plan)
   return {
     settings,
     plan: result.plan,
@@ -1198,14 +1204,15 @@ export async function rateInPlan(input: {
   now?: number
   planId?: string
 }): Promise<{ state: WordState; plan: DailyPlan | null; intervalDays: number }> {
-  const db = getDb()
   const now = input.now ?? Date.now()
   let planId = input.planId
   if (!planId) {
     planId = await getMeta<string>(PLAN_ACTIVE_ID)
   }
   const result = await submitRating(input.wordId, input.rating, now, { planId })
-  const plan = planId ? ((await db.plans.get(planId)) ?? null) : null
+  // 评分后 cache 可能 dirty/后台未回填；直接读 IDB 会拿到旧 index，导致首词不前进。
+  // readPlanThroughCache 在 dirty 时回源 SQLite，保证拿到本次评分后的 plan。
+  const plan = planId ? ((await readPlanThroughCache(planId, 'high')) ?? null) : null
   return { state: result.state, plan, intervalDays: result.intervalDays }
 }
 

@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -192,7 +193,7 @@ describe('0.15 backup/restore single source', () => {
 
   it('native 恢复失败：content_kv 补偿错误显式返回，source 仍 sqlite、IDB 不变', async () => {
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: 'contentMigrationV15', value: { status: 'done', at: Date.now() }, updatedAt: Date.now() })
     markNativeRuntime()
     const good = await seedKvContent()
@@ -224,7 +225,7 @@ describe('0.15 backup/restore single source', () => {
     expect((await createContentIncrement()).ok).toBe(true)
     const expected = await buildContentSnapshot({ revision: 20 })
     // 阶段 B：0.15 native 单一事实源，kv 为空 → 用旧包恢复
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: 'contentMigrationV15', value: { status: 'done', at: Date.now() }, updatedAt: Date.now() })
     markNativeRuntime()
     installStore([])

@@ -296,6 +296,7 @@ async function seedOne(
     if (sessionKeys.length > 0) await db.meta.bulkDelete(sessionKeys)
   })
   await bumpDataEpoch('builtin-seed')
+  try { const { markIdbCacheDirty } = await import('../idb-cache'); await markIdbCacheDirty('builtin-reseed') } catch { /* ignore */ }
   return { deck, dataVersion }
 }
 

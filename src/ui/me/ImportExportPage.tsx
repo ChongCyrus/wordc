@@ -22,6 +22,7 @@ import {
   buildSafetyDiagnosticsText,
   createAutoBackupBridge,
   listAutoBackupsForUi,
+  findLatestRestorableAutoBackupForUi,
   restoreAutoBackupForUi,
 } from '../../app/utils/auto-backup-service'
 import { exportBackupToDownloads } from '../../app/utils/auto-backup'
@@ -131,7 +132,9 @@ export default function ImportExportPage() {
   }
 
   const restoreLatestBackup = async () => {
-    const latest = listAutoBackupsForUi()[0]
+    // 0.16：清理后 JSON 备份可能已被轮换/删除，但 SQLite 自动备份仍在；
+    // 必须用 validated 列表（含 sqlite .db + manifest），否则误报「暂无自动备份可恢复」。
+    const latest = await findLatestRestorableAutoBackupForUi()
     if (!latest) {
       toast.error('暂无自动备份可恢复')
       return

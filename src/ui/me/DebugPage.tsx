@@ -11,10 +11,13 @@ import {
   getLearningWriteSource,
   repairLearningWriteSource,
   getSqliteFactsManifest,
+  rebuildIdbCacheFromSqlite,
   getContentSourceV15Status,
+  getImportStageDiagnostics,
+  requestSourceRecovery,
 } from '../../data'
 import { readDiagnosticFile } from '../../app/utils/auto-backup'
-import { buildSafetyDiagnosticsText } from '../../app/utils/auto-backup-service'
+import { buildSafetyDiagnosticsText, createPreBackup } from '../../app/utils/auto-backup-service'
 import { mapContentError } from '../../app/utils/content-errors'
 import { datedFileName, saveBlobFile, saveResultMessage } from '../../app/utils/files'
 import { PageShell } from '../components/PageShell'
@@ -44,6 +47,7 @@ export default function DebugPage() {
     error?: string
     v15?: { status?: string; source?: string; error?: string; from?: string } | null
   } | null>(null)
+  const [restoreDiag, setRestoreDiag] = useState<unknown>(null)
 
   useEffect(() => {
     setWriteSource(getLearningWriteSource())
@@ -51,12 +55,14 @@ export default function DebugPage() {
 
   const refreshContentState = async () => {
     try {
-      const [source, row, counts, v15] = await Promise.all([
+      const [source, row, counts, v15, restoreRow] = await Promise.all([
         getContentWriteSource(),
         getDb().meta.get(CONTENT_MIGRATION_STATE_KEY),
         readContentCounts().catch(() => ({}) as Record<string, unknown>),
         getContentSourceV15Status().catch(() => null),
+        getDb().meta.get('restore.diag').catch(() => null),
       ])
+      setRestoreDiag(restoreRow?.value ?? null)
       const value = (row?.value ?? {}) as { status?: string; revision?: number; writeCoverageComplete?: boolean; error?: string }
       setContentState({
         source,
@@ -145,6 +151,7 @@ export default function DebugPage() {
           hint={`${contentState?.source ?? '读取失败/未知'} · 迁移状态 ${contentState?.status ?? '未开始'}${contentState?.revision != null ? ` · revision ${contentState.revision}` : ''}${contentState?.error ? ` · ${contentState.error}` : ''}`}
           value={contentState?.source === 'sqlite' ? 'SQLite' : contentState?.source === 'idb' ? 'IDB' : '未知'}
         />
+        <SettingRow label="restore.diag" hint={restoreDiag ? JSON.stringify(restoreDiag) : '暂无恢复诊断'} value={restoreDiag ? '有' : '无'} />
         <details className="mm-card" style={{ margin: '4px 0' }}>
           <summary className="mm-row-title">内容 counts / 错误详情（可展开）</summary>
           <pre className="mm-caption" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0 }}>
@@ -170,6 +177,27 @@ export default function DebugPage() {
               if (!mod.rebuildContentCacheFromSqlite) throw new Error('重建缓存接口未就绪')
               const result = await mod.rebuildContentCacheFromSqlite()
               if (!result.ok) throw new Error(describeContentWriteError(result.error ?? '重建失败'))
+              return result
+            })
+          }
+        />
+        <SettingRow
+          label="强制修复 IDB cache（以 SQLite 为准）"
+          hint="分叉时先备份，再丢弃 IDB 分叉内容并完全按 SQLite 重建；不写 SQLite 事实源"
+          disabled={busy}
+          chevron
+          onClick={() =>
+            void run(async () => {
+              if (!window.confirm('强制修复会用 SQLite 覆盖 IDB cache（先完整备份）。继续？')) return { skipped: true }
+              const backup = await createPreBackup()
+              if (!backup.ok) throw new Error(`预备份失败：${backup.error ?? '未知错误'}`)
+              const result = await rebuildIdbCacheFromSqlite({
+                dryRun: false,
+                batchSize: 500,
+                force: true,
+                preBackup: async () => ({ ok: true }),
+              })
+              if (!result.ok) throw new Error(result.error ?? result.conflict ?? '强制修复失败')
               return result
             })
           }
@@ -234,6 +262,12 @@ export default function DebugPage() {
           }
         />
         <SettingRow
+          label="启动自愈：SQLite→IDB 写源"
+          hint="SQLite 有事实但写源 readonly/IDB 空时强制重建"
+          chevron
+          onClick={() => void run(() => requestSourceRecovery('debug'))}
+        />
+        <SettingRow
           label="当前学习写源"
           hint={`${writeSource}${writeSource === 'readonly' ? '（需修复）' : ''}`}
           value={writeSource === 'readonly' ? '修复' : undefined}
@@ -247,6 +281,12 @@ export default function DebugPage() {
               return { before, after, result }
             })
           }
+        />
+        <SettingRow
+          label="读取导入阶段诊断"
+          hint="stageNow / stageTiming / stageDiag"
+          chevron
+          onClick={() => void run(() => getImportStageDiagnostics())}
         />
         <SettingRow
           label="导出安全诊断包"

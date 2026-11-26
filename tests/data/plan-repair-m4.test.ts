@@ -90,6 +90,7 @@ describe('0.11.0 · M4 plan repair', () => {
       word_ids_json: JSON.stringify(words.map((word) => word.id)), idx: 2, sources_json: '{}', goals_json: '{}', ratings_json: '[]',
       created_at: plan.createdAt, updated_at: plan.updatedAt, completed_at: null,
     }
+    await (await import('../../src/data/idb-cache')).clearIdbCacheDirty({ generation: await (await import('../../src/data/data-epoch')).getDataEpoch(), sqliteUserVersion: 3, dirty: false })
     install([row])
     const diag = await getRawPlanDiagnostics()
     expect(diag.sqlitePlans[0]).toMatchObject({ completedAtRaw: null, indexRaw: 2, wordIdsLength: 2 })
@@ -124,6 +125,7 @@ describe('0.11.0 · M4 plan repair', () => {
       sources_json: JSON.stringify(plan.sources), goals_json: JSON.stringify(plan.goals), ratings_json: '[]',
       created_at: plan.createdAt, updated_at: plan.updatedAt, completed_at: null,
     }))
+    await (await import('../../src/data/idb-cache')).clearIdbCacheDirty({ generation: await (await import('../../src/data/data-epoch')).getDataEpoch(), sqliteUserVersion: 3, dirty: false })
     install(sqliteRows)
     const home = await getHomeStudyData()
     expect(home.plan?.wordIds.length).toBe(plan.wordIds.length) // IDB 172，不强制 SQLite 872
@@ -151,6 +153,7 @@ describe('0.11.0 · M4 plan repair', () => {
       word_ids_json: '[]', idx: 0, sources_json: '{}', goals_json: '{}', ratings_json: '[]',
       created_at: 1, updated_at: 1, completed_at: i === 1100 ? 0 : null,
     }))
+    await (await import('../../src/data/idb-cache')).clearIdbCacheDirty({ generation: await (await import('../../src/data/data-epoch')).getDataEpoch(), sqliteUserVersion: 3, dirty: false })
     install(planRows)
     const result = await repairMigratedPlans({ dryRun: true })
     expect(result.ok).toBe(true)
@@ -161,6 +164,7 @@ describe('0.11.0 · M4 plan repair', () => {
   it('无备份拒绝', async () => {
     await seedPlan()
     const plan = (await getDb().plans.toArray())[0]!
+    await (await import('../../src/data/idb-cache')).clearIdbCacheDirty({ generation: await (await import('../../src/data/data-epoch')).getDataEpoch(), sqliteUserVersion: 3, dirty: false })
     install([{ id: plan.id, date: plan.date, deck_id: plan.deckId, word_ids_json: '[]', idx: 0, sources_json: '{}', goals_json: '{}', ratings_json: '[]', created_at: 1, updated_at: 1, completed_at: 0 }])
     const result = await repairMigratedPlans({ dryRun: false })
     expect(result.ok).toBe(false)

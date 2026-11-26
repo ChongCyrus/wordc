@@ -55,6 +55,7 @@ describe('M5 sqlite restore', () => {
           if (req.method === 'restoreDb') restoreCalls += 1
           if (req.method === 'health') cb?.(id, JSON.stringify({ ok: true, userVersion: 3, counts: { states: 241, plans: 1, settings: 13, review_logs: 0 }, integrityOk: true, readOnly: false }))
           else if (req.method === 'integrity') cb?.(id, JSON.stringify({ ok: true, integrityOk: true }))
+          else if (req.method === 'backup') cb?.(id, JSON.stringify({ ok: true, bytes: 4096, name: 'sqlite-backup-safety.db', path: '/p/safety.db', checksum: 'x' }))
           else if (req.method === 'restoreDb') cb?.(id, JSON.stringify({ ok: true }))
           else cb?.(id, JSON.stringify({ ok: true, rows: [] }))
         }, 0)
@@ -64,7 +65,7 @@ describe('M5 sqlite restore', () => {
     const manifest = { format: 'momo-sqlite-backup-manifest' as const, formatVersion: 1 as const, name: 'b', path: '/p/b', bytes: 4096, createdAt: 1, userVersion: 3, dataEpoch: 1, counts: { states: 241, plans: 1, settings: 13, reviewLogs: 0 }, integrityOk: true }
     const denied = await restoreSqliteFactsBackup({ manifest }, {})
     expect(denied.ok).toBe(false)
-    const ok = await restoreSqliteFactsBackup({ manifest }, { preBackup: async () => ({ ok: true }) })
+    const ok = await restoreSqliteFactsBackup({ manifest }, { preBackup: async () => ({ ok: true }), skipPostRestoreCacheRebuild: true })
     expect(ok.ok).toBe(true)
     expect(ok.counts).toEqual(manifest.counts)
     expect(restoreCalls).toBe(1)
@@ -106,6 +107,7 @@ describe('M5 fault injection', () => {
           const cb = (globalThis as unknown as { __momoSqliteResult?: (id: string, j: string) => void }).__momoSqliteResult
           if (req.method === 'health') cb?.(id, JSON.stringify({ ok: true, userVersion: 3, readOnly: false, counts: { states: 1, plans: 0, settings: 0, review_logs: 0 } }))
           else if (req.method === 'integrity') cb?.(id, JSON.stringify({ ok: true, integrityOk: true }))
+          else if (req.method === 'backup') cb?.(id, JSON.stringify({ ok: true, bytes: 4096, name: 'sqlite-backup-safety.db', path: '/p/safety.db', checksum: 'x' }))
           else if (req.method === 'restoreDb') {
             if (mode === 'fail') cb?.(id, JSON.stringify({ ok: false, code: 'E_IO', message: 'mock restore fail' }))
             else setTimeout(() => cb?.(id, JSON.stringify({ ok: true })), 5000)

@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 /**
  * 0.15 task-294：导入/恢复在原生 v15 单一事实源下不再回退 idb。
  *
@@ -9,7 +10,6 @@
  */
 import './test-utils'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { persistContentWriteSource } from '../../src/data/content-write-source'
 import {
   buildMigrationFile,
   createDeck,
@@ -132,7 +132,7 @@ function stubNativeApk(): void {
 
 async function enableNativeV15(): Promise<void> {
   stubNativeApk()
-  await persistContentWriteSource('sqlite')
+  await primeLegacySqliteContentSource()
   await getDb().meta.put({ key: 'contentMigrationV15', value: 'done', updatedAt: Date.now() })
 }
 

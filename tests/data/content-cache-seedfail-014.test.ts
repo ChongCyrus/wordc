@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../../src/data/builtin', () => ({ ensureBuiltinDecks: async () => { throw new Error('mock seed fail') }, ensureBuiltinDeckWords: async () => ({ added: 0, issues: [] }) }))
@@ -6,7 +7,7 @@ import { persistContentWriteSource } from '../../src/data/content-write-source'
 afterEach(async () => { setSqliteTransport(null); await persistContentWriteSource('idb') })
 describe('C2 seed fail', () => {
   it('seed 抛错→rebuild false 且旧 cache 保留', async () => {
-    await resetDatabase(); await persistContentWriteSource('sqlite')
+    await resetDatabase(); await primeLegacySqliteContentSource()
     const db = getDb(); await db.meta.put({ key: 'contentMigrationState', value: { status: 'ready' }, updatedAt: Date.now() })
     await db.decks.put({ id: 'old', name: 'old', source: 'custom', wordCount: 0, version: 1, isDefault: false, createdAt: 1, updatedAt: 1 } as never)
     let seq = 0

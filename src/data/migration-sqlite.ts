@@ -35,6 +35,8 @@ export interface MigrateIdbToSqliteOptions {
   preBackup?: () => Promise<void | { ok: boolean; error?: string }>
   /** 仅供测试/内部重置；UI 不得使用 */
   unsafe?: boolean
+  /** 调用方已自行清空 facts 并 reset migration_state；跳过 done/非空门禁，强制重放 IDB→SQLite */
+  force?: boolean
   /** 调用方已持全局写锁（ensureLegacy/回退流程） */
   skipWriteLock?: boolean
   onProgress?: (progress: { phase: 'read' | 'backup' | 'write' | 'verify' | 'done'; done: number; total: number }) => void
@@ -203,15 +205,19 @@ export async function migrateIdbToSqlite(
     }
     // 幂等：已完成先返回，不再要求/重复备份
     const previousMigration = await queryMigrationState(query)
-    if (previousMigration === 'done') {
+    if (previousMigration === 'done' && !opts.force) {
       return { ok: true, dryRun: false, skipped: true, counts: legacy.counts, batches: 0 }
+    }
+    // C-01：force 只能内部 unsafe 使用，且必须已 reset/清理，禁止公开绕过门禁
+    if (opts.force && !opts.unsafe) {
+      return { ok: false, dryRun: false, counts: legacy.counts, sqliteCounts: { states: 0, plans: 0, settings: 0, reviewLogs: 0 }, batches: 0, error: 'force 迁移仅限内部调用（需要 unsafe:true + 已 reset migration_state）' }
     }
     // M3 前校验：SQLite facts 必须为空；仅允许上次 running/failed 的部分行重试，且不能超过 IDB counts
     const preHealth = await health()
     const preCounts = countsFromHealth(preHealth) ?? { states: 0, plans: 0, settings: 0, reviewLogs: 0 }
     const hasExistingFacts =
       preCounts.states > 0 || preCounts.plans > 0 || preCounts.settings > 0 || preCounts.reviewLogs > 0
-    if (hasExistingFacts) {
+    if (hasExistingFacts && !opts.force) {
       const isPartialRetry =
         (previousMigration === 'running' || previousMigration === 'failed') &&
         preCounts.states <= legacy.counts.states &&

@@ -45,7 +45,6 @@ describe('A3 staging import', () => {
   })
 })
 
-import { setSqliteTransport } from '../../src/data'
 describe('A3 staging clear scope', () => {
   it('默认 clear 只清 states/plans/review_logs，不碰 migration_state/client_ops', async () => {
     const text = await makeMigration(); await persistLearningWriteSource('sqlite')
@@ -55,6 +54,7 @@ describe('A3 staging clear scope', () => {
     setSqliteTransport({ sqliteCall(json: string) { const req = JSON.parse(json) as { id: string; method: string; ops?: unknown[]; payload?: { table?: string } }; const id = `${req.id}-r${++seq}`; setTimeout(() => { const cb = (globalThis as unknown as { __momoSqliteResult?: (id: string, j: string) => void }).__momoSqliteResult; if (req.method === 'tx') { txOps.push(req.ops ?? []); cb?.(id, JSON.stringify({ ok: true })) } else { const table = String(req.payload?.table ?? ''); tables.push(table); const key = table === 'states' ? 'word_id' : 'id'; cb?.(id, JSON.stringify({ ok: true, rows: [{ [key]: 'x' }] })) } }, 0); return JSON.stringify({ requestId: id }) } })
     const impl = {
       createBackup: (async () => ({ ok: true, manifest: { format: 'momo-sqlite-backup-manifest', formatVersion: 1, name: 'b', bytes: 1, createdAt: 1, userVersion: 2, dataEpoch: 0, counts: { states: 1, plans: 0, settings: 1, reviewLogs: 0 }, integrityOk: true } })) as never,
+      resetMigrationState: async () => undefined,
       migrate: (async () => ({ ok: true, dryRun: false, counts: { states: 1, plans: 0, settings: 1, reviewLogs: 0 }, batches: 1 })) as never,
       rebuildCache: (async () => ({ ok: true, dryRun: false, delta: { states: 0, plans: 0, settings: 0, reviewLogs: 0 }, cacheCounts: { states: 0, plans: 0, settings: 0, reviewLogs: 0 }, sqliteCounts: { states: 0, plans: 0, settings: 0, reviewLogs: 0 } })) as never,
       health: async () => { const db = (await import('../../src/data')).getDb(); return { ok: true, counts: { states: await db.states.count(), plans: await db.plans.count(), settings: await db.settings.count(), review_logs: await db.reviewLogs.count() } } },
@@ -69,3 +69,5 @@ describe('A3 staging clear scope', () => {
     setSqliteTransport(null)
   })
 })
+
+import { setSqliteTransport } from '../../src/data'

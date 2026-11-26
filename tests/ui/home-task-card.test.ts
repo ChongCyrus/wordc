@@ -11,6 +11,7 @@ function render(
   extra?: {
     breakdown?: { reviewLearned: number; newLearned: number }
     onOpenTodayWords?: () => void
+    plannedTotal?: number
   },
   cap?: { reviewBacklog?: number; reviewCap?: number },
 ): string {
@@ -137,6 +138,13 @@ describe('首页今日任务卡（6 态渲染）', () => {
     )
     expect(unlimited).toContain('另有 3 个到期复习')
     expect(unlimited).toContain('今日上限 不限')
+  })
+
+  it('done 态回炉 total>unique learned：显示 13/13 100% 而不是 11/13 85%', () => {
+    const html = render({ kind: 'done' }, 11, 30, { plannedTotal: 13 })
+    expect(html).toContain('今日 13 / 13')
+    expect(html).toContain('100%')
+    expect(html).not.toContain('今日 11 / 13')
   })
 
   it('进度百分比按 今日已学 / dailyGoal 计算并 clamp', () => {

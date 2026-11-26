@@ -41,6 +41,9 @@ SECRETS="$ROOT/.secrets"
 KEYSTORE="${APK_KEYSTORE:-$SECRETS/apk-release.jks}"
 PASSFILE="$SECRETS/apk-keystore-pass"
 KEY_ALIAS="${APK_KEY_ALIAS:-momo}"
+APP_ID="${APK_APPLICATION_ID:-com.wordc.app}"
+APP_LABEL="${APK_APP_LABEL:-WordC}"
+APK_NAME_PREFIX="${APK_NAME_PREFIX:-WordC}"
 DEST_DIR="${APK_DEST:-下载}"
 CI_PASS_TMP=0
 ANDROID_JAR="$TOOLCHAIN/android.jar"
@@ -64,9 +67,12 @@ DEFAULT_VERSION="$(node -p "require('$ROOT/package.json').version" 2>/dev/null |
 if [ -z "$DEFAULT_VERSION" ]; then
   DEFAULT_VERSION="$(node -p "require('$SCRIPT_DIR/version.json').version" 2>/dev/null || echo 0.1.0)"
 fi
+case "$APP_ID" in
+  *[!A-Za-z0-9._]*|.*|*.) die "非法 APK_APPLICATION_ID：$APP_ID" ;;
+esac
 VERSION="${VERSION:-$DEFAULT_VERSION}"
 VERSION_CODE="${VERSION_CODE:-$(node -p "require('$SCRIPT_DIR/version.json').code" 2>/dev/null || echo 1)}"
-APK_NAME="WordC-${VERSION}.apk"
+APK_NAME="${APK_NAME_PREFIX}-${VERSION}.apk"
 echo "版本：$VERSION（versionCode=$VERSION_CODE）    APK：$APK_NAME"
 
 # ---------- 1. PWA 产物 ----------
@@ -94,6 +100,7 @@ echo "[OK] assets/pwa：$(find "$ASSETS/pwa" -type f | wc -l) 个文件，$(du -
 say "生成 AndroidManifest（注入 versionName=$VERSION）"
 mkdir -p "$BUILD"
 sed -e "s/@VERSION_NAME@/${VERSION}/g" -e "s/@VERSION_CODE@/${VERSION_CODE}/g" \
+  -e "s/@APPLICATION_ID@/${APP_ID}/g" -e "s/@APP_LABEL@/${APP_LABEL}/g" \
   "$SCRIPT_DIR/AndroidManifest.xml" >"$BUILD/AndroidManifest.xml"
 grep -E 'versionName|targetSdk|minSdk|package=' "$BUILD/AndroidManifest.xml" | sed 's/^[[:space:]]*//'
 
@@ -241,7 +248,7 @@ SIZE="$(stat -c%s "$BUILD/app-signed.apk")"
 echo "APK（build）：$BUILD/app-signed.apk"
 echo "大小：$SIZE B（$(du -h "$BUILD/app-signed.apk" | cut -f1)）"
 echo "SHA256：$SHA"
-echo "包名：com.wordc.app   版本：$VERSION（versionCode=$VERSION_CODE）   签名：自签（v1+v2+v3）"
+echo "包名：$APP_ID   版本：$VERSION（versionCode=$VERSION_CODE）   签名：自签（v1+v2+v3）"
 if mkdir -p "$DEST_DIR" 2>/dev/null && [ -w "$DEST_DIR" ]; then
   cp -f "$BUILD/app-signed.apk" "$DEST_DIR/$APK_NAME"
   echo "APK：$DEST_DIR/$APK_NAME"

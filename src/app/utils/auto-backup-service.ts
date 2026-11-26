@@ -126,11 +126,11 @@ export async function clearProgressCheckpoints(): Promise<{
   try {
     let removed = 0
     for (const entry of bridge.list()) {
-      if (/^checkpoint-(latest|\d+)\.state\.json$/.test(entry.name)) {
+      if (/^(auto-backup-)?checkpoint-(latest|\d+)\.state\.json(\.gz)?$/.test(entry.name)) {
         if (bridge.delete(entry.name)) removed += 1
       }
     }
-    const remaining = bridge.list().filter((entry) => /^checkpoint-(latest|\d+)\.state\.json$/.test(entry.name)).length
+    const remaining = bridge.list().filter((entry) => /^(auto-backup-)?checkpoint-(latest|\d+)\.state\.json(\.gz)?$/.test(entry.name)).length
     return { ok: remaining === 0, removed, remaining, ...(remaining > 0 ? { error: `仍有 ${remaining} 个检查点未删除` } : {}) }
   } catch (error) {
     return { ok: false, removed: 0, remaining: -1, error: error instanceof Error ? error.message : String(error) }
@@ -163,6 +163,12 @@ export async function createPreBackup(): Promise<{ ok: boolean; error?: string; 
   try {
     const result = await runAutoBackup(bridge, { force: true })
     if ('mode' in result) {
+      // 0.16 D-P0：清空后恢复/空库危险操作时没有可备份的进度，
+      // anomaly(learned=0 + hadProgress flag) 不应阻断恢复；仅真正 error/unavailable 阻断。
+      const learnedCount = 'learnedCount' in result ? Number(result.learnedCount ?? 0) : -1
+      if (result.mode === 'anomaly' && learnedCount === 0) {
+        return { ok: true }
+      }
       if (result.mode === 'error' || result.mode === 'anomaly' || result.mode === 'unavailable') {
         return { ok: false, error: result.error ?? `预备份失败（${result.mode}）` }
       }
@@ -222,6 +228,8 @@ export async function listValidatedAutoBackupsForUi(): Promise<AutoBackupEntry[]
       if (file.size <= 0) continue
       const manifest = await getSqliteBackupManifest(file.name)
       if (!manifest || manifest.integrityOk !== true || manifest.bytes <= 0) continue
+      // 空库快照不是有效进度备份，不能出现在恢复候选里（会遮蔽/挤掉有效备份）
+      if (Number(manifest.counts?.states ?? 0) <= 0) continue
       out.push({ name: file.name, size: file.size, mtime: file.mtime, path: file.path, kind: 'sqlite' })
     }
   } catch {
@@ -229,6 +237,20 @@ export async function listValidatedAutoBackupsForUi(): Promise<AutoBackupEntry[]
   }
   out.sort((a, b) => b.mtime - a.mtime)
   return out
+}
+
+/** 0.16：恢复“最新备份”时跳过空库自动备份（清空后启动可能产生），优先有 states 的 SQLite 备份 */
+export async function findLatestRestorableAutoBackupForUi(): Promise<AutoBackupEntry | undefined> {
+  const entries = await listValidatedAutoBackupsForUi()
+  for (const entry of entries) {
+    if (entry.kind === 'sqlite') {
+      const manifest = await getSqliteBackupManifest(entry.name)
+      if (manifest && manifest.integrityOk === true && Number(manifest.counts?.states ?? 0) > 0) return entry
+      continue
+    }
+    return entry
+  }
+  return entries[0]
 }
 
 export function restoreAutoBackupForUi(name: string, opts: { now?: number } = {}): Promise<AutoBackupRestoreResult> {
@@ -240,7 +262,7 @@ export function restoreAutoBackupForUi(name: string, opts: { now?: number } = {}
       const manifest = await getSqliteBackupManifest(name)
       const restored = await restoreSqliteFactsBackup(
         { path: file.path, ...(manifest ? { manifest } : {}) },
-        { preBackup: () => createPreBackup() },
+        { preBackup: () => createPreBackup(), allowEmptyCurrent: true },
       )
       return restored.ok ? { ok: true, name } : { ok: false, name, error: restored.error ?? 'SQLite 恢复失败' }
     })()

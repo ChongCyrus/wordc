@@ -1,5 +1,5 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
-import { persistContentWriteSource } from '../../src/data/content-write-source'
 /**
  * 0.14 B4：自定义 deck/word 创建/导入写入口接入统一内容写源。
  *
@@ -82,7 +82,7 @@ function installSqliteMock(opts: MockOptions = {}) {
 }
 
 async function useContentSqlite(): Promise<void> {
-  await persistContentWriteSource('sqlite')
+  await primeLegacySqliteContentSource()
 }
 
 function customDeckFileText(deck: Record<string, unknown>, words: Array<Record<string, unknown>> = [{ headword: 'alpha', meanings: [{ cn: '甲' }] }]): string {

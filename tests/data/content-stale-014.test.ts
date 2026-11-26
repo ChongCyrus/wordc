@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -56,7 +57,7 @@ function mockKv(rows: Row[]) {
 describe('0.14 导入回退后的 content_kv stale 防护', () => {
   it('reset 后标记 stale、禁止切源；清理后 tombstone 旧 live 行', async () => {
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const state = mockKv([
       { key: 'word:a', kind: 'word', json: '{}', updatedAt: 1, revision: 1, deleted: 0 },
       { key: 'deck:d', kind: 'deck', json: '{}', updatedAt: 1, revision: 2, deleted: 0 },

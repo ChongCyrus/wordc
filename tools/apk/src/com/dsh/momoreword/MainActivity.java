@@ -299,17 +299,35 @@ public class MainActivity extends Activity {
             }
             if (data.length == 0) return "err:文件内容为空";
             String safeName = autoFileName(fileName);
+            FileOutputStream out = null;
+            File tmp = null;
             try {
                 byte[] compressed = gzip(data);
                 File dir = internalAutoDir();
                 File target = new File(dir, safeName);
-                FileOutputStream out = new FileOutputStream(target);
+                // D-P0-2：同名不覆盖；先写 tmp，fsync 后原子 rename，避免截断旧备份。
+                if (target.exists()) return "err:目标已存在";
+                tmp = new File(dir, safeName + ".tmp-" + System.currentTimeMillis());
+                out = new FileOutputStream(tmp);
                 out.write(compressed);
                 out.flush();
+                out.getFD().sync();
                 out.close();
+                out = null;
+                // 写后回读校验，防止半截文件被 rename 成正式备份。
+                byte[] written = readAll(tmp);
+                if (written.length != compressed.length) throw new IOException("readback size mismatch");
+                for (int i = 0; i < written.length; i++) {
+                    if (written[i] != compressed[i]) throw new IOException("readback mismatch");
+                }
+                if (!tmp.renameTo(target)) throw new IOException("rename failed");
+                tmp = null;
                 return "ok:" + target.getAbsolutePath();
             } catch (Throwable t) {
                 return "err:" + t.getClass().getSimpleName();
+            } finally {
+                if (out != null) { try { out.close(); } catch (IOException ignored) {} }
+                if (tmp != null) { try { tmp.delete(); } catch (Throwable ignored) {} }
             }
         }
 
@@ -412,18 +430,31 @@ public class MainActivity extends Activity {
             }
         }
 
-        /** 保留最近 keep 份且总大小 ≤100MB（内部备份）。 */
+        /** checkpoint/content/pre-restore/tmp 不占普通自动备份配额（D-P0-4）。 */
+        private boolean isProtectedAutoName(String name) {
+            if (name == null) return false;
+            return name.startsWith("sqlite-")
+                    || name.contains("checkpoint-")
+                    || name.contains("content-")
+                    || name.contains("pre-restore-")
+                    || name.contains(".partial")
+                    || name.contains(".tmp-");
+        }
+
+        /** 保留最近 keep 份且总大小 ≤100MB（内部备份）；保护 checkpoint/内容/恢复前快照。 */
         @JavascriptInterface
         public String pruneAutoBackups(int keep) {
             int safeKeep = keep < 0 ? 0 : keep;
             try {
                 List<AutoEntry> entries = autoEntries();
                 int deleted = 0;
+                int quotaUsed = 0;
                 long total = 0;
                 for (int i = 0; i < entries.size(); i++) {
                     AutoEntry e = entries.get(i);
-                    boolean shouldKeep = i < safeKeep && (total + e.size) <= AUTO_TOTAL_LIMIT_BYTES;
-                    if (shouldKeep) { total += e.size; continue; }
+                    if (isProtectedAutoName(e.name)) continue;
+                    boolean shouldKeep = quotaUsed < safeKeep && (total + e.size) <= AUTO_TOTAL_LIMIT_BYTES;
+                    if (shouldKeep) { quotaUsed++; total += e.size; continue; }
                     File f = new File(e.path);
                     if (f.isFile() && f.delete()) deleted++;
                 }

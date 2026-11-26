@@ -117,16 +117,17 @@ export async function appendWordsToTodayPlanSqlite(
     const db = getDb()
     const plan = raw ? mapSqlitePlanRow(raw) : null
     if (!plan) throw new Error('今日计划不存在')
+    const planDeckId = plan.deckId || deckId
     const ids = [...new Set(input.wordIds.filter((id) => typeof id === 'string' && id.length > 0))]
     const words = await db.words.bulkGet(ids)
     const byId = new Map(words.filter(Boolean).map((word) => [word!.id, word!]))
-    const states = await db.states.where('deckId').equals(deckId).toArray()
+    const states = await db.states.where('deckId').equals(planDeckId).toArray()
     const learned = new Set(states.filter((state) => state.phase !== 'new').map((state) => state.wordId))
     const existing = new Set(plan.wordIds)
     const accepted: string[] = []
     for (const id of ids) {
       const word = byId.get(id)
-      if (!word || word.deckId !== deckId) continue
+      if (!word || word.deckId !== planDeckId) continue
       if (input.allowRepeat !== true && (learned.has(id) || existing.has(id))) continue
       accepted.push(id)
     }

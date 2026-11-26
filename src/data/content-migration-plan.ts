@@ -810,3 +810,18 @@ export async function getContentSourceV15Status(): Promise<{ native: boolean; so
     state: await getContentMigrationV15State().catch(() => null),
   }
 }
+
+
+/** R4：restore 前等待内容迁移静止；running 最多等 timeoutMs，超时明确拒绝 */
+export async function waitForContentMigrationQuiescent(opts: { timeoutMs?: number } = {}): Promise<{ ok: boolean; state: string; error?: string }> {
+  const timeoutMs = Math.max(1_000, opts.timeoutMs ?? 90_000)
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const { hasDurableContentMigrationV15Marker } = await import('./content-write-source')
+    const durable = await hasDurableContentMigrationV15Marker().catch(() => false)
+    const state = durable ? 'done' : ((await getContentMigrationV15State().catch(() => null))?.status ?? 'idle')
+    if (state !== 'running') return { ok: true, state }
+    if (Date.now() > deadline) return { ok: false, state, error: '内容迁移进行中，请稍后再恢复（迁移完成前换库会被覆盖）' }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+}

@@ -1,4 +1,5 @@
 import './test-utils'
+import { primeLegacySqliteContentSource } from './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { beforeEach, afterEach, describe, expect, it } from 'vitest'
 import {
@@ -191,7 +192,7 @@ describe('0.14 P0-4：迁移包内容包三表 → content_kv', () => {
   it('sqlite 内容写源 importMigration(replace)：pack/pack-item/content-reject 进 content_kv，IDB cache 同步', async () => {
     const text = await makeMigrationText()
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const state = mockSqlite()
     const report = await importMigration(text, { strategy: 'replace' })
     expect(report.ok, report.issues.map((issue) => issue.message).join('; ')).toBe(true)
@@ -209,7 +210,7 @@ describe('0.14 P0-4：迁移包内容包三表 → content_kv', () => {
     const text = await makeMigrationText()
     // 本机先有一个不同的包（sqlite 内容写源）
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const state = mockSqlite()
     const local = await importPack(
       JSON.stringify(
@@ -233,7 +234,7 @@ describe('0.14 P0-4：迁移包内容包三表 → content_kv', () => {
   it('sqlite 内容写源 importMigration 失败：结构化错误且 IDB 不回写', async () => {
     const text = await makeMigrationText()
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const state = mockSqlite({ fail: true })
     const report = await importMigration(text, { strategy: 'replace' })
     expect(report.ok).toBe(false)
@@ -259,7 +260,7 @@ describe('0.14 P0-4：迁移包内容包三表 → content_kv', () => {
   it('sqlite 迁移后从 content_kv rebuild cache 一致', async () => {
     const text = await makeMigrationText()
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const state = mockSqlite()
     const report = await importMigration(text, { strategy: 'replace' })
     expect(report.ok, report.issues.map((issue) => issue.message).join('; ')).toBe(true)
@@ -272,7 +273,7 @@ describe('0.14 P0-4：迁移包内容包三表 → content_kv', () => {
     await db.packs.clear()
     await db.packItems.clear()
     await db.contentRejects.clear()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await db.meta.put({ key: 'contentMigrationState', value: { status: 'ready', writeCoverageComplete: false, written: 4 }, updatedAt: Date.now() })
     const rebuilt = await rebuildContentCacheFromSqlite()
     expect(rebuilt.ok, rebuilt.error).toBe(true)

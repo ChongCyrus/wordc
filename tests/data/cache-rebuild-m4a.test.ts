@@ -5,8 +5,6 @@ import {
   buildInitialState,
   createDeck,
   getDb,
-  getDataEpoch,
-  getIdbCacheMeta,
   rebuildIdbCacheFromSqlite,
   resetDatabase,
   setSqliteTransport,
@@ -71,7 +69,7 @@ function install(sqliteStates: Array<Record<string, unknown>>, healthCounts: () 
 afterEach(() => setSqliteTransport(null))
 
 describe('0.11.0 · M4a cache rebuild/delta', () => {
-  it('IDB 新评分 → delta upsert → 重建 cache 不丢；generation/dirty 落盘', async () => {
+  it('IDB 新评分 → 分叉拒绝反向覆盖 SQLite；IDB/SQLite 不变', async () => {
     const { words } = await seed()
     const db = getDb()
     const both = await db.states.toArray()
@@ -97,14 +95,12 @@ describe('0.11.0 · M4a cache rebuild/delta', () => {
         return { ok: true }
       },
     })
-    expect(result.ok).toBe(true)
-    expect(result.delta.states).toBe(1) // alpha updated；beta 已一致
-    expect(result.cacheCounts).toEqual({ states: 2, plans: 0, settings: 1, reviewLogs: 0 })
-    expect(result.sqliteCounts?.states).toBe(2)
+    expect(result.ok).toBe(false)
+    expect(result.conflict).toMatch(/分叉|反向覆盖/)
+    expect(sqliteCounts.states).toBe(2)
     const restored = await db.states.get(words[0]!.id)
     expect(restored?.updatedAt).toBe(999)
     expect(restored?.phase).toBe('learning')
-    expect(await getIdbCacheMeta()).toMatchObject({ dirty: false, generation: await getDataEpoch() })
   })
 
   it('同 updatedAt 但字段冲突 → 拒绝，不动 IDB/SQLite', async () => {
@@ -156,7 +152,7 @@ describe('0.11.0 · M4a cache rebuild/delta', () => {
     install(states.map(stateRow), () => ({}))
     const result = await rebuildIdbCacheFromSqlite({ dryRun: false, unsafe: true })
     expect(result.ok).toBe(false)
-    expect(result.error).toMatch(/counts/)
+    expect(result.error ?? result.conflict).toMatch(/counts|分叉/)
     expect(await db.states.count()).toBe(states.length)
   })
 
@@ -169,5 +165,26 @@ describe('0.11.0 · M4a cache rebuild/delta', () => {
     const result = await rebuildIdbCacheFromSqlite({ dryRun: false })
     expect(result.ok).toBe(false)
     expect(result.error).toMatch(/备份/)
+  })
+})
+
+describe('task-312 C-07 force safe rebuild', () => {
+  it('分叉 + force + preBackup → 以 SQLite 为准重建 IDB，不再反向覆盖', async () => {
+    const { words } = await seed()
+    const db = getDb()
+    const states = await db.states.toArray()
+    const sqliteStates = states.map(stateRow)
+    await db.states.put({ ...states[0]!, reps: states[0]!.reps + 5 })
+    const settingRows = (await db.settings.toArray()).map((row) => ({ key: row.key, value_json: JSON.stringify(row.value), updated_at: row.updatedAt }))
+    install(sqliteStates, () => ({ states: 2, plans: 0, settings: 1, reviewLogs: 0 }), settingRows)
+    let backups = 0
+    const result = await rebuildIdbCacheFromSqlite({
+      dryRun: false, unsafe: true, force: true,
+      preBackup: async () => { backups += 1; return { ok: true } },
+      sqliteTxImpl: async () => { throw new Error('不应写 SQLite') },
+    })
+    expect(result.ok).toBe(true)
+    expect(backups).toBe(1)
+    expect((await db.states.get(words[0]!.id))?.reps).toBe(states[0]!.reps)
   })
 })

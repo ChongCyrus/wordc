@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -125,7 +126,7 @@ describe('0.14 restore sync content_kv', () => {
     await createDeck({ name: 'kv', words: [{ headword: 'kvword', meanings: [{ cn: '义' }] }] })
     await getDb().meta.put({ key: 'learningFact.some', value: 'keep', updatedAt: 1 })
     await getDb().settings.put({ key: 'study.dailyGoal', value: 30, updatedAt: 1 } as never)
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const base = await buildContentBaselineFile(await buildContentSnapshot({ revision: 1 }))
     const old = { key: 'meta:userNote:old', kind: 'meta', json: '"x"', updated_at: 1, revision: 1, deleted: 0 }
     const foreign = { key: 'meta:learningFact.some', kind: 'meta', json: '"keep"', updated_at: 1, revision: 2, deleted: 0 }
@@ -145,7 +146,7 @@ describe('0.14 restore sync content_kv', () => {
   it('A1/A2：replaceAll 全量分页 tombstone >500 行旧 key，kind 保留原行', async () => {
     await resetDatabase()
     await createDeck({ name: 'seed', words: [{ headword: 'seedword', meanings: [{ cn: '义' }] }] })
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const base = await buildContentBaselineFile(await buildContentSnapshot({ revision: 1 }))
     const kinds = ['deck', 'word', 'pack', 'pack-item', 'content-reject', 'meta']
     const initial: Row[] = Array.from({ length: 1200 }, (_, index) => {
@@ -179,7 +180,7 @@ describe('0.14 restore sync content_kv', () => {
     const snap3 = await buildContentSnapshot({ revision: 3 })
     const inc2 = buildContentIncrement({ ...base.manifest, snapshotId: inc1.snapshotId, revision: inc1.newRevision }, snap3, { entities: await entitiesOf(snap3) })
     if (!('format' in inc2)) throw new Error('expected inc2')
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const { rows } = installNativeStore([])
     const restored = await restoreContentIncrementChain(base, [inc1, inc2])
     expect(restored.ok).toBe(true)
@@ -197,7 +198,7 @@ describe('0.14 restore sync content_kv', () => {
     const snap2 = await buildContentSnapshot({ revision: 2 })
     const pkg = buildContentIncrement(base.manifest, snap2, { entities: await entitiesOf(snap2) })
     if (!('format' in pkg)) throw new Error('expected increment')
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const { rows } = installNativeStore([])
     const badChecksum = await restoreContentIncrementChain({ ...base, checksum: 'fnv1a64:0000000000000000' }, [pkg])
     expect(badChecksum.ok).toBe(false)
@@ -219,7 +220,7 @@ describe('0.14 restore sync content_kv', () => {
 
   it('A5：同步失败时 undo 失败不被吞（错误含回滚信息），且不写链成功标记', async () => {
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const entities = Array.from({ length: 501 }, (_, index) => ({ type: 'meta', key: `userNote:batch-${index}`, hash: 'h', updatedAt: 1, data: { index } }))
     const file = baselineFile(entities)
     const chainBefore = { baseSnapshotId: 'before', revision: 1, sequence: 0, needsFullSnapshot: false, consecutiveFailures: 0, updatedAt: 1 }
@@ -235,7 +236,7 @@ describe('0.14 restore sync content_kv', () => {
 
   it('A6：恢复行 updatedAt 保留原值；data:null 实体按 tombstone 跳过', async () => {
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const kept: Entity = { type: 'meta', key: 'userNote:keep', hash: 'h-keep', updatedAt: 12345, data: 'keep' }
     const vanished: Entity = { type: 'words', key: 'gone-word', hash: 'h-gone', updatedAt: 222, data: null }
     const deck: Entity = {
@@ -259,7 +260,7 @@ describe('0.14 restore sync content_kv', () => {
 
   it('A8：多批失败补偿覆盖所有已写/已删 key（旧内容恢复、已写新行删除）', async () => {
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const oldRows: Row[] = Array.from({ length: 700 }, (_, index) => ({
       key: `meta:userNote:old-${index}`,
       kind: 'meta',
@@ -292,7 +293,7 @@ describe('0.14 restore sync content_kv', () => {
     const current = await buildContentSnapshot({ revision: 2 })
     const pkg = buildContentIncrement(base.manifest, current, { entities: await entitiesOf(current) })
     if (!('format' in pkg)) throw new Error('expected increment')
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const preserved = [
       { key: 'meta:aiNote:alpha', kind: 'meta', json: '{"text":"ai"}', updated_at: 2, revision: 1, deleted: 0 },
       { key: 'meta:futureKind:beta', kind: 'meta', json: '"future"', updated_at: 3, revision: 2, deleted: 0 },
@@ -327,7 +328,7 @@ describe('0.14 restore sync content_kv', () => {
   it('A8：restoreContentBaseline 持全局写锁（与并发破坏性写串行）', async () => {
     await resetDatabase()
     await createDeck({ name: 'lock', words: [{ headword: 'lockword', meanings: [{ cn: '义' }] }] })
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const base = await buildContentBaselineFile(await buildContentSnapshot({ revision: 1 }))
     const { rows } = installNativeStore([])
     let release!: () => void

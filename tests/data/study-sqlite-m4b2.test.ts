@@ -8,12 +8,15 @@ import {
   resetDatabase,
   setSqliteTransport,
   persistLearningWriteSource,
+  flushRatingCacheWarmup,
+  getRatingCacheDebugEvents,
+  markIdbCacheDirty,
   submitRatingSqlite,
   updateSettings,
   type SqliteTransport,
 } from '../../src/data'
 
-function install(opts: { clientOps?: Array<{ op_id: string; result_json: string }>; failTx?: boolean; stateRows?: Array<Record<string, unknown>> } = {}) {
+function install(opts: { clientOps?: Array<{ op_id: string; result_json: string }>; failTx?: boolean; stateRows?: Array<Record<string, unknown>>; reviewLogDelayMs?: number } = {}) {
   const txs: unknown[][] = []
   let seq = 0
   const transport: SqliteTransport = {
@@ -30,6 +33,7 @@ function install(opts: { clientOps?: Array<{ op_id: string; result_json: string 
         if (req.payload?.table === 'client_ops') callback?.(id, JSON.stringify({ ok: true, rows: opts.clientOps ?? [] }))
         else if (req.payload?.table === 'states') callback?.(id, JSON.stringify({ ok: true, rows: opts.stateRows ?? [] }))
         else if (req.payload?.table === 'plans') callback?.(id, JSON.stringify({ ok: true, rows: [] }))
+        else if (req.payload?.table === 'review_logs' && opts.reviewLogDelayMs) setTimeout(() => callback?.(id, JSON.stringify({ ok: true, rows: [] })), opts.reviewLogDelayMs)
         else callback?.(id, JSON.stringify({ ok: true, rows: [] }))
       }, 0)
       return JSON.stringify({ requestId: id })
@@ -58,6 +62,7 @@ describe('0.11.0 · M4b-2-1 submitRating SQLite', () => {
     await persistLearningWriteSource('sqlite')
     const mock = install()
     const result = await submitRatingSqlite(word.id, 'familiar', 1000, { clientOpId: 'op-1' })
+    await flushRatingCacheWarmup()
     expect(result.state.wordId).toBe(word.id)
     expect(mock.txs).toHaveLength(1)
     const tables = mock.txs[0]!.map((op) => (op as { table: string }).table)
@@ -87,5 +92,90 @@ describe('0.11.0 · M4b-2-1 submitRating SQLite', () => {
     expect(await getDb().states.get(word.id)).toEqual(before)
     await persistLearningWriteSource('readonly')
     await expect(submitRatingSqlite(word.id, 'familiar', 1000, { clientOpId: 'op-ro' })).rejects.toMatchObject({ code: 'LEARNING_READONLY' })
+  })
+})
+
+describe('task-299 连评关键路径', () => {
+  it('连续 10 次评分：事务全部提交，后台 cache flush 后可读', async () => {
+    const { word } = await seed()
+    await persistLearningWriteSource('sqlite')
+    const mock = install()
+    const results = await Promise.all(Array.from({ length: 10 }, (_, i) => submitRatingSqlite(word.id, 'familiar', 1000 + i, { clientOpId: `rapid-${i}` }).catch((error) => error)))
+    expect(results.filter((item) => item instanceof Error)).toHaveLength(0)
+    expect(mock.txs).toHaveLength(10)
+    await flushRatingCacheWarmup()
+    expect((await getDb().states.get(word.id))?.phase).toBeTruthy()
+    const meta = await (await import('../../src/data/idb-cache')).getIdbCacheMeta()
+    expect(meta?.dirty).toBe(false)
+  })
+})
+
+
+describe('task-299 dirty 窗口', () => {
+  it('第一次评分返回时 dirty 已置位；第二次评分前不会读旧 cache', async () => {
+    const { word } = await seed()
+    await persistLearningWriteSource('sqlite')
+    const mock = install({ reviewLogDelayMs: 40 })
+    const first = await submitRatingSqlite(word.id, 'familiar', 2000, { clientOpId: 'dirty-1' })
+    expect(first.log.id).toBe(0)
+    const meta = await (await import('../../src/data/idb-cache')).getIdbCacheMeta()
+    expect(meta?.dirty).toBe(true)
+    const second = await submitRatingSqlite(word.id, 'familiar', 2001, { clientOpId: 'dirty-2' })
+    expect(second.state.wordId).toBe(word.id)
+    await flushRatingCacheWarmup()
+    expect(mock.txs).toHaveLength(2)
+  })
+})
+
+describe('task-299 并发 cache 串行', () => {
+  it('评分1后台未完成时评分2返回：dirty 仍 true，最终 cache 为最新 state', async () => {
+    const { word } = await seed()
+    await persistLearningWriteSource('sqlite')
+    install({ reviewLogDelayMs: 60 })
+    const first = await submitRatingSqlite(word.id, 'familiar', 3000, { clientOpId: 'seq-1' })
+    expect((await (await import('../../src/data/idb-cache')).getIdbCacheMeta())?.dirty).toBe(true)
+    const second = await submitRatingSqlite(word.id, 'vague', 3001, { clientOpId: 'seq-2' })
+    const dirtyBeforeFlush = await (await import('../../src/data/idb-cache')).getIdbCacheMeta()
+    expect(dirtyBeforeFlush?.dirty).toBe(true)
+    await flushRatingCacheWarmup()
+    const cached = await getDb().states.get(word.id)
+    expect(cached?.lastRating).toBe(second.state.lastRating)
+    expect((await (await import('../../src/data/idb-cache')).getIdbCacheMeta())?.dirty).toBe(false)
+    expect(first.state.wordId).toBe(word.id)
+    const events = getRatingCacheDebugEvents()
+    const last = events.slice(-4)
+    expect(last.map((event) => event.split(':')[0])).toEqual(['start', 'end', 'start', 'end'])
+    expect(Number(last[0]!.split(':')[1])).toBe(Number(last[1]!.split(':')[1]))
+    expect(Number(last[2]!.split(':')[1])).toBe(Number(last[3]!.split(':')[1]))
+    expect(Number(last[2]!.split(':')[1])).toBeGreaterThan(Number(last[1]!.split(':')[1]))
+  })
+})
+
+describe('task-299 首词 plan index', () => {
+  it('首词评分 tx 内 plan.index 前进，后台 cache flush 后 IDB plan 同步', async () => {
+    const { deck, word } = await seed()
+    await persistLearningWriteSource('sqlite')
+    const db = getDb()
+    const planId = `${new Date().toISOString().slice(0, 10)}:${deck.id}`
+    await db.plans.put({ id: planId, date: new Date().toISOString().slice(0, 10), deckId: deck.id, wordIds: [word.id, 'other'], index: 0, sources: { [word.id]: 'new', other: 'new' }, goals: { dailyGoal: 10, dueCount: 0, newBudget: 10, extraCount: 0 }, ratings: [], createdAt: 1, updatedAt: 1, completedAt: null } as never)
+    await (await import('../../src/data/idb-cache')).clearIdbCacheDirty({ generation: await (await import('../../src/data/data-epoch')).getDataEpoch(), sqliteUserVersion: 3, dirty: false })
+    const mock = install()
+    await submitRatingSqlite(word.id, 'familiar', 4000, { clientOpId: 'plan-first', planId })
+    const txPlan = mock.txs[0]!.find((op) => (op as { table: string }).table === 'plans') as { row?: { idx?: number } } | undefined
+    expect(txPlan?.row?.idx).toBe(1)
+    await flushRatingCacheWarmup()
+    expect((await db.plans.get(planId))?.index).toBe(1)
+  })
+})
+
+describe('task-312 C-06 compare-and-clear', () => {
+  it('其它写 dirty 不会被 rating cache 清除', async () => {
+    const { word } = await seed()
+    await persistLearningWriteSource('sqlite')
+    install({ reviewLogDelayMs: 40 })
+    await submitRatingSqlite(word.id, 'familiar', 5000, { clientOpId: 'c06-1' })
+    await markIdbCacheDirty('other-write-failed')
+    await flushRatingCacheWarmup()
+    expect((await (await import('../../src/data/idb-cache')).getIdbCacheMeta())?.dirty).toBe(true)
   })
 })

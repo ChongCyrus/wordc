@@ -1,5 +1,5 @@
+import { primeLegacySqliteContentSource } from '../test-utils'
 import '../test-utils'
-import { persistContentWriteSource } from '../../../src/data/content-write-source'
 /**
  * 0.14 B5：墨墨导入写 `maimemoVocId`（内置词 overlay）走统一内容写源。
  *
@@ -117,7 +117,7 @@ afterEach(async () => {
 describe('0.14 B5 墨墨导入 overlay 写源', () => {
   it('sqlite 写源：先 contentWrite 写 overlay，成功后 IDB cache 才有 maimemoVocId；facts 走 SQLite tx', async () => {
     const word = await seedWord()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await persistLearningWriteSource('sqlite')
     const mock = installSqliteMock()
 
@@ -141,7 +141,7 @@ describe('0.14 B5 墨墨导入 overlay 写源', () => {
 
   it('sqlite 写源失败：抛 ContentWriteError、不回写 IDB overlay，且回滚 facts 备份', async () => {
     const word = await seedWord()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await persistLearningWriteSource('sqlite')
     const mock = installSqliteMock({ failContent: true })
 
@@ -161,7 +161,7 @@ describe('0.14 B5 墨墨导入 overlay 写源', () => {
 
   it('content sqlite + learning idb（双源独立）：overlay 进 content_kv，学习 facts 仍写 IDB', async () => {
     const word = await seedWord()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const mock = installSqliteMock()
 
     const result = await importMaimemoRecords(maimemoRecords())

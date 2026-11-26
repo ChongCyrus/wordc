@@ -82,6 +82,7 @@ import {
   listSenseMnemonics,
   reRateInPlan,
   saveSessionSnapshot,
+  flushRatingCacheWarmup,
   type AppSettings,
   type DailyPlan,
 } from '../../../data'
@@ -99,6 +100,7 @@ import { phrasesForMeaning } from '../lib/memory-phrases'
 import { meaningsForMemory } from '../lib/study-meanings'
 import { visibleMnemonics } from '../lib/user-mnemonics'
 import { submitRatingByMode } from '../lib/rate-action'
+import { previewRatingPlan, rollbackPlanAfterFailure, sameOptimisticPlan } from '../lib/preview-rating-plan'
 import { flushProgressCheckpoint, scheduleProgressCheckpoint } from '../../../app/utils/auto-backup-service'
 import { ratingLabels as labelsOf, type RatingLabels } from '../lib/rating-labels'
 import { readOfficialBool } from '../../../app/hooks/officialSettings'
@@ -316,6 +318,7 @@ export function useStudySession(options?: {
   } | null>(null)
   /** 当前词的完整 WordState（供 core.previewNext 预览三键下一次出现时间） */
   const [wordState, setWordState] = useState<WordState | null>(null)
+  const wordStateRef = useRef<WordState | null>(null)
   const [plan, setPlanState] = useState<DailyPlan | null>(null)
   const [viewIndex, setViewIndex] = useState(0)
   const [browseIndex, setBrowseIndex] = useState<number | null>(null)
@@ -353,6 +356,10 @@ export function useStudySession(options?: {
   const studyStartedAtRef = useRef<number>(Date.now())
   const snapshotTimerRef = useRef<number | null>(null)
   const submittingRef = useRef(false)
+
+  useEffect(() => {
+    wordStateRef.current = wordState
+  }, [wordState])
   const mountedRef = useRef(true)
 
   const toast = useCallback((message: string) => {
@@ -751,7 +758,7 @@ export function useStudySession(options?: {
   const handleMarkMeaning = useCallback(
     async (meaningId: string) => {
       const current = sessionRef.current
-      if (!current) return
+      if (!current || submittingRef.current) return
       applySession(markMeaning(current, meaningId))
       setMeaningStats((prev) => {
         const stat = normalizeMeaningStat(prev[meaningId])
@@ -1050,7 +1057,7 @@ export function useStudySession(options?: {
   const handleMarkCoreSense = useCallback(
     async (coreSenseIndex: number, label: string) => {
       const current = sessionRef.current
-      if (!current) return
+      if (!current || submittingRef.current) return
       setCoreSenseStats((prev) => {
         const key = JSON.stringify([label.trim(), coreSenseIndex])
         const stat = prev[key] ?? { clicks: 0, encounters: 0 }
@@ -1199,7 +1206,30 @@ export function useStudySession(options?: {
       const browsing = browseRef.current != null
       const previousChoice = lastChoiceRef.current
       let submitted = false
+      let optimisticApplied = false
+      let optimisticPlan: DailyPlan | null = null
       try {
+        // 0.16 exp：正常评分先本地推演 plan 并显示下一词；写库期间三键/AI/不熟悉均禁用
+        const stateForPreview = wordStateRef.current
+        if (!browsing && planBefore && stateForPreview) {
+          try {
+            optimisticPlan = previewRatingPlan({
+              plan: planBefore,
+              wordId,
+              rating,
+              state: stateForPreview,
+              now: Date.now(),
+            }).plan
+            if (optimisticPlan.index < optimisticPlan.wordIds.length) {
+              optimisticApplied = true
+              applyPlan(optimisticPlan)
+              await loadWordAt(optimisticPlan.index, optimisticPlan, loadedSettings)
+            }
+          } catch {
+            optimisticPlan = null
+            optimisticApplied = false
+          }
+        }
         // 回退浏览 → reRateInPlan（改判）；正常 → rateInPlan（task-44 抽出可 mock 的分支）
         const outcome = await submitRatingByMode<{
           plan: DailyPlan | null
@@ -1290,6 +1320,7 @@ export function useStudySession(options?: {
 
         applyBrowse(null)
         applyLastChoice(null)
+        const planAlreadyShown = optimisticApplied && sameOptimisticPlan(planAfter, optimisticPlan)
         applyPlan(planAfter)
 
         // 0.3.93：只按 index 判断；completedAt 可能是回炉插入前的旧值，不能单独作为结束依据
@@ -1299,11 +1330,22 @@ export function useStudySession(options?: {
           setPhase(learnedRef.current.size > 0 ? 'done' : 'empty')
           return
         }
-        await loadWordAt(planAfter.index, planAfter, loadedSettings)
+        if (!planAlreadyShown) await loadWordAt(planAfter.index, planAfter, loadedSettings)
       } catch (error) {
+        const rollbackPlan = rollbackPlanAfterFailure(planBefore, optimisticApplied, submitted)
+        if (rollbackPlan) {
+          try {
+            applyPlan(rollbackPlan)
+            await loadWordAt(rollbackPlan.index, rollbackPlan, loadedSettings)
+          } catch {
+            /* 回滚失败时保持现有 UI，至少不丢已提交数据 */
+          }
+        }
         // 评分已成功但后续加载下一词失败时，不能说“提交失败”，否则用户会重复评分
         toast(submitted ? `已保存，但加载下一词失败：${errorMessageOf(error)}` : `提交失败，请重试：${errorMessageOf(error)}`)
       } finally {
+        // 用户要求：真正落盘（SQLite tx + 缓存回填/回查）完成后才允许下一词冲突操作
+        await flushRatingCacheWarmup().catch(() => undefined)
         submittingRef.current = false
         if (mountedRef.current) setSubmitting(false)
       }

@@ -1,5 +1,5 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
-import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { beforeEach, afterEach, describe, expect, it } from 'vitest'
 import {
   applyApproved,
@@ -166,7 +166,7 @@ describe('0.14 P1 F5：importPack 部分批失败可重试补齐（pack 行最�
   it('chunk2 失败 → 退出无 pack 行/补偿前缀；重试后 700 条 item 全部补齐', async () => {
     const { deckId } = await setupCustomDeck()
     void deckId
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const opts: MockOptions = { failAt: 2 }
     const state = mockSqlite(opts)
     const items: PackItemV1[] = Array.from({ length: 700 }, (_, index) => ({
@@ -197,7 +197,7 @@ describe('0.14 P1 F5：importPack 部分批失败可重试补齐（pack 行最�
 describe('0.14 P1 F6：pack apply/delete 同步自定义词 body 到 content_kv', () => {
   it('apply 写 `word:<id>`；rebuild 后内容仍在；删除 pack 后 rebuild 不复活', async () => {
     const { wordId, deckId } = await setupCustomDeck()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const state = mockSqlite()
     const deck = await getDb().decks.get(deckId)
     if (deck) state.rows.set(`deck:${deckId}`, { key: `deck:${deckId}`, kind: 'deck', json: JSON.stringify(deck), updated_at: deck.updatedAt ?? 1, revision: 1, deleted: 0 })
@@ -219,7 +219,7 @@ describe('0.14 P1 F6：pack apply/delete 同步自定义词 body 到 content_kv'
 
     // 模拟 cache 丢失 → rebuild：apply 的内容不丢失
     await clearContentCache()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: 'contentMigrationState', value: { status: 'ready', writeCoverageComplete: false, written: 4 }, updatedAt: Date.now() })
     const rebuilt = await rebuildContentCacheFromSqlite()
     expect(rebuilt.ok, rebuilt.error).toBe(true)
@@ -234,7 +234,7 @@ describe('0.14 P1 F6：pack apply/delete 同步自定义词 body 到 content_kv'
 
     // 再次模拟 cache 丢失 → rebuild：已删除内容不复活
     await clearContentCache()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: 'contentMigrationState', value: { status: 'ready', writeCoverageComplete: false, written: 4 }, updatedAt: Date.now() })
     const rebuilt2 = await rebuildContentCacheFromSqlite()
     expect(rebuilt2.ok, rebuilt2.error).toBe(true)
@@ -246,7 +246,7 @@ describe('0.14 P1 F6：pack apply/delete 同步自定义词 body 到 content_kv'
 describe('0.14 P1 F7：applyApproved 返回 ok/错误码/已应用/失败项', () => {
   it('成功返回 ok:true/failed:0；sqlite 写失败返回 ok:false + 错误码 + 失败项且 IDB 不回写', async () => {
     await setupCustomDeck()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const opts: MockOptions = {}
     const state = mockSqlite(opts)
     const imported = await importPack(

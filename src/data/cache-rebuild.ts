@@ -40,6 +40,8 @@ export interface RebuildCacheOptions {
   unsafe?: boolean
   /** 调用方已持全局写锁 */
   skipWriteLock?: boolean
+  /** C-07：分叉时由用户显式选择“以 SQLite 为准重建 IDB”；仍需 preBackup */
+  force?: boolean
   onProgress?: (stage: string) => void
   sqliteQueryImpl?: (query: Record<string, unknown>) => Promise<{ ok: boolean; rows?: unknown[]; nextCursor?: string | null; message?: string }>
   sqliteHealthImpl?: () => Promise<{ ok: boolean; userVersion?: number; data?: { counts?: Partial<CacheRebuildCounts> }; message?: string }>
@@ -198,19 +200,19 @@ export async function rebuildIdbCacheFromSqlite(opts: RebuildCacheOptions = {}):
         break
       }
       if (relation === 'idb-newer') {
-        deltaOps.push({ op: 'upsert', table: 'states', row: rowsForState(state) })
-        delta.states += 1
+        conflict = `IDB 与 SQLite 分叉（state ${state.wordId} 更新），拒绝用 IDB 反向覆盖 SQLite 事实源`
+        break
       }
     }
     if (!conflict) {
       for (const plan of idbPlans) {
         const remote = sqlitePlans.get(plan.id)
         if (!remote) {
-          deltaOps.push({ op: 'upsert', table: 'plans', row: rowsForPlan(plan) })
-          delta.plans += 1
+          conflict = `IDB 与 SQLite 分叉（plan ${plan.id} 仅 IDB 有），拒绝反向覆盖`
+          break
         } else if (plan.updatedAt > remote.updatedAt) {
-          deltaOps.push({ op: 'upsert', table: 'plans', row: rowsForPlan(plan) })
-          delta.plans += 1
+          conflict = `IDB 与 SQLite 分叉（plan ${plan.id} 更新），拒绝反向覆盖`
+          break
         } else if (plan.updatedAt === remote.updatedAt && plan.index !== remote.index) {
           conflict = `plan 冲突：${plan.id}`
           break
@@ -221,8 +223,8 @@ export async function rebuildIdbCacheFromSqlite(opts: RebuildCacheOptions = {}):
       for (const setting of idbSettings) {
         const remote = sqliteSettings.get(setting.key)
         if (!remote || setting.updatedAt > remote.updatedAt) {
-          deltaOps.push({ op: 'upsert', table: 'settings', row: { key: setting.key, value_json: JSON.stringify(setting.value), updated_at: setting.updatedAt } })
-          delta.settings += 1
+          conflict = `IDB 与 SQLite 分叉（setting ${setting.key}），拒绝反向覆盖`
+          break
         }
       }
     }
@@ -230,13 +232,53 @@ export async function rebuildIdbCacheFromSqlite(opts: RebuildCacheOptions = {}):
       for (const log of idbLogs) {
         if (log.id == null) continue
         if (!sqliteLogIds.has(String(log.id))) {
-          deltaOps.push({ op: 'upsert', table: 'review_logs', row: rowsForLog(log as unknown as Row) })
-          delta.reviewLogs += 1
+          conflict = `IDB 与 SQLite 分叉（review_log ${log.id}），拒绝反向覆盖`
+          break
         }
       }
     }
-    if (conflict) return { ok: false, dryRun, delta: empty, conflict }
+    let forcedOverwrite = false
+    if (conflict) {
+      if (opts.force && !dryRun) {
+        // 只标记，真正重写分支在下面统一处理（含 preBackup），不要在这里清掉 conflict 让分支不可达
+        forcedOverwrite = true
+      } else return { ok: false, dryRun, delta: empty, conflict }
+    }
     if (dryRun) return { ok: true, dryRun: true, delta }
+    // C-07/P0：force 模式 = 用户明确“以 SQLite 为准重建 IDB”，不做 delta、不写 SQLite，
+    // 也不拿旧 IDB counts 做比对（恢复后 IDB 可能为空/陈旧）。
+    if (opts.force && (conflict || forcedOverwrite) && !dryRun) {
+      if (!opts.preBackup) return { ok: false, dryRun, delta: empty, conflict, error: '强制以 SQLite 为准重建前必须备份' }
+      const backup = await opts.preBackup()
+      if (backup && backup.ok === false) return { ok: false, dryRun, delta: empty, conflict, error: `预备份失败：${backup.error ?? '未知错误'}` }
+      // 恢复/换库后，函数开头抓到的 sqliteStateRows 可能已过期（空库），必须重新查询最新 SQLite 行
+      const freshStateRows = await queryAll(query, 'states', batchSize)
+      const freshPlanRows = await queryAll(query, 'plans', batchSize)
+      const freshSettingRows = await queryAll(query, 'settings', batchSize)
+      const freshLogRows = await queryAll(query, 'review_logs', batchSize)
+      progress('write-cache')
+      try {
+        await db.transaction('rw', [db.states, db.plans, db.settings, db.reviewLogs], async () => {
+          await db.states.clear(); await db.plans.clear(); await db.settings.clear(); await db.reviewLogs.clear()
+          if (freshStateRows.length > 0) await db.states.bulkPut(freshStateRows.map(mapSqliteStateRow))
+          if (freshPlanRows.length > 0) await db.plans.bulkPut(freshPlanRows.map(mapSqlitePlanRow))
+          if (freshSettingRows.length > 0) await db.settings.bulkPut(freshSettingRows.map(mapSqliteSettingRow) as never)
+          if (freshLogRows.length > 0) await db.reviewLogs.bulkPut(freshLogRows.map(mapSqliteReviewLogRow) as never)
+        })
+      } catch (error) {
+        return { ok: false, dryRun: false, delta: empty, error: `强制 cache 重建事务失败：${error instanceof Error ? error.message : String(error)}` }
+      }
+      const cacheCounts = await idbCounts()
+      const healthResponse = await health()
+      const sqliteCounts = extractSqliteCounts(healthResponse as never)
+      if (!sqliteCounts || cacheCounts.states !== sqliteCounts.states || cacheCounts.plans !== sqliteCounts.plans || cacheCounts.settings !== sqliteCounts.settings || cacheCounts.reviewLogs !== sqliteCounts.reviewLogs) {
+        return { ok: false, dryRun: false, delta: empty, cacheCounts, ...(sqliteCounts ? { sqliteCounts } : {}), error: '强制重建后 cache/SQLite counts 不一致' }
+      }
+      progress('verify')
+      const generation = await getDataEpoch()
+      await writeIdbCacheMeta({ generation, sqliteUserVersion: Number(healthResponse.userVersion ?? SQLITE_SCHEMA_VERSION), rebuiltAt: Date.now(), dirty: false })
+      return { ok: true, dryRun: false, delta: empty, cacheCounts, sqliteCounts, generation }
+    }
     if (!opts.unsafe) {
       if (!opts.preBackup) return { ok: false, dryRun: false, delta, error: 'M4a 前必须先完整备份' }
       const backup = await opts.preBackup()
@@ -341,3 +383,7 @@ export async function rebuildIdbCacheFromSqlite(opts: RebuildCacheOptions = {}):
   }
   return dryRun || opts.skipWriteLock ? execute() : withDataWriteLock(execute)
 }
+
+void rowsForState
+void rowsForPlan
+void rowsForLog

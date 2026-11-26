@@ -2,12 +2,14 @@
 import { getDb } from './db'
 import { getDataEpoch } from './data-epoch'
 import { getIdbFactCounts } from './sqlite-store'
+import { writeIdbCacheMeta } from './idb-cache'
 import { isSqliteAvailable, sqliteHealth, sqliteQuery } from './native-sqlite'
-import { extractSqliteCounts } from './sqlite-store'
+import { extractSqliteCounts, SQLITE_SCHEMA_VERSION } from './sqlite-store'
 import { migrateIdbToSqlite } from './migration-sqlite'
 import { rebuildIdbCacheFromSqlite } from './cache-rebuild'
 import { persistLearningWriteSource } from './learning-write-source'
 import { withDataWriteLock } from './write-lock'
+import { getLearningWriteSource } from './learning-write-source'
 
 export const LEGACY_UPGRADE_DIAG_KEY = 'upgrade.legacyMigration'
 
@@ -28,6 +30,11 @@ export async function ensureLegacyIdbMigratedToSqlite(opts: {
 } = {}): Promise<LegacyUpgradeResult> {
   if (!isSqliteAvailable()) return { mode: 'unsupported' }
   return withDataWriteLock(async () => {
+    // C-03：readonly 必须跨重启保持；只有显式修复动作可解除
+    if (getLearningWriteSource() === 'readonly') {
+      await writeDiag({ at: Date.now(), ok: false, mode: 'skipped-readonly', error: '学习写源为 readonly，自动迁移不解除' }).catch(() => undefined)
+      return { mode: 'skipped', error: 'readonly' }
+    }
     try {
       const health = await sqliteHealth(5_000)
       const counts = extractSqliteCounts(health as never)
@@ -54,8 +61,43 @@ export async function ensureLegacyIdbMigratedToSqlite(opts: {
         return { mode: 'skipped', ...(counts ? { counts } : {}) }
       }
       const idb = await getIdbFactCounts()
+      // R6/0.15.3→0.16：SQLite health 即使暂时报 0，只要 durable marker 已 done，
+      // 也绝不能用 IDB 反向迁移/覆盖（否则 791 logs 会被 IDB cache 的 2 条覆盖）。
+      let durableDone = false
+      try {
+        const marker = await sqliteQuery({ table: 'migration_state', where: { step: 'legacy-idb' }, limit: 1 }, 5_000)
+        durableDone = ((marker.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]?.status === 'done'
+      } catch { durableDone = false }
+      if (durableDone) {
+        await writeDiag({ at: Date.now(), ok: false, mode: 'skipped-durable-marker', counts, idb, error: 'SQLite migration_state=done，禁止 IDB→SQLite 降级覆盖' })
+        return { mode: 'skipped', counts: idb, error: 'SQLite 已有迁移完成标记，拒绝 IDB 覆盖' }
+      }
+      // R6 硬门禁：health 可能瞬时误报 0；逐表 probe，SQLite 任一 facts 行 >0 一律拒绝迁移。
+      // 只有 SQLite 四张 facts 表全 0 且无 durable marker 才允许 IDB→SQLite。
+      for (const table of ['states', 'plans', 'settings', 'review_logs'] as const) {
+        try {
+          const probe = await sqliteQuery({ table, limit: 1 }, 5_000)
+          const rows = (probe.rows as Array<Record<string, unknown>> | undefined) ?? []
+          if (rows.length > 0) {
+            await writeDiag({ at: Date.now(), ok: false, mode: 'skipped-sqlite-rows-present', table, counts, idb, error: `SQLite ${table} 已有行，拒绝 IDB 迁移覆盖` })
+            return { mode: 'skipped', counts: idb, error: `SQLite ${table} 已有行，拒绝 IDB 迁移覆盖` }
+          }
+        } catch (error) {
+          await writeDiag({ at: Date.now(), ok: false, mode: 'skipped-probe-failed', table, error: error instanceof Error ? error.message : String(error) })
+          return { mode: 'skipped', counts: idb, error: 'SQLite facts probe 失败，fail-closed 拒绝迁移' }
+        }
+      }
       const idbHasFacts = idb.states > 0 || idb.plans > 0 || idb.settings > 0 || idb.reviewLogs > 0
-      if (!idbHasFacts) return { mode: 'skipped', counts: idb }
+      if (!idbHasFacts) {
+        // 0.16：原生 fresh 安装 SQLite 为空但内容源已 sqlite；学习事实源也必须是 sqlite，
+        // 否则首次评分会写 IDB，违背单一事实源。
+        await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: SQLITE_SCHEMA_VERSION, dirty: false, rebuiltAt: Date.now(), reason: 'fresh-sqlite' }).catch(() => undefined)
+        await persistLearningWriteSource('sqlite').catch(() => undefined)
+        const { persistSettingsWriteMode } = await import('./settings.repo')
+        await persistSettingsWriteMode('sqlite').catch(() => undefined)
+        await writeDiag({ at: Date.now(), ok: true, mode: 'fresh-sqlite-source', counts: idb, epoch: await getDataEpoch() })
+        return { mode: 'migrated', counts: idb }
+      }
       if (!opts.preBackup) {
         await writeDiag({ at: Date.now(), ok: false, error: '缺少自动预备份回调，拒绝迁移' })
         return { mode: 'failed', counts: idb, error: '缺少自动预备份' }

@@ -1,10 +1,11 @@
 import './test-utils'
+import { primeIdbCacheReady } from './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { describe, expect, it } from 'vitest'
 import { canSwitchContentWriteSource, createDeck, getDb, getSettings, resetDatabase, runContentMigrationShadow, setSqliteTransport, switchContentWriteSource } from '../../src/data'
 describe('0.14 shadow migration', () => {
   it('preflight+batches+state，不切源；失败不切源', async () => {
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     await createDeck({ name: 'shadow', words: [{ headword: 'a', meanings: [{ cn: '义' }] }] })
     let backups = 0
     const ok = await runContentMigrationShadow({ preBackup: async () => { backups += 1; return { ok: true } }, write: async (rows) => ({ ok: true, revision: rows.length }) })

@@ -64,6 +64,7 @@ afterEach(() => setSqliteTransport(null))
 describe('0.11.0 · M4b-2 plan reconcile', () => {
   it('SQLite 872/旧快照不覆盖 IDB 172；reconcile 后 SQLite=IDB', async () => {
     const { deck, plan } = await seed()
+    await (await import('../../src/data/idb-cache')).clearIdbCacheDirty({ generation: await (await import('../../src/data/data-epoch')).getDataEpoch(), sqliteUserVersion: 3, dirty: false })
     const stale = {
       id: plan.id, date: plan.date, deck_id: deck.id,
       word_ids_json: JSON.stringify(Array.from({ length: 5 }, (_, i) => `stale-${i}`)), idx: 0,
@@ -109,10 +110,12 @@ describe('0.11.0 · M4b-2 plan reconcile', () => {
       created_at: plan.createdAt, updated_at: plan.updatedAt, completed_at: plan.completedAt,
     }
     const stale = { ...same, word_ids_json: JSON.stringify(['stale-a', 'stale-b', 'stale-c']), updated_at: plan.updatedAt - 1000 }
+    await (await import('../../src/data/idb-cache')).clearIdbCacheDirty({ generation: await (await import('../../src/data/data-epoch')).getDataEpoch(), sqliteUserVersion: 3, dirty: false })
     install(stale)
     const fail = await reconcileTodayPlanToSqlite({ dryRun: false, preBackup: async () => ({ ok: false, error: 'mock' }) })
     expect(fail.ok).toBe(false)
     expect(fail.error).toMatch(/备份/)
+    await (await import('../../src/data/idb-cache')).clearIdbCacheDirty({ generation: await (await import('../../src/data/data-epoch')).getDataEpoch(), sqliteUserVersion: 3, dirty: false })
     install(same)
     const idem = await reconcileTodayPlanToSqlite({ dryRun: false, preBackup: async () => ({ ok: true }) })
     expect(idem.ok).toBe(true)

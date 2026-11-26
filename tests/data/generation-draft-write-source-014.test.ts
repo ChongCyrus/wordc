@@ -1,4 +1,5 @@
 import './test-utils'
+import { primeLegacySqliteContentSource } from './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 /**
  * 0.14 B3：AI 生成草稿写入口统一走 content-write-source。
@@ -96,7 +97,12 @@ function mockSqlite(opts: { fail?: boolean } = {}): MockSqliteState {
 }
 
 async function useSource(source: 'idb' | 'sqlite'): Promise<void> {
-  await persistContentWriteSource(source)
+  if (source === 'sqlite') {
+    // C-04 后 settings 读路径 cache meta 缺失会 fail-closed 回源 SQLite，必须同时置 meta ready
+    await primeLegacySqliteContentSource()
+    return
+  }
+  await persistContentWriteSource('idb')
 }
 
 /** 断言写入失败为结构化 ContentWriteError（sqlite 失败），返回错误对象 */

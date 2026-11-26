@@ -1,5 +1,5 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
-import { persistContentWriteSource } from '../../src/data/content-write-source'
 /**
  * 0.14 B4（续）：自定义 deck/word 编辑/删除写入口 + content tombstone。
  *
@@ -137,7 +137,7 @@ function installContentKvMock(opts: { failContentWrite?: boolean } = {}) {
 }
 
 async function useContentSqlite(): Promise<void> {
-  await persistContentWriteSource('sqlite')
+  await primeLegacySqliteContentSource()
 }
 
 function deckFileText(deck: Record<string, unknown>, words: Array<Record<string, unknown>>): string {
@@ -277,7 +277,7 @@ describe('0.14 B4 自定义 deck/word 删除 tombstone', () => {
 
     await deleteWord(alpha.id)
     // 模拟 cache 丢失：清 IDB 内容表后从 content_kv 重建（需写源=sqlite 且迁移 ready 的门禁）
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: 'contentMigrationState', value: { status: 'ready', writeCoverageComplete: false }, updatedAt: Date.now() })
     await getDb().words.clear()
     await getDb().decks.clear()
@@ -499,7 +499,7 @@ describe('0.14 F1/F2：内置词保护 + word-overlay tombstone', () => {
     // 重新添加同 id 词（新词无笔记），再从 content_kv 重建 cache：旧 overlay 不复活
     await addWord(deck.id, { headword: 'alpha', meanings: [{ cn: '甲' }] })
     expect((await getDb().words.get(word.id))?.userNotes).toBeUndefined()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: 'contentMigrationState', value: { status: 'ready', writeCoverageComplete: false }, updatedAt: Date.now() })
     await getDb().decks.clear()
     await getDb().words.clear()

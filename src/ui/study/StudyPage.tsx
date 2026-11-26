@@ -621,8 +621,11 @@ export default function StudyPage() {
   useEffect(() => {
     if (!study.word) return
     const wordId = study.word.id
-    if (stage === 'annotation' && !partEncounteredRef.current.has(wordId)) {
-      partEncounteredRef.current.add(wordId)
+    // 同一词每次重新进入学习（回炉/再次遇到）都应算一次 encounter；
+    // 用 session.startedAt 作为本次学习实例 key，避免按 wordId 永久去重。
+    const encounterKey = session ? `${wordId}:${session.startedAt}` : wordId
+    if (stage === 'annotation' && !partEncounteredRef.current.has(encounterKey)) {
+      partEncounteredRef.current.add(encounterKey)
       const parts = rootEtymology && Array.isArray((rootEtymology as { parts?: unknown }).parts)
         ? (rootEtymology as { parts: Array<{ type: string; text: string }> }).parts
         : []
@@ -632,7 +635,7 @@ export default function StudyPage() {
       }
     }
     void getPartStats(wordId).then(setPartStats).catch(() => undefined)
-  }, [stage, study.word, rootEtymology])
+  }, [stage, study.word, rootEtymology, session?.startedAt])
 
   useEffect(() => {
     if (!study.word || !session?.weightedTotals) return
@@ -1211,7 +1214,7 @@ export default function StudyPage() {
             </>
           ) : null}
           {study.activeCoreSense ? (
-            <button type="button" className="core-sense-ai-btn" onClick={() => setCoreSenseAiOpen(true)}>
+            <button type="button" className="core-sense-ai-btn" disabled={study.submitting} onClick={() => setCoreSenseAiOpen(true)}>
               AI 本义内容
             </button>
           ) : null}

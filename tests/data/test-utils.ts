@@ -34,3 +34,44 @@ export async function firstWords(deckId: string, limit: number) {
     .limit(limit)
     .toArray()
 }
+
+/**
+ * 0.15/0.16 内容写源测试辅助（task-312 C-04 之后的必需品）。
+ *
+ * `getContentWriteSource()` 在 Node 测试环境走 0.14 legacy 语义（读 settings），
+ * 而 `getSettings()` → `readSettingsThroughCache()` 在 IDB cache meta 缺失时 **fail-closed 回源 SQLite**；
+ * tests 里 mock 的 SQLite 通常只回答 `rows: []`，于是 `data.contentWriteSource='sqlite'` 读不回来，
+ * 写源被判成 idb —— 0.14 时代只调 `persistContentWriteSource('sqlite')` 的用例因此集体失效。
+ *
+ * 本 helper 等价于“已在 sqlite 写源的运行中设备”：写 settings 镜像 + 置 cache meta ready。
+ * 只在测试里使用；生产由 `restoreLearningWriteSource` / v15 门禁负责。
+ */
+export async function primeLegacySqliteContentSource(): Promise<void> {
+  const { persistContentWriteSource } = await import('../../src/data/content-write-source')
+  const { primeM2ReadCacheForTests, SQLITE_SCHEMA_VERSION } = await import('../../src/data')
+  await persistContentWriteSource('sqlite')
+  await primeM2ReadCacheForTests({ generation: 0, sqliteUserVersion: SQLITE_SCHEMA_VERSION, dirty: false })
+}
+
+/**
+ * 与 primeLegacySqliteContentSource 成对使用：清掉 sqlite 写源镜像与 cache meta，
+ * 让后续「idb 模式」用例回到干净的 idb 写源（cache meta 是 IDB meta 行，只有 resetDatabase 才清）。
+ */
+export async function resetContentSourceToIdb(): Promise<void> {
+  const { persistContentWriteSource } = await import('../../src/data/content-write-source')
+  const { getDb } = await import('../../src/data')
+  await persistContentWriteSource('idb')
+  const { IDB_CACHE_META_KEY } = await import('../../src/data/idb-cache')
+  await getDb().meta.delete(IDB_CACHE_META_KEY).catch(() => undefined)
+}
+
+/**
+ * 只置 IDB cache meta ready（不动内容写源）。
+ * C-04 后 `getSettings()` 在 meta 缺失时 fail-closed 回源 SQLite；mock SQLite 通常返回空行，
+ * 于是「刚写进 IDB settings」的用例会读到默认值（如 contentWriteSource 仍是 idb）。
+ * 需要断言 IDB settings 的用例在 resetDatabase 后调用本函数即可。
+ */
+export async function primeIdbCacheReady(): Promise<void> {
+  const { primeM2ReadCacheForTests, SQLITE_SCHEMA_VERSION } = await import('../../src/data')
+  await primeM2ReadCacheForTests({ generation: 0, sqliteUserVersion: SQLITE_SCHEMA_VERSION, dirty: false })
+}

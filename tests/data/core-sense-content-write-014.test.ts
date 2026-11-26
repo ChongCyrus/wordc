@@ -1,5 +1,5 @@
 import './test-utils'
-import { persistContentWriteSource } from '../../src/data/content-write-source'
+import { primeLegacySqliteContentSource, resetContentSourceToIdb } from './test-utils'
 /**
  * 0.14：core-sense 内容写入口接入统一内容写源（examples / overview / phrases）。
  *
@@ -100,7 +100,8 @@ async function seedWord(headword = 'alpha'): Promise<{ deckId: string; wordId: s
 }
 
 async function useContentSqlite(): Promise<void> {
-  await persistContentWriteSource('sqlite')
+  // C-04 后 settings 读路径 cache meta 缺失会 fail-closed 回源 SQLite（mock 无 settings）→ 写源被判 idb
+  await primeLegacySqliteContentSource()
 }
 
 async function cachedWord(wordId: string) {
@@ -109,6 +110,7 @@ async function cachedWord(wordId: string) {
 
 beforeEach(async () => {
   await resetDatabase()
+  await resetContentSourceToIdb()
 })
 
 afterEach(() => {
@@ -187,7 +189,9 @@ describe('0.14 core-sense 例句写源（core-sense-examples）', () => {
 
     await clearCoreSenseExamples(wordId)
     expect((await cachedWord(wordId))?.coreSenseExamples).toBeUndefined()
-    expect(mock.calls).toHaveLength(0)
+    // C-04 后 idb 模式下 settings 读会合法回源 SQLite（cache meta 缺失时 fail-closed），
+    // 因此只断言“不触发内容写”，而不是“零 SQLite 调用”。
+    expect(mock.contentWrites()).toHaveLength(0)
   }, 30_000)
 })
 
@@ -241,7 +245,7 @@ describe('0.14 core-sense 串联助记写源（core-sense-overview）', () => {
 
     await clearCoreSenseOverview(wordId)
     expect(await getCoreSenseOverview(wordId)).toBeNull()
-    expect(mock.calls).toHaveLength(0)
+    expect(mock.contentWrites()).toHaveLength(0)
   }, 30_000)
 })
 
@@ -310,6 +314,6 @@ describe('0.14 core-sense 词组写源（core-sense-phrases）', () => {
 
     await clearCoreSensePhrases(wordId)
     expect((await cachedWord(wordId))?.coreSensePhrases).toBeUndefined()
-    expect(mock.calls).toHaveLength(0)
+    expect(mock.contentWrites()).toHaveLength(0)
   }, 30_000)
 })

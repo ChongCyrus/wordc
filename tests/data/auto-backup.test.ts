@@ -148,9 +148,15 @@ describe('0.3.86 · auto backup', () => {
     expect(bridge.files.size).toBe(0)
   })
 
-  it('恢复：先备份当前→importMigration(merge)→报告；DB 清空后可恢复', async () => {
+  it('恢复：先备份当前→importMigration(replace)→报告；DB 清空后日志也恢复', async () => {
     const bridge = new FakeBridge()
     const { wordId } = await seedState()
+    await getDb().reviewLogs.add({
+      wordId, deckId: wordId.split(':')[0]!, rating: 'familiar', reviewedAt: Date.now(),
+      stabilityBefore: 1, difficultyBefore: 5, stabilityAfter: 1, difficultyAfter: 5,
+      elapsedDays: 0, nextIntervalDays: 1, retrievabilityAtReview: 0.9,
+      longTermUpdate: true, corrected: false, meaningChanges: [], phaseBefore: 'review', phaseAfter: 'review',
+    } as never)
     const backup = await runAutoBackup(bridge, { now: day(0) })
     expect(backup.mode).toBe('backed-up')
     const name = backup.name!
@@ -167,6 +173,7 @@ describe('0.3.86 · auto backup', () => {
     expect(bridge.files.has(result.preRestoreName!)).toBe(true)
     expect(await getWord(wordId)).toBeTruthy()
     expect((await getDb().states.count())).toBe(1)
+    expect((await getDb().reviewLogs.count())).toBe(1)
   })
 
   it('0.7.2 恢复超时：置 failed 可重试，不残留恢复中', async () => {
@@ -257,7 +264,7 @@ describe('0.3.86 · auto backup', () => {
     // 旧 20MB 上限会误跳过；现在按 100MB 上限应允许
     const large = await runAutoBackup(bridge, {
       now: day(0),
-      exportText: async () => JSON.stringify({ x: 'a'.repeat(25 * 1024 * 1024) }),
+      exportText: async () => JSON.stringify({ format: 'momo-migration', x: 'a'.repeat(25 * 1024 * 1024) }),
     })
     expect(large.mode).toBe('backed-up')
     expect(bridge.files.size).toBe(1)

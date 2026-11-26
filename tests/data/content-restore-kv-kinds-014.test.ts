@@ -42,6 +42,7 @@ vi.mock('../../src/data/content-store', async (importOriginal) => {
 })
 
 import { getDb, resetDatabase } from './test-utils'
+import { primeLegacySqliteContentSource } from './test-utils'
 import { buildContentBaselineFile, buildContentSnapshot, restoreContentBaseline } from '../../src/data/content-snapshot'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { setSqliteTransport } from '../../src/data/native-sqlite'
@@ -87,7 +88,7 @@ afterEach(async () => {
 describe('0.14 restore tombstone kind (A2)', () => {
   it('removeAll 删除旧 key 时 tombstone kind 来自原行 kind', async () => {
     await resetDatabase()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     for (const row of EXISTING) state.rows.set(row.key, { ...row })
     expect(await getDb().words.count()).toBe(0)
     const base = await buildContentBaselineFile(await buildContentSnapshot({ revision: 1 })) // 空目标集合 → 全部旧 key 走 tombstone

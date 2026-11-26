@@ -26,17 +26,25 @@ async function allKeys(table: string, key: string): Promise<string[]> {
   return keys
 }
 
-/** 单 tx 清 facts/migration_state/client_ops；失败回滚 */
+/** 清 facts/migration_state/client_ops：facts 三表 all:true 单语句，其余按 ≤400/批；失败回滚（由调用方 safety snapshot 恢复）。 */
 export async function clearAllSqliteFacts(): Promise<void> {
   if (!isSqliteAvailable()) throw new Error('SQLite 不可用')
-  const ops: unknown[] = []
-  for (const { table, key } of TABLES) {
+  // P0-1：states/plans/review_logs 用 native all:true，避免 255 states + 791 logs 超过 MAX_OPS=500。
+  const factTx = await sqliteTx([
+    { op: 'delete', table: 'states', all: true },
+    { op: 'delete', table: 'plans', all: true },
+    { op: 'delete', table: 'review_logs', all: true },
+  ])
+  if (factTx.ok === false) throw new Error(factTx.message ?? 'SQLite 清 facts 事务失败')
+  // settings/client_ops/migration_state：按 key 分批，每批 ≤400（native 上限 500）。
+  for (const { table, key } of TABLES.filter((item) => item.table === 'settings' || item.table === 'client_ops' || item.table === 'migration_state')) {
     const keys = await allKeys(table, key)
-    for (const value of keys) ops.push({ op: 'delete', table, where: { [key]: value } })
+    for (let i = 0; i < keys.length; i += 400) {
+      const ops = keys.slice(i, i + 400).map((value) => ({ op: 'delete', table, where: { [key]: value } }))
+      const tx = await sqliteTx(ops)
+      if (tx.ok === false) throw new Error(tx.message ?? `SQLite 清 ${table} 事务失败`)
+    }
   }
-  if (ops.length === 0) return
-  const tx = await sqliteTx(ops)
-  if (tx.ok === false) throw new Error(tx.message ?? 'SQLite 清空事务失败')
 }
 
 

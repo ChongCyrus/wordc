@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 /**
@@ -153,7 +154,7 @@ describe('0.14 AI apply 写入口', () => {
     await resetDatabase()
     const { word } = await makeDeckWord()
 
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const okWrites = mockSqlite(false)
     await saveRootMnemonic(word.id, 'AI 生成元助记', 'ai')
     expect(okWrites()).toBeGreaterThan(0)
@@ -178,7 +179,7 @@ describe('0.14 AI apply 写入口', () => {
     await resetDatabase()
     const { word, meaningId } = await makeDeckWord()
 
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const okWrites = mockSqlite(false)
     expect(await setNcMeaningIds(word.id, [meaningId])).toEqual([meaningId])
     expect(okWrites()).toBeGreaterThan(0)
@@ -199,7 +200,7 @@ describe('0.14 AI apply 写入口', () => {
     await resetDatabase()
     const { word } = await setupWithCoreSenses()
 
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const okWrites = mockSqlite(false)
     await saveSenseMnemonic(word.id, { coreSenseIndex: 1, label: '本义一', text: '手动助记', source: 'manual' })
     expect(okWrites()).toBeGreaterThan(0)
@@ -256,7 +257,7 @@ describe('0.14 AI apply 写入口', () => {
       ],
     }
 
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const okWrites = mockSqlite(false)
     const report = await importRootEtymologyBundle(bundle, { force: true })
     expect(report.ok).toBe(true)
@@ -315,7 +316,7 @@ describe('0.14 AI apply 写入口', () => {
     const run = () =>
       ensureRootEtymologyPreinstall({ bundleText, force: true, repairMissingDecks: false, chunkSize: 200 })
 
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const okWrites = mockSqlite(false)
     const okResult = await run()
     expect(okResult.ok).toBe(true)
@@ -352,7 +353,7 @@ describe('0.14 AI apply 写入口', () => {
     const words = (await db.words.where('deckId').equals(deck.id).toArray()).sort((a, b) => a.order - b.order)
     const [delta, epsilon] = words as [typeof words[number], typeof words[number]]
 
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const okWrites = mockSqlite(false)
     const okResult = await applyRareMarkResults([{ wordId: delta.id, rareMeaningIndexes: [1] }], { now: 1, version: 'v' })
     expect(okResult.checked).toBe(1)
@@ -421,7 +422,7 @@ describe('0.14 AI 内容包 apply（ai-packs 合并写入口）', () => {
     // 1) sqlite 成功
     await resetDatabase()
     await setupTwoAiPacks() // 先按 idb 建包（source 切换前）
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const db = getDb()
     const writtenKeys: string[] = []
     const okWrites = mockSqlite(false, writtenKeys)
@@ -441,7 +442,7 @@ describe('0.14 AI 内容包 apply（ai-packs 合并写入口）', () => {
     // 2) sqlite 失败：merge 抛结构化错误，IDB 两条原 item 均未被改写
     await resetDatabase()
     await setupTwoAiPacks()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     mockSqlite(true)
     await expect(mergeDuplicateAiPacks()).rejects.toMatchObject({ code: 'CONTENT_SQLITE_WRITE_FAILED' })
     const untouched = await getDb().packItems.toArray()
@@ -467,7 +468,7 @@ describe('0.14 AI 内容包 apply（ai-packs 合并写入口）', () => {
     // 1) sqlite 成功：content_kv 的 pack 行 counts/checksum 已更新，IDB cache 与其一致
     await resetDatabase()
     await setupTwoAiPacks()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const db = getDb()
     const before = new Map((await db.packs.toArray()).map((pack) => [pack.id, { checksum: pack.checksum, counts: pack.counts }]))
     const entries: Array<{ key: string; json: string }> = []
@@ -487,7 +488,7 @@ describe('0.14 AI 内容包 apply（ai-packs 合并写入口）', () => {
     // 2) sqlite pack 行写失败：抛结构化错误，IDB pack 记录保持旧值（packItems 行已写成功也不会回写 pack）
     await resetDatabase()
     await setupTwoAiPacks()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const db2 = getDb()
     const before2 = new Map((await db2.packs.toArray()).map((pack) => [pack.id, { checksum: pack.checksum, items: pack.counts.items }]))
     mockSqlite(false, undefined, undefined, 'pack:')
@@ -521,7 +522,7 @@ describe('0.14 AI 内容包 apply（ai-packs 合并写入口）', () => {
     file1.meta = { ...file1.meta, name: '' } // import 后 name 为空才会走 appendAiPack 的补 name 分支
     const packJson = JSON.stringify(file1)
 
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const entries: Array<{ key: string; json: string }> = []
     const sqliteWrites = mockSqlite(false, undefined, entries)
     const result = await appendAiPack(packJson, { name: 'AI 批次名' })

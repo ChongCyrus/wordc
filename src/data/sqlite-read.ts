@@ -112,11 +112,14 @@ export function mapSqliteReviewLogRow(row: Record<string, unknown>): Record<stri
 }
 
 async function cacheUsable(): Promise<boolean> {
-  const meta = await getIdbCacheMeta()
-  // M2：meta 尚未建立时以 IDB 为主；M4b-0 schema v2 不改数据，
-  // cache 版本号可能仍是 1，但 dirty=false 的 cache 仍可安全读（由 bootstrap 升版本）。
-  if (!meta) return true
-  return !meta.dirty
+  // C-04：meta 缺失/读失败必须 fail-closed 回源 SQLite，不能默认信任 IDB cache
+  try {
+    const meta = await getIdbCacheMeta()
+    if (!meta) return false
+    return !meta.dirty
+  } catch {
+    return false
+  }
 }
 
 async function withIdbFallback<T>(sqliteRead: () => Promise<T>, idbRead: () => Promise<T>): Promise<T> {

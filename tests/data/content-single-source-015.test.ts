@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
@@ -209,7 +210,7 @@ describe('0.15 A：原生 SQLite 单一事实源 + v15 迁移', () => {
   it('web：无原生桥时写源恒 idb（settings 残留 sqlite 也不认），v15 跳过', async () => {
     const restoreWindow = stubWebWindow()
     try {
-      await persistContentWriteSource('sqlite')
+      await primeLegacySqliteContentSource()
       expect(await getContentWriteSource()).toBe('idb')
       const result = await ensureContentSourceV15()
       expect(result).toMatchObject({ ok: true, source: 'idb', skipped: 'non-native' })
@@ -263,7 +264,7 @@ describe('0.15 A：原生 SQLite 单一事实源 + v15 迁移', () => {
     stubNative()
     const mock = installNativeMock()
     await seedCustomDeck('legacy-sqlite')
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await putContentRow({ key: 'deck:legacy-deck', kind: 'deck', json: JSON.stringify({ id: 'legacy-deck', name: 'kv事实' }) })
     await getDb().meta.put({ key: CONTENT_MIGRATION_STATE_KEY, value: { status: 'ready', writeCoverageComplete: true }, updatedAt: Date.now() })
     const writesBefore = mock.writes
@@ -278,7 +279,7 @@ describe('0.15 A：原生 SQLite 单一事实源 + v15 迁移', () => {
     stubNative()
     installNativeMock()
     await seedCustomDeck('legacy-empty-kv')
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: CONTENT_MIGRATION_STATE_KEY, value: { status: 'ready', writeCoverageComplete: true }, updatedAt: Date.now() })
     const result = await ensureContentSourceV15()
     expect(result.ok).toBe(false)
@@ -443,7 +444,7 @@ describe('0.15 A：原生 SQLite 单一事实源 + v15 迁移', () => {
     await persistContentWriteSource('idb')
     expect(await getContentWriteSource()).toBe('idb')
     // 旧基线：settings sqlite + contentMigrationState ready
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     await getDb().meta.put({ key: CONTENT_MIGRATION_STATE_KEY, value: { status: 'ready', writeCoverageComplete: true }, updatedAt: Date.now() })
     expect(await getContentWriteSource()).toBe('sqlite')
   })

@@ -6,7 +6,9 @@ import {
   buildInitialState,
   createDeck,
   getDb,
+  localDateKey,
   persistLearningWriteSource,
+  planIdOf,
   removeUnlearnedAutoNewWords,
   resetDatabase,
   setSqliteTransport,
@@ -46,7 +48,7 @@ async function seed() {
   const db = getDb()
   const words = await db.words.where('deckId').equals(deck.id).toArray()
   const plan = {
-    id: `plan-${deck.id}`, date: '2026-11-23', deck_id: deck.id,
+    id: planIdOf(localDateKey(Date.now()), deck.id), date: localDateKey(Date.now()), deck_id: deck.id,
     word_ids_json: JSON.stringify([words[0]!.id]), idx: 0,
     sources_json: JSON.stringify({ [words[0]!.id]: 'manual' }), goals_json: '{}', ratings_json: '[]',
     created_at: Date.now(), updated_at: Date.now(), completed_at: null,

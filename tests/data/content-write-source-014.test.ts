@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -20,7 +21,7 @@ describe('0.14 content write source root/notes', () => {
     await resetDatabase()
     const deck = await createDeck({ name: 'c', words: [{ headword: 'a', meanings: [{ cn: '义' }] }] })
     const db = getDb(); const word = (await db.words.where('deckId').equals(deck.id).toArray())[0]!
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     mock(false)
     await saveWordOverlay({ ...word, rootEtymology: { parts: [{ type: 'root', text: 'ok' }] }, updatedAt: 2 } as never)
     expect((await db.words.get(word.id))?.rootEtymology).toBeTruthy()

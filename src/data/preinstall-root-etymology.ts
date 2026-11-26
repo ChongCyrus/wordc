@@ -261,7 +261,8 @@ async function runEnsureRootEtymologyPreinstall(
         updatedAt: (word.rootEtymology as { updatedAt?: number } | undefined)?.updatedAt ?? Date.now(),
       }))
       try {
-        const saved = await saveContentEntitiesChunked(overlayRows)
+        const { withDataWriteLock } = await import('./write-lock')
+        const saved = await withDataWriteLock(() => saveContentEntitiesChunked(overlayRows))
         if (!saved.ok) {
           writeFailure = saved.error ?? '预装词根词源写入失败'
           stale += updates.length

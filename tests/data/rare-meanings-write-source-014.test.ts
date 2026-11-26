@@ -1,3 +1,4 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
 import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -46,7 +47,7 @@ describe('0.14 rare-meanings SQLite 写源', () => {
   it('sqlite 成功→contentWrite 调用且 cache 更新', async () => {
     await resetDatabase()
     const { word, meaningId } = await makeWord()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const writes = mock(false)
     const next = await setRareMeaningIds(word.id, [meaningId])
     expect(next).toEqual([meaningId])
@@ -57,7 +58,7 @@ describe('0.14 rare-meanings SQLite 写源', () => {
   it('sqlite 失败→抛错且 IDB 旧值不变', async () => {
     await resetDatabase()
     const { word, meaningId } = await makeWord()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     mock(true)
     await expect(setRareMeaningIds(word.id, [meaningId])).rejects.toThrow(/失败|fail|SQLite/)
     expect((await getDb().words.get(word.id))?.rareMeaningIds).toBeUndefined()
@@ -76,7 +77,7 @@ describe('0.14 rare-meanings SQLite 写源', () => {
   it('rareCoreSenses 也走同一写源', async () => {
     await resetDatabase()
     const { word } = await makeWord()
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
     const writes = mock(false)
     await setRareCoreSenses(word.id, [{ coreSenseIndex: 1, label: '本义' }])
     expect(writes()).toBeGreaterThan(0)

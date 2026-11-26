@@ -1,4 +1,5 @@
 import './test-utils'
+import { primeIdbCacheReady } from './test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import { buildInitialState, createDeck, getDb, getLearningWriteSource, persistLearningWriteSource, repairLearningWriteSource, resetDatabase, setSqliteTransport, updateSettings } from '../../src/data'
 
@@ -6,7 +7,7 @@ afterEach(async () => { setSqliteTransport(null); await persistLearningWriteSour
 
 describe('rc2f readonly recovery', () => {
   it('SQLite v3/integrity 可读时 readonly→sqlite <5s', async () => {
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     const deck = await createDeck({ name: 'rc2f', words: [{ headword: 'a', meanings: [{ cn: '甲' }] }] })
     await updateSettings({ 'data.selectedDeckId': deck.id })
     const db = getDb()
@@ -22,7 +23,7 @@ describe('rc2f readonly recovery', () => {
         const cb = (globalThis as unknown as { __momoSqliteResult?: (id: string, j: string) => void }).__momoSqliteResult
         if (req.method === 'health') cb?.(id, JSON.stringify({ ok: true, userVersion: 3, readOnly: false, counts: { states: 1, plans: 0, settings: 1, review_logs: 0 } }))
         else if (req.method === 'integrity') cb?.(id, JSON.stringify({ ok: true, integrityOk: true }))
-        else if (req.method === 'query') cb?.(id, JSON.stringify({ ok: true, rows: req.payload?.table === 'states' ? [stateRow] : req.payload?.table === 'settings' ? [{ key: 'data.selectedDeckId', value_json: JSON.stringify(deck.id), updated_at: 1 }] : [] }))
+        else if (req.method === 'query') cb?.(id, JSON.stringify({ ok: true, rows: req.payload?.table === 'states' ? [stateRow] : req.payload?.table === 'settings' ? [{ key: 'data.selectedDeckId', value_json: JSON.stringify(deck.id), updated_at: Date.now() + 100000 }] : [] }))
         else cb?.(id, JSON.stringify({ ok: true }))
       }, 0)
       return JSON.stringify({ requestId: id })

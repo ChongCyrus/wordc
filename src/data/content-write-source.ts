@@ -268,7 +268,13 @@ export async function applyContentCache(rows: ContentEntityRow[]): Promise<void>
   }
   for (const row of rows.filter((item) => item.kind === 'word-overlay' && item.deleted)) {
     const id = row.key.replace(/^word-overlay:/, '')
-    await db.words.update(id, { rootEtymology: undefined } as never).catch(() => undefined)
+    const word = await db.words.get(id)
+    if (word) {
+      const { WORD_OVERLAY_FIELDS } = await import('./content-snapshot')
+      const stripped: Record<string, unknown> = { ...word }
+      for (const field of WORD_OVERLAY_FIELDS) delete stripped[field]
+      await db.words.put(stripped as never)
+    }
   }
 }
 

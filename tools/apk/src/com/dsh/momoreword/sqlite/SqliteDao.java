@@ -421,64 +421,100 @@ public class SqliteDao {
         if (!safe.matches("[A-Za-z0-9._-]{1,80}")) {
             throw new IllegalArgumentException(SqliteProtocol.E_BAD_REQUEST + ": unsafe backup name");
         }
+        // P0：一致性备份。WAL 必须 TRUNCATE 到位后再复制；复制后打开备份校验 integrity+真实 counts；
+        // 与 live counts 不一致则重试/删除，绝不登记不一致备份。
         SQLiteDatabase db = db();
-        // WAL 合并后再复制；busy_timeout 已在连接配置，失败有限重试。
-        for (int attempt = 0; attempt < 3; attempt++) {
-            try {
-                db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).close();
-                break;
-            } catch (android.database.sqlite.SQLiteException e) {
-                if (attempt == 2) throw e;
-                try { Thread.sleep(120L * (attempt + 1)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
-            }
-        }
         File src = helper.appContext().getDatabasePath(MomoSqliteOpenHelper.DB_NAME);
         File dir = new File(helper.appContext().getFilesDir(), "sqlite-backups");
         if (!dir.exists() && !dir.mkdirs()) throw new IOException("mkdir failed: " + dir);
         File dest = new File(dir, safe);
         File partial = new File(dir, safe + ".partial");
-        if (partial.exists()) partial.delete();
-        copyFile(src, partial);
-        if (partial.length() <= 0) {
-            partial.delete();
-            throw new IOException(SqliteProtocol.E_CORRUPT + ": empty backup");
+        IOException lastError = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                walCheckpointTruncate(db);
+                JSONObject liveCounts = factCountsOf(db);
+                if (partial.exists() && !partial.delete()) throw new IOException("cannot clear partial backup");
+                copyFile(src, partial);
+                if (partial.length() <= 0) throw new IOException(SqliteProtocol.E_CORRUPT + ": empty backup");
+                JSONObject backupCounts = verifyBackupFile(partial);
+                if (!sameCounts(liveCounts, backupCounts)) {
+                    partial.delete();
+                    lastError = new IOException(SqliteProtocol.E_CORRUPT + ": backup counts mismatch live=" + liveCounts + " backup=" + backupCounts);
+                    try { Thread.sleep(120L * (attempt + 1)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+                    continue;
+                }
+                if (dest.exists() && !dest.delete()) throw new IOException("cannot replace backup: " + safe);
+                if (!partial.renameTo(dest)) throw new IOException("cannot finalize backup: " + safe);
+                JSONObject out = new JSONObject();
+                out.put("name", safe);
+                out.put("path", dest.getAbsolutePath());
+                out.put("bytes", dest.length());
+                out.put("at", System.currentTimeMillis());
+                out.put("integrityOk", true);
+                out.put("checksum", sha256File(dest));
+                out.put("counts", backupCounts);
+                return out;
+            } catch (IOException error) {
+                lastError = error;
+                try { if (partial.exists()) partial.delete(); } catch (Exception ignored) {}
+                try { Thread.sleep(120L * (attempt + 1)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            } catch (android.database.sqlite.SQLiteException error) {
+                lastError = new IOException(SqliteProtocol.E_BUSY + ": " + error.getMessage());
+                try { if (partial.exists()) partial.delete(); } catch (Exception ignored) {}
+            }
         }
-        // 备份必须可读且 integrity_check ok，才登记为可恢复备份。
+        throw lastError != null ? lastError : new IOException(SqliteProtocol.E_CORRUPT + ": cannot create consistent backup");
+    }
+
+    private void walCheckpointTruncate(SQLiteDatabase db) throws IOException {
+        IOException last = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            Cursor c = null;
+            try {
+                c = db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null);
+                if (!c.moveToFirst()) throw new IOException(SqliteProtocol.E_BUSY + ": wal_checkpoint returned no row");
+                long busy = c.getLong(0);
+                long log = c.getLong(1);
+                long checkpointed = c.getLong(2);
+                if (busy == 0 && log == checkpointed) return;
+                last = new IOException(SqliteProtocol.E_BUSY + ": wal busy=" + busy + " log=" + log + " checkpointed=" + checkpointed);
+            } finally {
+                if (c != null) c.close();
+            }
+            try { Thread.sleep(120L * (attempt + 1)); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        }
+        throw last != null ? last : new IOException(SqliteProtocol.E_BUSY + ": wal_checkpoint failed");
+    }
+
+    private JSONObject verifyBackupFile(File partial) throws IOException, JSONException {
         SQLiteDatabase verify = null;
         try {
             verify = SQLiteDatabase.openDatabase(partial.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
             Cursor c = verify.rawQuery("PRAGMA integrity_check", null);
-            boolean ok = false;
-            try {
-                ok = c.moveToFirst() && "ok".equalsIgnoreCase(c.getString(0));
-            } finally {
-                c.close();
-            }
-            if (!ok) {
-                partial.delete();
-                throw new IOException(SqliteProtocol.E_CORRUPT + ": integrity_check failed");
-            }
+            boolean ok;
+            try { ok = c.moveToFirst() && "ok".equalsIgnoreCase(c.getString(0)); } finally { c.close(); }
+            if (!ok) throw new IOException(SqliteProtocol.E_CORRUPT + ": integrity_check failed");
+            return factCountsOf(verify);
         } finally {
-            if (verify != null) {
-                try { verify.close(); } catch (Exception ignored) {}
-            }
+            if (verify != null) try { verify.close(); } catch (Exception ignored) {}
         }
-        if (dest.exists() && !dest.delete()) {
-            partial.delete();
-            throw new IOException("cannot replace backup: " + safe);
-        }
-        if (!partial.renameTo(dest)) {
-            partial.delete();
-            throw new IOException("cannot finalize backup: " + safe);
-        }
-        JSONObject out = new JSONObject();
-        out.put("name", safe);
-        out.put("path", dest.getAbsolutePath());
-        out.put("bytes", dest.length());
-        out.put("at", System.currentTimeMillis());
-        out.put("integrityOk", true);
-        out.put("checksum", sha256File(dest));
-        return out;
+    }
+
+    private static JSONObject factCountsOf(SQLiteDatabase db) throws JSONException {
+        JSONObject counts = new JSONObject();
+        counts.put("states", scalarLong(db, "SELECT COUNT(*) FROM states"));
+        counts.put("plans", scalarLong(db, "SELECT COUNT(*) FROM plans"));
+        counts.put("settings", scalarLong(db, "SELECT COUNT(*) FROM settings"));
+        counts.put("reviewLogs", scalarLong(db, "SELECT COUNT(*) FROM review_logs"));
+        return counts;
+    }
+
+    private static boolean sameCounts(JSONObject a, JSONObject b) {
+        return a.optLong("states", -1) == b.optLong("states", -2)
+                && a.optLong("plans", -1) == b.optLong("plans", -2)
+                && a.optLong("settings", -1) == b.optLong("settings", -2)
+                && a.optLong("reviewLogs", -1) == b.optLong("reviewLogs", -2);
     }
 
     public JSONArray listBackups() throws JSONException {
@@ -492,7 +528,10 @@ public class SqliteDao {
         for (File file : files) {
             String name = file.getName();
             if (!file.isFile() || file.length() <= 0) continue;
-            if (!name.startsWith("sqlite-backup-") || !name.endsWith(".db")) continue;
+            boolean isBackup = name.startsWith("sqlite-backup-")
+                    || name.startsWith("sqlite-auto-backup-")
+                    || name.startsWith("sqlite-safety-");
+            if (!isBackup || !name.endsWith(".db")) continue;
             JSONObject row = new JSONObject();
             row.put("name", name);
             row.put("path", file.getAbsolutePath());

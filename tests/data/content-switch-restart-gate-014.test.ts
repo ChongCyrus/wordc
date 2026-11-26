@@ -1,4 +1,5 @@
 import './test-utils'
+import { primeIdbCacheReady } from './test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import { hashContentValue } from '../../src/data/content-snapshot'
 import {
@@ -49,7 +50,7 @@ async function contentHash(): Promise<string> {
 
 describe('0.14 final gate: switch → restart(cache loss) → rebuild → content hash', () => {
   it('切源后模拟重启丢 cache，重建后内容 hash 与前次一致', async () => {
-    await resetDatabase()
+    await resetDatabase(); await primeIdbCacheReady()
     const db = getDb()
     await db.meta.put({ key: CONTENT_MIGRATION_STATE_KEY, value: { status: 'ready', writeCoverageComplete: true, revision: 10, written: ROWS.length }, updatedAt: Date.now() })
     mockKv()

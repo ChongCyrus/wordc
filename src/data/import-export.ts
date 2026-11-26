@@ -32,8 +32,8 @@ import { bumpDataEpoch } from './data-epoch'
 import { assertIdbMutationAllowed, getLearningWriteSource, persistLearningWriteSource } from './learning-write-source'
 import { clearAllSqliteFacts, clearSqliteFactsTables } from './sqlite-clear'
 import { isSqliteAvailable, sqliteQuery, sqliteTx } from './native-sqlite'
-import { createSqliteFactsBackup, restoreSqliteFactsBackup } from './sqlite-backup'
-import { migrateIdbToSqlite, stateRow as migrationStateRow, planRow as migrationPlanRow, logRow as migrationLogRow, settingRow as migrationSettingRow } from './migration-sqlite'
+import { createSqliteFactsBackup, createSafetySnapshot, restoreSqliteFactsBackup } from './sqlite-backup'
+import { migrateIdbToSqlite, SQLITE_MIGRATION_STEP, stateRow as migrationStateRow, planRow as migrationPlanRow, logRow as migrationLogRow, settingRow as migrationSettingRow } from './migration-sqlite'
 import { rebuildIdbCacheFromSqlite } from './cache-rebuild'
 import { deleteStateCheckpointFiles } from './state-checkpoint'
 import type { AutoBackupBridge } from './auto-backup'
@@ -54,8 +54,8 @@ import { makeIssue, parseDeckFile, parseMigrationFile } from './schema'
 import { applyImportedSettings, getSettings } from './settings.repo'
 import type { RawWordInput } from './word-factory'
 
-export const GENERATOR = 'wordc@0.15.3'
-export const APP_VERSION = '0.15.3'
+export const GENERATOR = 'wordc@0.15.0'
+export const APP_VERSION = '0.15.0'
 
 /** 迁移包导出选项 */
 export interface ExportOptions {
@@ -81,8 +81,8 @@ export interface ExportOptions {
   maxBytes?: number
 }
 
-/** 完整备份安全上限（0.3.63：超过则不构建大 JSON/base64，直接引导分项导出） */
-export const FULL_BACKUP_MAX_BYTES = 20 * 1024 * 1024
+/** 完整备份安全上限（0.16.0：真机完整备份 21.2MB，提高到 64MB；仍防极端 OOM，超过则引导分项导出） */
+export const FULL_BACKUP_MAX_BYTES = 64 * 1024 * 1024
 
 export class MigrationTooLargeError extends Error {
   readonly estimatedBytes: number
@@ -128,6 +128,8 @@ export interface ImportSqliteStageImpl {
   migrate?: typeof migrateIdbToSqlite
   rebuildCache?: typeof rebuildIdbCacheFromSqlite
   health?: () => Promise<{ counts?: Record<string, number>; ok?: boolean; message?: string }>
+  /** 测试/注入：清 migration_state 的 legacy-idb done 标记 */
+  resetMigrationState?: () => Promise<void>
 }
 
 export interface ImportOptions {
@@ -366,7 +368,23 @@ export async function estimateMigrationBytes(opts: ExportOptions = {}): Promise<
   }
 }
 
+async function assertExportCacheFresh(): Promise<void> {
+  const { getLearningWriteSource } = await import('./learning-write-source')
+  if ((await getLearningWriteSource()) !== 'sqlite') return
+  const { flushRatingCacheWarmup } = await import('./study-sqlite')
+  await flushRatingCacheWarmup()
+  const { getIdbCacheMeta } = await import('./idb-cache')
+  let meta = await getIdbCacheMeta()
+  if (meta?.dirty !== true) return
+  const { rebuildIdbCacheFromSqlite } = await import('./cache-rebuild')
+  const rebuilt = await rebuildIdbCacheFromSqlite().catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+  if (!rebuilt.ok) throw new Error(`导出前缓存刷新失败，拒绝导出陈旧备份：${(rebuilt as { error?: string }).error ?? '未知错误'}`)
+  meta = await getIdbCacheMeta()
+  if (!meta || meta.dirty) throw new Error('导出前缓存仍为 dirty，拒绝导出陈旧备份')
+}
+
 export async function buildMigrationFile(opts: ExportOptions = {}): Promise<MigrationFileWithMeta> {
+  await assertExportCacheFresh()
   const db = getDb()
   const now = Date.now()
   const [decks, rawWords, states, settingRows] = await Promise.all([
@@ -880,6 +898,184 @@ export function importMigration(
  * 锁内 preBackup + readonly 阻止用户写 → 现有 IDB 导入 → 清 SQLite → migrate→rebuild→校验；
  * 失败恢复 SQLite prebackup、写源 idb，绝不留双源。
  */
+
+
+/**
+ * 0.16 P0-1：replace 导入后断言 facts 与包内“精确相等”，任何残留或多写都视为失败（触发回滚）。
+ * - states：包内 states（限包内 deck）条数 === IDB/SQLite 实际条数；
+ * - plans：包内今日 plan 条数 === IDB/SQLite 实际条数。
+ * SQLite 侧用 staging 已取的 health counts（前面已与 IDB 逐项比对过），不额外查询，避免测试注入/超时放大失败面。
+ */
+async function assertReplaceFactsExact(
+  input: string | File,
+  counts: { states: number; plans: number },
+): Promise<void> {
+  const text = typeof input === 'string' ? input : await input.text()
+  const raw = JSON.parse(text) as {
+    data?: {
+      plans?: Array<Record<string, unknown>>
+      states?: Array<Record<string, unknown>>
+      decks?: Array<Record<string, unknown>>
+    }
+  }
+  const today = localDateKey(Date.now())
+  const filePlans = (raw.data?.plans ?? []).filter((plan) => plan.date === today)
+  const fileDeckIds = new Set((raw.data?.decks ?? []).map((deck) => String(deck.id ?? '')))
+  const fileStateWordIds = new Set(
+    (raw.data?.states ?? [])
+      .filter((state) => fileDeckIds.has(String(state.deckId ?? '')))
+      .map((state) => String(state.wordId ?? '')),
+  )
+  const db = getDb()
+  let idbStatesInScope = 0
+  for (const deckId of fileDeckIds) idbStatesInScope += await db.states.where('deckId').equals(deckId).count()
+  if (idbStatesInScope !== fileStateWordIds.size) {
+    throw new Error(
+      `替换导入后 states 未精确对齐：包内 ${fileStateWordIds.size} 条，本机残留/缺 ${idbStatesInScope} 条（同一 deck 范围）`,
+    )
+  }
+  const idbPlans = await db.plans.count()
+  if (idbPlans !== filePlans.length) {
+    throw new Error(`替换导入后 plans 未精确对齐：包内今日 ${filePlans.length} 条，本机 ${idbPlans} 条`)
+  }
+  if (Number(counts.states) !== fileStateWordIds.size) {
+    throw new Error(`替换导入后 SQLite states 未精确对齐：包内 ${fileStateWordIds.size} 条，SQLite ${Number(counts.states)} 条`)
+  }
+  if (Number(counts.plans) !== filePlans.length) {
+    throw new Error(`替换导入后 SQLite plans 未精确对齐：包内今日 ${filePlans.length} 条，SQLite ${Number(counts.plans)} 条`)
+  }
+}
+
+/**
+ * 0.16 P1-1：staging 导入后只对 **replace** 校验“包内今日 plan 已落盘”，并回读 SQLite 确认。
+ * merge/keepNewer 必须保留本机计划（`importMigrationInner` 也已如此），不得在此覆盖。
+ * 这里只做校验与补写（IDB 在 clearFacts 后可能被 cache 重建覆盖），不做任何 strategy 越权写入。
+ */
+async function verifyImportedPlansPersisted(input: string | File, strategy: 'replace' | 'merge' | 'keepNewer'): Promise<void> {
+  if (strategy !== 'replace') return
+  const text = typeof input === 'string' ? input : await input.text()
+  const raw = JSON.parse(text) as { data?: { plans?: Array<Record<string, unknown>> } }
+  const plans = (raw.data?.plans ?? []).filter((item) => typeof item.id === 'string' && typeof item.date === 'string')
+  if (plans.length === 0) return
+  const db = getDb()
+  const today = localDateKey(Date.now())
+  const expected = plans.filter((plan) => plan.date === today)
+  for (const plan of expected) {
+    // 跨天 plan 不恢复（与既有产品语义一致），只校验今日
+    const back = await sqliteQuery({ table: 'plans', where: { id: String(plan.id) }, limit: 1 }, 5_000)
+    const rows = (back.rows as Array<Record<string, unknown>> | undefined) ?? []
+    if (rows.length !== 1) {
+      // SQLite 侧缺失：先补写（cache 重建只重建 IDB，不会补 SQLite），再回读确认
+      const tx = await sqliteTx([{ op: 'upsert', table: 'plans', row: migrationPlanRow(plan) }])
+      if (tx.ok === false) throw new Error(tx.message ?? 'plan 写回 SQLite 失败')
+    }
+    if ((await db.plans.get(String(plan.id))) == null) await db.plans.put(plan as never)
+    const recheck = await sqliteQuery({ table: 'plans', where: { id: String(plan.id) }, limit: 1 }, 5_000)
+    const recheckRows = (recheck.rows as Array<Record<string, unknown>> | undefined) ?? []
+    if (recheckRows.length !== 1 || (await db.plans.get(String(plan.id))) == null) {
+      throw new Error(`导入后 plan 校验失败：${String(plan.id)}`)
+    }
+  }
+}
+
+/**
+ * 0.16 P0-2：staging 里 SQLite `settings` 必须收敛成「IDB 将写入的键集合 ∪ 设备本地白名单」。
+ *
+ * 根因：`clearFacts` 只清 states/plans/review_logs，SQLite 已有的 settings 会残留；
+ * 而 `migrateIdbToSqlite` 的 counts 校验是「IDB 行数 === SQLite 行数」，多一个包外键就整体失败
+ * （失败时 IDB 已被改写、写源又被切回 idb，等于“导入失败但数据换了一半”）。
+ *
+ * 处理：删除 SQLite 中“不属于 IDB 即将写入集合、也不在设备本地白名单”的键。
+ * 设备本地键必须保留（它们不进迁移包，见 importMigrationInner 的 deviceLocalKeys）。
+ */
+const DEVICE_LOCAL_SETTING_KEYS = ['data.maimemoToken', 'ai.apiKey', 'data.autoBackupEnabled', 'data.contentWriteSource'] as const
+
+async function convergeSqliteSettingsToIdb(): Promise<{ removed: number; keptLocal: number; kept: number }> {
+  if (!isSqliteAvailable()) return { removed: 0, keptLocal: 0, kept: 0 }
+  const db = getDb()
+  const idbRows = await db.settings.toArray()
+  const idbKeys = new Set(idbRows.map((row) => String(row.key)))
+  const rows: Array<Record<string, unknown>> = []
+  for (let offset = 0; offset < 1_000_000; offset += 500) {
+    const response = await sqliteQuery({ table: 'settings', limit: 500, offset, orderBy: 'key', direction: 'asc' }, 5_000)
+    if (response.ok === false) throw new Error(`读取 SQLite settings 失败：${response.message ?? '未知错误'}`)
+    const page = (response.rows as Array<Record<string, unknown>> | undefined) ?? []
+    rows.push(...page)
+    if (page.length < 500) break
+  }
+  const deviceLocal = new Set<string>(DEVICE_LOCAL_SETTING_KEYS)
+  // 设备本地键：SQLite 有、IDB 没有时**补写进 IDB**（token/apiKey 不进迁移包，绝不能因导入丢失），
+  // 而不是留在 SQLite 造成 counts 口径不一致。
+  const backfill: Array<{ key: string; value: unknown; updatedAt: number }> = []
+  for (const row of rows) {
+    const key = String(row.key ?? '')
+    if (!key || idbKeys.has(key) || !deviceLocal.has(key)) continue
+    const { mapSqliteSettingRow } = await import('./sqlite-read')
+    const mapped = mapSqliteSettingRow(row)
+    backfill.push({ key, value: mapped.value, updatedAt: mapped.updatedAt })
+    idbKeys.add(key)
+  }
+  if (backfill.length > 0) await db.settings.bulkPut(backfill as never)
+  const stale = rows.map((row) => String(row.key ?? '')).filter((key) => key.length > 0 && !idbKeys.has(key))
+  if (stale.length > 0) {
+    const tx = await sqliteTx(stale.map((key) => ({ op: 'delete', table: 'settings', where: { key } })))
+    if (tx.ok === false) throw new Error(`收敛 SQLite settings 失败：${tx.message ?? '未知错误'}`)
+  }
+  return { removed: stale.length, keptLocal: backfill.length, kept: rows.length - stale.length }
+}
+
+/**
+ * 0.16 P0-3：staging 失败时收敛 content 写源，避免「learning=idb、content=sqlite」双源分叉。
+ * - 恢复到导入前的 content 写源；native v15 场景用 emergency override 才能真的回 idb；
+ * - 清 `contentMigrationState`（半迁移状态不可信）；
+ * - content_kv 有 live 行时标 `contentKvStale`，供下次 v15/切源先处理（不静默复活旧内容）；
+ * - 仅在内容写源确为 sqlite 且确实写过内容时才需要，避免动坏 web 场景。
+ */
+async function convergeContentSourceAfterStagingFailure(snapshot: {
+  contentSourceBefore: string
+  contentMigrationStateBefore: unknown
+  contentKvStaleBefore: unknown
+}): Promise<{ ok: boolean; source?: string; error?: string }> {
+  try {
+    const { getContentWriteSource, persistContentWriteSource } = await import('./content-write-source')
+    const { readContentCounts } = await import('./content-store')
+    const { CONTENT_KV_STALE_KEY } = await import('./content-store')
+    const { CONTENT_MIGRATION_STATE_KEY } = await import('./content-migration-plan')
+    const db = getDb()
+    // 只把“导入期间被改成 sqlite”的场景拉回导入前；导入前就是 sqlite 时保持不动（v15 done 后固定 sqlite）
+    const current = await getContentWriteSource()
+    if (snapshot.contentSourceBefore !== 'sqlite' && current === 'sqlite') {
+      const { isNativeContentSqliteRuntime } = await import('./content-write-source')
+      if (isNativeContentSqliteRuntime()) {
+        const { setContentSourceEmergencyIdb } = await import('./content-write-source')
+        await setContentSourceEmergencyIdb('import-failed-rollback')
+      }
+      await persistContentWriteSource('idb').catch(() => undefined)
+    }
+    // 迁移状态不可信：只有“已完成/就绪”才恢复；running/failed/缺失一律清除，
+    // 由 reconcileInterruptedContentMigration / 下次 v15 重新判定，绝不能留下假的 running。
+    const beforeStatus = (snapshot.contentMigrationStateBefore as { status?: string } | null)?.status
+    if (beforeStatus === 'done' || beforeStatus === 'ready') {
+      await db.meta.put({ key: CONTENT_MIGRATION_STATE_KEY, value: snapshot.contentMigrationStateBefore, updatedAt: Date.now() }).catch(() => undefined)
+    } else {
+      await db.meta.delete(CONTENT_MIGRATION_STATE_KEY).catch(() => undefined)
+    }
+    // content_kv 已写入导入内容 → 标 stale，禁止在未清理前按 kv 备份/切源
+    if (snapshot.contentKvStaleBefore == null) {
+      const counts = await readContentCounts().catch(() => null)
+      if (counts && counts.total > 0 && counts.deleted < counts.total) {
+        await db.meta
+          .put({ key: CONTENT_KV_STALE_KEY, value: { at: Date.now(), total: counts.total, deleted: counts.deleted, reason: 'import-staging-failed' }, updatedAt: Date.now() })
+          .catch(() => undefined)
+      }
+    }
+    const after = await getContentWriteSource().catch(() => 'idb')
+    return { ok: true, source: after }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 async function importMigrationSqliteStagingInner(input: string | File, opts: ImportOptions = {}): Promise<ImportReport> {
     const stageTiming: Record<string, number> = {}
     let stageStart = Date.now()
@@ -904,6 +1100,12 @@ async function importMigrationSqliteStagingInner(input: string | File, opts: Imp
     if (!sqliteBackup.ok || !sqliteBackup.manifest) throw new Error(`SQLite 备份失败：${sqliteBackup.error ?? '未知错误'}`)
     const writeStage = (phase: string) => getDb().meta.put({ key: 'import.sqlite.stageNow', value: { phase, at: Date.now() }, updatedAt: Date.now() }).catch(() => undefined)
     await writeStage('backup-done')
+    // 0.16 P0-3：记录导入前 content 写源/迁移状态/stale，失败时据此收敛（避免 learning=idb、content=sqlite 分叉）
+    const contentSourceBefore = await (await import('./content-write-source')).getContentWriteSource().catch(() => 'idb')
+    const { CONTENT_KV_STALE_KEY: contentKvStaleKey } = await import('./content-store')
+    const { CONTENT_MIGRATION_STATE_KEY: contentMigrationStateKey } = await import('./content-migration-plan')
+    const contentMigrationStateBefore = (await getDb().meta.get(contentMigrationStateKey))?.value ?? null
+    const contentKvStaleBefore = (await getDb().meta.get(contentKvStaleKey))?.value ?? null
     await persistLearningWriteSource('readonly')
     try {
       await writeStage('readonly')
@@ -917,7 +1119,19 @@ async function importMigrationSqliteStagingInner(input: string | File, opts: Imp
       await clearFacts()
       mark('clearSqlite', 'SQLite 清空完成')
       await writeStage('migrate')
-      const migrated = await migrate({ dryRun: false, unsafe: true, skipWriteLock: true })
+      // 根因：staging 清 facts 后 migration_state 仍为 done，migrate 会直接 skipped（plans 不写回）。
+      // 正式迁移前清掉 legacy-idb done 标记，让 migrate 重新执行。
+      if (stage.resetMigrationState) await stage.resetMigrationState()
+      else if (isSqliteAvailable()) {
+        const resetMigration = await sqliteTx([{ op: 'delete', table: 'migration_state', where: { step: SQLITE_MIGRATION_STEP } }])
+        if (resetMigration.ok === false) throw new Error(resetMigration.message ?? '重置迁移状态失败')
+      }
+      // 0.16 P0-2：settings 不在 clearFacts 范围；migrate 的 counts 校验按「IDB 行数」比较，
+      // 设备上任何包外键都会让整个导入失败（且此时 IDB 已被改写）。迁移前把 SQLite settings
+      // 收敛为「IDB 将写入的键 ∪ 设备本地白名单」，使计数口径一致。
+      const settingsConverge = await convergeSqliteSettingsToIdb().catch((error: unknown) => ({ removed: 0, keptLocal: 0, kept: 0, error: error instanceof Error ? error.message : String(error) }))
+      if ('error' in settingsConverge && settingsConverge.error) throw new Error(`导入前收敛 SQLite settings 失败：${settingsConverge.error}`)
+      const migrated = await migrate({ dryRun: false, unsafe: true, skipWriteLock: true, force: true })
       mark('migrate', 'SQLite 写入完成')
       if (!migrated.ok) throw new Error(`导入后 SQLite 重建失败：${migrated.error ?? '未知'}`)
       await writeStage('rebuild')
@@ -932,36 +1146,137 @@ async function importMigrationSqliteStagingInner(input: string | File, opts: Imp
         throw new Error('导入后 SQLite/IDB counts 不一致')
       }
       await writeStage('verify')
+      // 0.16 P0-1：replace 断言 states/plans 与包内精确相等（SQLite 侧也校验，防止 migrate skipped 后空转）
+      if ((opts.strategy ?? 'replace') === 'replace') {
+        await assertReplaceFactsExact(input, { states: Number(counts.states ?? -1), plans: Number(counts.plans ?? -1) })
+      }
+      await verifyImportedPlansPersisted(input, opts.strategy ?? 'replace')
       await persistLearningWriteSource('sqlite')
       const { persistSettingsWriteMode } = await import('./settings.repo')
       await persistSettingsWriteMode('sqlite').catch(() => undefined)
       // 0.15 B：native sqlite 保持 sqlite；web/未迁移仍 idb（不绕过门禁）
       await applyContentSourceAfterImport()
       mark('done', '导入完成')
+      const { deleteSafetySnapshot } = await import('./sqlite-backup')
+      await deleteSafetySnapshot(sqliteBackup.manifest).catch(() => undefined)
       await getDb().meta.delete('import.sqlite.stageNow').catch(() => undefined)
       try { await getDb().meta.put({ key: 'import.sqlite.stageTiming', value: { at: Date.now(), stageTiming }, updatedAt: Date.now() }) } catch { /* ignore */ }
       return report
     } catch (error) {
-      // 恢复导入前 SQLite；IDB 保留导入结果但写源回 idb，避免双源
+      // 恢复导入前 SQLite；IDB 保留导入结果但写源回 idb，避免双源。
+      // 0.16 P0-3：失败必须收敛“三件套”→ SQLite 快照 + content 写源/v15 状态 + cache 重建（下方 finishStagingFailure）。
+      let restoreOk = false
+      let restoreError: string | undefined
       try {
         const file = sqliteBackup.manifest
-        await restoreBackup(
+        const restored = await restoreBackup(
           { ...(file.path ? { path: file.path } : {}), manifest: file },
-          { preBackup: async () => ({ ok: true }), skipWriteLock: true },
+          { preBackup: async () => ({ ok: true }), skipWriteLock: true, allowEmptySafety: true },
         )
-      } catch {
-        /* restore 失败写 diag；仍回 idb */
+        restoreOk = restored.ok === true
+        if (!restoreOk) restoreError = restored.error ?? '未知错误'
+      } catch (restoreFailure) {
+        restoreError = restoreFailure instanceof Error ? restoreFailure.message : String(restoreFailure)
       }
       await persistLearningWriteSource('idb').catch(() => undefined)
       const { persistSettingsWriteMode } = await import('./settings.repo')
       await persistSettingsWriteMode('idb').catch(() => undefined)
+      // 0.16 P0-3：content 写源/迁移状态收敛（否则 learning=idb、content=sqlite 长期分叉）
+      const contentConverge = await convergeContentSourceAfterStagingFailure({
+        contentSourceBefore,
+        contentMigrationStateBefore,
+        contentKvStaleBefore,
+      })
+      // 0.16 P1-2：失败必须覆盖 import:last，否则设置页仍显示“上次导入成功”
+      await writeLastImport(
+        makeReport(
+          'migration',
+          [
+            makeIssue(
+              'error',
+              'E_IO',
+              `导入失败（SQLite 重建/校验阶段）：${error instanceof Error ? error.message : String(error)}${
+                restoreOk ? '；已回滚到导入前 SQLite 备份' : `；SQLite 回滚失败：${restoreError ?? '未知'}`
+              }`,
+              { path: 'data' },
+            ),
+          ],
+          {},
+          stageTiming.migrate ?? 0,
+        ),
+      ).catch(() => undefined)
+      const diag = await collectStagingFailureDiag({ error, restoreOk, restoreError, stageTiming }).catch(() => null)
       try {
-        await getDb().meta.put({ key: 'import.sqlite.stageDiag', value: { at: Date.now(), stageTiming, error: error instanceof Error ? error.message : String(error) }, updatedAt: Date.now() })
+        await getDb().meta.put({
+          key: 'import.sqlite.stageDiag',
+          value: {
+            at: Date.now(),
+            stageTiming,
+            restoreOk,
+            ...(restoreError ? { restoreError } : {}),
+            error: error instanceof Error ? error.message : String(error),
+            contentSourceBefore,
+            contentConverge,
+            ...(diag ? { sources: diag } : {}),
+          },
+          updatedAt: Date.now(),
+        })
       } catch {
         /* ignore */
       }
       throw error
     }
+}
+
+/**
+ * 0.16 P0-3：staging 失败后的三源计数诊断（不改变数据，只用于判断是否已分叉）。
+ * - sqlite：SQLite facts（已回滚后应为导入前）
+ * - idb：IDB cache facts（导入后被改写，可能≠SQLite）
+ * - content：content_kv 计数 + 内容写源
+ */
+async function collectStagingFailureDiag(args: {
+  error: unknown
+  restoreOk: boolean
+  restoreError?: string
+  stageTiming: Record<string, number>
+}): Promise<Record<string, unknown>> {
+  const db = getDb()
+  const [idbStates, idbPlans, idbSettings, idbLogs] = await Promise.all([
+    db.states.count(),
+    db.plans.count(),
+    db.settings.count(),
+    db.reviewLogs.count(),
+  ])
+  let sqlite: Record<string, number> | null = null
+  try {
+    const health = await (await import('./native-sqlite')).sqliteHealth(5_000)
+    const counts = (health as unknown as { counts?: Record<string, number> }).counts ?? {}
+    sqlite = {
+      states: Number(counts.states ?? -1),
+      plans: Number(counts.plans ?? -1),
+      settings: Number(counts.settings ?? -1),
+      reviewLogs: Number(counts.review_logs ?? -1),
+    }
+  } catch {
+    sqlite = null
+  }
+  let content: Record<string, unknown> | null = null
+  try {
+    const { readContentCounts } = await import('./content-store')
+    const { getContentWriteSource } = await import('./content-write-source')
+    const counts = await readContentCounts()
+    content = { source: await getContentWriteSource(), total: counts.total, deleted: counts.deleted, revision: counts.revision }
+  } catch {
+    content = null
+  }
+  return {
+    idb: { states: idbStates, plans: idbPlans, settings: idbSettings, reviewLogs: idbLogs },
+    sqlite,
+    content,
+    restoreOk: args.restoreOk,
+    ...(args.restoreError ? { restoreError: args.restoreError } : {}),
+    learningWriteSource: getLearningWriteSource(),
+  }
 }
 
 function importMigrationSqliteStaging(input: string | File, opts: ImportOptions = {}): Promise<ImportReport> {
@@ -1031,7 +1346,7 @@ async function importMigrationSqliteInner(input: string | File, opts: ImportOpti
     }
     mark('extract', `事实提取完成（facts ${file.states.length + file.reviewLogs.length + file.settings.length + file.plans.length}）`)
     await writeImportStageNow('idbFacts')
-    const sqliteBackup = await createSqliteFactsBackup()
+    const sqliteBackup = await createSafetySnapshot()
     if (!sqliteBackup.ok || !sqliteBackup.manifest) throw new Error(`SQLite 备份失败：${sqliteBackup.error ?? '未知错误'}`)
     await writeImportStageNow('importing', { backupName: sqliteBackup.manifest.name, backupPath: sqliteBackup.manifest.path })
     await persistLearningWriteSource('readonly')
@@ -1395,6 +1710,7 @@ async function restoreMigrationDeckWordContent(
   }
 }
 
+
 async function importMigrationInner(
   input: string | File,
   opts: ImportOptions = {},
@@ -1552,6 +1868,8 @@ async function importMigrationInner(
   }
 
   opts.onProgress?.({ phase: 'apply', message: '写入数据库（大库可能需要几十秒）' })
+  // 设置写入可能走 SQLite（跨源 await 会让 Dexie 事务失活），必须在事务外执行
+  let settingsToApply: Array<{ key: string; value: unknown; updatedAt: number }> = []
   try {
   await db.transaction(
     'rw',
@@ -1586,6 +1904,18 @@ async function importMigrationInner(
         }
         if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
       await bulkPutChunked(db.states, importedStates)
+        // 0.16 P0-1：replace 必须按 deck 差集删掉“包内没有的 state”。
+        // 否则日志/设置已整体替换、state 却残留本机旧值 → 统计/到期/连续打卡自相矛盾。
+        {
+          const importedStateIds = new Set(importedStates.map((state) => state.wordId))
+          for (const deckId of deckIds) {
+            const localStateIds = (await db.states.where('deckId').equals(deckId).primaryKeys()) as string[]
+            const stale = localStateIds.filter((wordId) => !importedStateIds.has(wordId))
+            if (stale.length > 0) await db.states.bulkDelete(stale)
+          }
+        }
+        // replace 必须清空旧日志，否则恢复备份后统计/调度会混入当前库残留
+        await db.reviewLogs.clear()
         // 复习日志：追加（去掉自增 id，避免主键冲突）
         const logs = file.reviewLogs.map((log) => {
           const copy: ReviewLog = { ...log }
@@ -1602,11 +1932,11 @@ async function importMigrationInner(
           logs,
         )
         // 设置：整体覆盖，但保留本机 token（隐私，D23）与设备本地开关（不应被备份改回）
-        const deviceLocalKeys = ['data.maimemoToken', 'data.autoBackupEnabled'] as const
+        const deviceLocalKeys = ['data.maimemoToken', 'ai.apiKey', 'data.autoBackupEnabled'] as const
         const deviceLocalRows = (await db.settings.bulkGet([...deviceLocalKeys])).filter((row): row is NonNullable<typeof row> => Boolean(row))
         await db.settings.clear()
         if (deviceLocalRows.length > 0) await db.settings.bulkPut(deviceLocalRows)
-        await applyImportedSettings(file.settings.filter((record) => !deviceLocalKeys.includes(record.key as never) && record.key !== 'data.contentWriteSource'))
+        settingsToApply = file.settings.filter((record) => !deviceLocalKeys.includes(record.key as never) && record.key !== 'data.contentWriteSource') as never
       } else if (strategy === 'merge') {
         if (opts.shouldAbort?.()) throw new Error('恢复已取消（超时/中断）')
       await bulkPutChunked(db.decks, file.decks)
@@ -1627,7 +1957,7 @@ async function importMigrationInner(
         const localSettings = await db.settings.toArray()
         const localKeys = new Set(localSettings.map((record) => record.key))
         const missing = file.settings.filter((record) => !localKeys.has(record.key) && record.key !== 'data.contentWriteSource')
-        await applyImportedSettings(missing)
+        settingsToApply = missing as never
         issues.push(
           makeIssue('warning', 'W_SKIPPED', '合并模式未导入复习日志（避免重复计数），学习状态已按时间合并', {
             path: 'data.reviewLogs',
@@ -1663,7 +1993,7 @@ async function importMigrationInner(
       await bulkPutChunked(db.states, kept)
         const localSettings = await db.settings.toArray()
         const localKeys = new Set(localSettings.map((record) => record.key))
-        await applyImportedSettings(file.settings.filter((record) => !localKeys.has(record.key) && record.key !== 'data.contentWriteSource'))
+        settingsToApply = file.settings.filter((record) => !localKeys.has(record.key) && record.key !== 'data.contentWriteSource') as never
         issues.push(
           makeIssue(
             'warning',
@@ -1676,32 +2006,44 @@ async function importMigrationInner(
 
       // v2：迁移包里的今日 plan（只恢复同一天；旧包/跨天忽略）
       const filePlans = parsed.value.plans ?? []
-      if (filePlans.length > 0) {
-        if (strategy === 'replace') {
-          const today = localDateKey(now)
-          const accepted = filePlans.filter((plan) => plan.date === today)
-          for (const plan of accepted) await db.plans.put(plan)
-          const ignored = filePlans.length - accepted.length
-          if (ignored > 0) {
-            issues.push(
-              makeIssue(
-                'warning',
-                'W_SKIPPED',
-                `有 ${ignored} 条非今日的学习计划未恢复（跨天计划无意义，仅保留本机历史）`,
-                { path: 'data.plans' },
-              ),
-            )
-          }
-        } else if (filePlans.length > 0) {
+      if (strategy === 'replace') {
+        // 0.16 P0-1：replace 先清本机旧 plan 再写包内今日 plan。
+        // 否则“日志=包内、计划=本机旧”会自相矛盾（今日进度/完成态按旧计划算）。
+        await db.plans.clear()
+        const today = localDateKey(now)
+        const accepted = filePlans.filter((plan) => plan.date === today)
+        for (const plan of accepted) await db.plans.put(plan)
+        const ignored = filePlans.length - accepted.length
+        if (ignored > 0) {
           issues.push(
             makeIssue(
               'warning',
               'W_SKIPPED',
-              '合并/保留较新模式下未导入包内今日计划（队列与设备上下文相关，保留本机）',
+              `有 ${ignored} 条非今日的学习计划未恢复（跨天计划无意义，本次替换已清空本机旧计划）`,
               { path: 'data.plans' },
             ),
           )
         }
+        if (filePlans.length === 0) {
+          issues.push(
+            makeIssue(
+              'warning',
+              'W_SKIPPED',
+              '备份包不含今日学习计划（旧版本备份），本次替换已清空本机旧计划；今日进度需重新生成',
+              { path: 'data.plans' },
+            ),
+          )
+        }
+      } else if (filePlans.length > 0) {
+        // 0.16 P1-1：merge/keepNewer 保留本机计划，不再由兜底逻辑覆盖（见 ensureImportedPlansPersisted）
+        issues.push(
+          makeIssue(
+            'warning',
+            'W_SKIPPED',
+            '合并/保留较新模式下未导入包内今日计划（队列与设备上下文相关，保留本机）',
+            { path: 'data.plans' },
+          ),
+        )
       }
       // v3（task-69）：内容包三表（备份/换机保留 AI 生成内容与拒绝记忆）
       const filePacks = parsed.value.contentPacks ?? []
@@ -1770,6 +2112,8 @@ async function importMigrationInner(
     }
     throw error
   }
+
+  if (settingsToApply.length > 0) await applyImportedSettings(settingsToApply)
 
   const report = makeReport(
     'migration',
@@ -1936,40 +2280,87 @@ async function clearAllDataInner(
   const db = getDb()
   const tokenRow = opts.keepToken ? await db.settings.get('data.maimemoToken') : undefined
   const aiKeyRow = opts.keepAiKey ? await db.settings.get('ai.apiKey') : undefined
-  // 0.14 QA P0：先清 content_kv（内容事实源）；失败会用快照恢复已清行并抛结构化错误，IDB 完全未动。
-  if (await hasContentKvRows()) {
-    await clearContentKvForClearAll()
-  }
-  await db.transaction(
-    'rw',
-    [db.decks, db.words, db.states, db.reviewLogs, db.settings, db.meta, db.plans, db.packs, db.packItems, db.contentRejects],
-    async () => {
-      await db.packs.clear()
-      await db.packItems.clear()
-      await db.contentRejects.clear()
-      await db.plans.clear()
-      await db.decks.clear()
-      await db.words.clear()
-      await db.states.clear()
-      await db.reviewLogs.clear()
-      await db.settings.clear()
-      await db.meta.clear()
-      if (tokenRow) await db.settings.put(tokenRow)
-      if (aiKeyRow) await db.settings.put(aiKeyRow)
-    },
-  )
-  // A1：先备份→清 IDB→清 SQLite；SQLite 失败则从 SQLite 重建 IDB 回滚，避免半清空
-  if (learningSource !== 'idb') {
-    try {
-      await clearAllSqliteFacts()
-    } catch (error) {
-      await rebuildIdbCacheFromSqlite({ unsafe: true, skipWriteLock: true, onProgress: (stage) => { void writeImportStageNow(`rebuild:${stage}`) } }).catch(() => undefined)
-      throw new Error(`SQLite 清空失败，已尝试恢复 IDB：${error instanceof Error ? error.message : String(error)}`)
+  // P0-1：SQLite 清空可能跨多批；先做当前 SQLite 安全快照（含 content_kv），失败可回滚。
+  let clearSafety: Awaited<ReturnType<typeof createSqliteFactsBackup>> | null = null
+  if (learningSource !== 'idb' && isSqliteAvailable()) {
+    clearSafety = await createSafetySnapshot()
+    if ((!clearSafety.ok || !clearSafety.manifest?.path) && !opts.unsafe) {
+      throw new Error('无法创建清空安全快照，已拒绝清空（避免 IDB/SQLite 半清空）')
     }
-    await persistLearningWriteSource('idb').catch(() => undefined)
   }
-  // 0.10.0：写入 clearedAt 兜底；有 bridge 时立即删除 checkpoint 文件
-  await db.meta.put({ key: 'data.clearedAt', value: { at: Date.now() }, updatedAt: Date.now() })
+  const recoverClearFailure = async (): Promise<boolean> => {
+    if (!clearSafety?.ok || !clearSafety.manifest?.path) return false
+    try {
+      const restored = await restoreSqliteFactsBackup(
+        { path: clearSafety.manifest.path, manifest: clearSafety.manifest },
+        { preBackup: async () => ({ ok: true }), skipWriteLock: true, allowEmptySafety: true },
+      )
+      if (!restored.ok) return false
+      const rebuilt = await rebuildIdbCacheFromSqlite({ unsafe: true, skipWriteLock: true })
+      if (!rebuilt.ok) return false
+      await persistLearningWriteSource(learningSource)
+      if (learningSource === 'sqlite') {
+        const { persistSettingsWriteMode } = await import('./settings.repo')
+        await persistSettingsWriteMode('sqlite').catch(() => undefined)
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+  try {
+    // 先清 SQLite（分批/all:true），成功后再清 IDB/content；失败时 IDB 仍完整，可回滚。
+    if (learningSource !== 'idb') {
+      await clearAllSqliteFacts()
+    }
+    // 0.14 QA P0：清 content_kv（内容事实源）；失败会补偿已写 tombstone，再由 safety 恢复兜底。
+    if (await hasContentKvRows()) {
+      await clearContentKvForClearAll()
+    }
+    await db.transaction(
+      'rw',
+      [db.decks, db.words, db.states, db.reviewLogs, db.settings, db.meta, db.plans, db.packs, db.packItems, db.contentRejects],
+      async () => {
+        await db.packs.clear()
+        await db.packItems.clear()
+        await db.contentRejects.clear()
+        await db.plans.clear()
+        await db.decks.clear()
+        await db.words.clear()
+        await db.states.clear()
+        await db.reviewLogs.clear()
+        await db.settings.clear()
+        await db.meta.clear()
+        // D-P0-3：clearedAt 与 meta.clear 同事务，避免清空后被杀导致旧检查点复活。
+        await db.meta.put({ key: 'data.clearedAt', value: { at: Date.now() }, updatedAt: Date.now() })
+        if (tokenRow) await db.settings.put(tokenRow)
+        if (aiKeyRow) await db.settings.put(aiKeyRow)
+      },
+    )
+    if (learningSource !== 'idb') {
+      // D-P0-3：清空后保持 SQLite 单一事实源，不再切回 idb 制造双源窗口。
+      await persistLearningWriteSource('sqlite')
+      try {
+        const { writeIdbCacheMeta } = await import('./idb-cache')
+        const { SQLITE_SCHEMA_VERSION } = await import('./sqlite-store')
+        const { getDataEpoch } = await import('./data-epoch')
+        await writeIdbCacheMeta({ generation: await getDataEpoch(), sqliteUserVersion: SQLITE_SCHEMA_VERSION, dirty: false, rebuiltAt: Date.now(), reason: 'clear-all-sqlite' })
+      } catch { /* 下次启动会重建 */ }
+    }
+  } catch (error) {
+    const recovered = await recoverClearFailure()
+    if (!recovered && learningSource !== 'idb') {
+      await persistLearningWriteSource('readonly').catch(() => undefined)
+    }
+    throw new Error(
+      `清空失败${recovered ? '，已从安全快照回滚' : '，安全快照回滚失败；请从完整备份恢复'}：${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  if (clearSafety?.ok && clearSafety.manifest) {
+    const { deleteSafetySnapshot } = await import('./sqlite-backup')
+    await deleteSafetySnapshot(clearSafety.manifest).catch(() => undefined)
+  }
+  // 0.10.0：有 bridge 时立即删除 checkpoint 文件
   if (opts.checkpointBridge) {
     try {
       await deleteStateCheckpointFiles(opts.checkpointBridge)

@@ -98,6 +98,15 @@ async function ensureSqliteMode(): Promise<void> {
 }
 
 /** 同一 opId 重放返回首次结果，不重复写 */
+let ratingCacheTask: Promise<void> = Promise.resolve()
+let ratingCacheChain: Promise<void> = Promise.resolve()
+let ratingCacheSeq = 0
+const ratingCacheEvents: string[] = []
+export function getRatingCacheDebugEvents(): string[] { return [...ratingCacheEvents] }
+
+/** task-299：等待后台 IDB cache 回填（测试/退出前用） */
+export async function flushRatingCacheWarmup(): Promise<void> { await ratingCacheTask }
+
 export async function submitRatingSqlite(
   wordId: string,
   rating: Rating,
@@ -176,34 +185,53 @@ export async function submitRatingSqlite(
       if (code === 'E_CONFLICT' || code === 'E_BUSY') throw new LearningWriteRetryableError(tx.message ?? 'SQLite 繁忙，请重试')
       throw new Error(tx.message ?? '评分 SQLite 事务失败')
     }
-    // P0：tx 已提交，cache 写入前先标 dirty；若被杀/写失败，重启会回源 SQLite
-    const cacheMetaBefore = await (await import('./idb-cache')).getIdbCacheMeta().catch(() => null)
-    await (await import('./idb-cache')).markIdbCacheDirty('rating-tx-committed').catch(() => undefined)
-    const date = localDateKey(now)
-    // 按 client_op_id 查回 log id；写入 IDB cache，避免 stats/undo 读旧
-    let cachedLog = persistedResult.log
-    try {
-      const logResponse = await sqliteQuery({ table: 'review_logs', where: { client_op_id: opId }, limit: 1 }, 5_000, 'high')
-      const logRaw = ((logResponse.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
-      if (logRaw) cachedLog = mapSqliteReviewLogRow(logRaw) as unknown as ReviewLogV2
-    } catch {
-      /* fallback below */
+    // P0：tx 已提交；返回前先置 dirty（保留两个小 IDB 操作），避免下一次评分读到旧 cache
+    const idbCache = await import('./idb-cache')
+    const cacheMetaBefore = await idbCache.getIdbCacheMeta().catch(() => null)
+    await idbCache.markIdbCacheDirty('rating-tx-committed')
+    // task-299：review_logs 回查 + IDB cache 写移到后台；按 promise 链串行，只有最新序号清 dirty
+    const seq = ++ratingCacheSeq
+    const runCache = async () => {
+      ratingCacheEvents.push(`start:${seq}`)
+      try {
+        const date = localDateKey(now)
+        let cachedLog = persistedResult.log
+        try {
+          const logResponse = await sqliteQuery({ table: 'review_logs', where: { client_op_id: opId }, limit: 1 }, 5_000, 'high')
+          const logRaw = ((logResponse.rows as Array<Record<string, unknown>> | undefined) ?? [])[0]
+          if (logRaw) cachedLog = mapSqliteReviewLogRow(logRaw) as unknown as ReviewLogV2
+        } catch {
+          /* fallback */
+        }
+        await db.transaction('rw', db.states, db.plans, db.reviewLogs, db.meta, async () => {
+          await db.states.put(state)
+          if (nextPlan) await db.plans.put(nextPlan)
+          if (cachedLog) await db.reviewLogs.put(cachedLog as never)
+          await db.meta.put({ key: 'lastStudyDate', value: date, updatedAt: now })
+        })
+        if (seq === ratingCacheSeq) {
+          // C-06：compare-and-clear；期间若其它写失败把 dirty 原因改掉，不清
+          const current = await idbCache.getIdbCacheMeta().catch(() => null)
+          const stillOurs = current?.dirty === true && current.reason === 'rating-tx-committed'
+          if (stillOurs) await idbCache.clearIdbCacheDirty(cacheMetaBefore ?? { generation: 0, sqliteUserVersion: SQLITE_SCHEMA_VERSION, dirty: false })
+          else await idbCache.markIdbCacheDirty('rating-cache-preserved-other-dirty')
+        } else {
+          await idbCache.markIdbCacheDirty('rating-cache-newer-pending')
+        }
+      } catch {
+        const { markIdbCacheDirty } = await import('./idb-cache')
+        await markIdbCacheDirty('rating-cache-write-failed').catch(() => undefined)
+      } finally {
+        ratingCacheEvents.push(`end:${seq}`)
+        if (ratingCacheEvents.length > 200) ratingCacheEvents.splice(0, ratingCacheEvents.length - 200)
+      }
     }
-    try {
-      await db.transaction('rw', db.states, db.plans, db.reviewLogs, db.meta, async () => {
-        await db.states.put(state)
-        if (nextPlan) await db.plans.put(nextPlan)
-        if (cachedLog) await db.reviewLogs.put(cachedLog as never)
-        await db.meta.put({ key: 'lastStudyDate', value: date, updatedAt: now })
-      })
-      await (await import('./idb-cache')).clearIdbCacheDirty(cacheMetaBefore ?? { generation: 0, sqliteUserVersion: SQLITE_SCHEMA_VERSION, dirty: false }).catch(() => undefined)
-    } catch {
-      const { markIdbCacheDirty } = await import('./idb-cache')
-      await markIdbCacheDirty('rating-cache-write-failed').catch(() => undefined)
-    }
+    const chained = ratingCacheChain.then(runCache, runCache)
+    ratingCacheChain = chained.catch(() => undefined)
+    ratingCacheTask = chained
     const { notifySqliteFactsChanged } = await import('./sqlite-checkpoint')
     notifySqliteFactsChanged(2000)
-    const finalResult = { ...persistedResult, log: cachedLog }
+    const finalResult = persistedResult
     ratingReplayCache.set(opId, finalResult)
     if (ratingReplayCache.size > RATING_REPLAY_CACHE_MAX) {
       const oldest = ratingReplayCache.keys().next().value

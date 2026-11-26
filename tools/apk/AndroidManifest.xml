@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   WordC · 最小 WebView 壳
-  - package 固定 com.wordc.app（签名/升级依赖 package 不变）
+  - applicationId 由 @APPLICATION_ID@ 注入（日用默认 com.wordc.app；QA 用 .qa）
   - minSdk 24（Android 7.0）/ targetSdk 34（Android 14）
   - 应用名用中文字面量，避免额外 strings.xml
   - 版本号由 tools/apk/build-apk.sh 在打包前从 package.json 注入（见占位符 @VERSION_NAME@）
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.wordc.app"
+    package="@APPLICATION_ID@"
     android:versionCode="@VERSION_CODE@"
     android:versionName="@VERSION_NAME@">
 
@@ -26,7 +26,7 @@
       保留 true 是为了后续内嵌代理/本地调试连接 http 服务时不至于被系统拦截。
     -->
     <application
-        android:label="WordC"
+        android:label="@APP_LABEL@"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:allowBackup="false"
@@ -35,7 +35,7 @@
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.wordc.app.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"

@@ -1,5 +1,5 @@
+import { primeLegacySqliteContentSource } from './test-utils'
 import './test-utils'
-import { persistContentWriteSource } from '../../src/data/content-write-source'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   applyCoreSenseMnemonicImportParsed,
@@ -73,7 +73,7 @@ describe('0.14 core-sense mnemonic SQLite write source', () => {
     const deck = await createDeck({ name: 'core', words: [{ headword: 'alpha', meanings: [{ cn: '甲' }] }] })
     const db = getDb()
     const word = (await db.words.where('deckId').equals(deck.id).toArray())[0]!
-    await persistContentWriteSource('sqlite')
+    await primeLegacySqliteContentSource()
 
     const writes = mockSqlite(false)
     const okReport = await applyCoreSenseMnemonicImportParsed(preview(word.id))

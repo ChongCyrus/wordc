@@ -1,6 +1,7 @@
 /** 0.10.0：词表替换只做 diff（upsert + 仅删多余），避免 words 短暂整段空缺/误清库 */
 import type { Word } from '../core/types'
 import { getDb } from './db'
+import { wordOverlayOf } from './content-snapshot'
 
 export interface WordDiffResult {
   upserted: number
@@ -23,7 +24,15 @@ export async function diffReplaceDeckWords(
   // 1) 先 upsert 新词（任何时刻不出现整段空缺；同 wordId 的 states 保留）
   const CHUNK = 500
   for (let i = 0; i < newWords.length; i += CHUNK) {
-    await table.words.bulkPut(newWords.slice(i, i + CHUNK))
+    const chunk = newWords.slice(i, i + CHUNK)
+    const existing = await table.words.bulkGet(chunk.map((word) => word.id))
+    const merged = chunk.map((word, index) => {
+      const old = existing[index]
+      if (!old) return word
+      const overlay = wordOverlayOf(old as unknown as Record<string, unknown>)
+      return Object.keys(overlay).length > 0 ? ({ ...word, ...overlay } as Word) : word
+    })
+    await table.words.bulkPut(merged)
   }
   if (removed.length === 0) {
     await appendMutationDiag(table, { reason, deckId, upserted: newWords.length, removed: 0, at: Date.now() })

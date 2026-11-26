@@ -43,6 +43,7 @@ import {
   getTodayPlan,
   createSqliteFactsBackup,
   getSqliteFactsManifest,
+  getContentMigrationV15State,
   listSqliteBackupFiles,
   getSqliteBackupManifest,
   restoreSqliteFactsBackup,
@@ -190,6 +191,7 @@ export default function MePage() {
   const [sqliteBackups, setSqliteBackups] = useState<Array<{ name: string; path: string; size: number; mtime: number; manifest?: Record<string, unknown> }>>([])
   const [sqliteBackupBusy, setSqliteBackupBusy] = useState(false)
   const [sqliteRestoreOpen, setSqliteRestoreOpen] = useState(false)
+  const [contentMigrating, setContentMigrating] = useState(false)
   const [sqliteCheckpointStatus, setSqliteCheckpointStatus] = useState<Awaited<ReturnType<typeof getSqliteCheckpointStatus>> | null>(null)
   const [rollbackOpen, setRollbackOpen] = useState(false)
   const [rollbackBusy, setRollbackBusy] = useState(false)
@@ -205,6 +207,18 @@ export default function MePage() {
   const [checkpointRestoreFailed, setCheckpointRestoreFailed] = useState(false)
   const currentDeckId = settings?.['data.selectedDeckId'] ?? ''
   const autoBackupAvailable = isAutoBackupAvailable()
+
+  // R4：内容迁移期间禁用恢复入口，避免 restore 与 v15 换库竞态
+  useEffect(() => {
+    let alive = true
+    const tick = async () => {
+      const state = await getContentMigrationV15State().catch(() => null)
+      if (alive) setContentMigrating(state?.status === 'running')
+    }
+    void tick()
+    const timer = setInterval(() => void tick(), 1_000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -1794,8 +1808,10 @@ export default function MePage() {
                 : '暂无自动备份'
               : '浏览器版请手动导入'
           }
-          chevron={autoBackupAvailable && autoBackups.length > 0}
+          disabled={contentMigrating}
+          chevron={autoBackupAvailable && autoBackups.length > 0 && !contentMigrating}
           onClick={() => {
+            if (contentMigrating) return
             if (autoBackupAvailable && autoBackups.length > 0) setAutoRestoreOpen(true)
           }}
         />
@@ -1971,8 +1987,9 @@ export default function MePage() {
           label="SQLite facts 恢复"
           hint={`SQLite facts 备份 ${sqliteBackups.length} 份（保留 7 份）· 旧 JSON 备份仍独立保留；${sqliteCheckpointHint}`}
           value={sqliteBackups.length > 0 ? `${sqliteBackups.length} 份（保留 7）` : undefined}
-          chevron
-          onClick={() => setSqliteRestoreOpen(true)}
+          disabled={contentMigrating}
+          chevron={!contentMigrating}
+          onClick={() => { if (!contentMigrating) setSqliteRestoreOpen(true) }}
         />
         <SettingRow
           label="生成 0.10 回退包"

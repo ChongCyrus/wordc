@@ -340,7 +340,7 @@ describe('迁移包 v2（含今日 plan）', () => {
     expect((await getDb().decks.get(deck.id))?.name).toBe('计划测试词库')
   }, 120_000)
 
-  it('非今日 plan 导入时忽略（warning）；merge 模式保留本机 plan', async () => {
+  it('非今日 plan 导入时忽略（warning）；true replace 清空本机 plan', async () => {
     await setupDeck(10)
     await updateSettings({ 'study.dailyGoal': 5 })
     const now = Date.now() // 同上：动态当天，避免跨零点
@@ -352,7 +352,7 @@ describe('迁移包 v2（含今日 plan）', () => {
     const report = await importMigration(stableStringify(file), { strategy: 'replace', force: true })
     expect(report.ok).toBe(true)
     expect(report.issues.some((issue) => issue.path === 'data.plans')).toBe(true)
-    expect((await getDb().plans.get(plan.id))!.date).toBe(localDateKey(now)) // 本机今日 plan 未被覆盖
+    expect(await getDb().plans.get(plan.id)).toBeUndefined() // true replace：包内非今日 plan 被忽略，本机旧 plan 清空
   }, 120_000)
 })
 

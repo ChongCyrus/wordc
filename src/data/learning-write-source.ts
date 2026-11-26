@@ -28,7 +28,19 @@ export function getLearningWriteSource(): LearningWriteSource {
   return learningWriteSource
 }
 
+const LEGAL_SOURCE_TRANSITIONS: Record<LearningWriteSource, LearningWriteSource[]> = {
+  idb: ['sqlite', 'readonly'],
+  sqlite: ['readonly', 'idb'],
+  // readonly 正常只能经恢复器回 sqlite；导入/恢复失败回退 idb 是显式受控路径（需 diag）
+  readonly: ['sqlite', 'idb'],
+}
+
 export async function persistLearningWriteSource(source: LearningWriteSource): Promise<void> {
+  const previous = learningWriteSource
+  if (previous !== source && !LEGAL_SOURCE_TRANSITIONS[previous].includes(source)) {
+    await getDb().meta.put({ key: 'learningWrite.illegalTransition', value: { at: Date.now(), from: previous, to: source }, updatedAt: Date.now() }).catch(() => undefined)
+    throw new Error(`非法学习写源迁移：${previous} → ${source}`)
+  }
   learningWriteSource = source
   await getDb().meta.put({ key: LEARNING_WRITE_SOURCE_KEY, value: { source, enabledAt: Date.now(), schemaVersion: SQLITE_SCHEMA_VERSION }, updatedAt: Date.now() })
 }
@@ -57,7 +69,25 @@ export async function restoreLearningWriteSource(): Promise<LearningWriteSource>
   const value = row?.value as { source?: LearningWriteSource } | string | undefined
   const wanted = typeof value === 'string' ? value : value?.source
   if (wanted === 'readonly') {
-    learningWriteSource = 'readonly'
+    // 0.16：恢复 SQLite facts 后 meta 可能仍是 readonly；若 SQLite 有事实而 IDB cache 空，
+    // 以 SQLite 为准强制重建 cache 并恢复写源，避免用户看到空库/永久只读。
+    try {
+      const health = await sqliteHealth(5_000)
+      const counts = extractSqliteCountsFromHealth(health)
+      const idbStates = await getDb().states.count()
+      if (counts && counts.states > 0 && idbStates === 0) {
+        const { rebuildIdbCacheFromSqlite } = await import('./cache-rebuild')
+        const rebuilt = await rebuildIdbCacheFromSqlite({ unsafe: true, force: true, preBackup: async () => ({ ok: true }) })
+        if (rebuilt.ok) {
+          await persistLearningWriteSource('sqlite').catch(() => undefined)
+          const { persistSettingsWriteMode } = await import('./settings.repo')
+          await persistSettingsWriteMode('sqlite').catch(() => undefined)
+          await persistLearningWriteSource('sqlite')
+          return learningWriteSource
+        }
+      }
+    } catch { /* fallthrough readonly */ }
+    await persistLearningWriteSource('readonly')
     return learningWriteSource
   }
   if (wanted !== 'sqlite') {
@@ -78,7 +108,6 @@ export async function restoreLearningWriteSource(): Promise<LearningWriteSource>
             if (!cache || cache.dirty || cache.sqliteUserVersion !== SQLITE_SCHEMA_VERSION) {
               await rebuildIdbCacheFromSqlite({ unsafe: true, skipWriteLock: true }).catch(() => undefined)
             }
-            learningWriteSource = 'sqlite'
             await persistLearningWriteSource('sqlite').catch(() => undefined)
             const { persistSettingsWriteMode } = await import('./settings.repo')
             await persistSettingsWriteMode('sqlite').catch(() => undefined)
@@ -89,7 +118,7 @@ export async function restoreLearningWriteSource(): Promise<LearningWriteSource>
         /* 回退 idb 安全 */
       }
     }
-    learningWriteSource = 'idb'
+    await persistLearningWriteSource('idb')
     return learningWriteSource
   }
   const diag: LearningWriteRestoreDiag = { at: Date.now(), wanted, bridge: isSqliteAvailable() }
@@ -119,6 +148,11 @@ export async function restoreLearningWriteSource(): Promise<LearningWriteSource>
       const id = planIdOf(localDateKey(Date.now()), deckId)
       const idbPlan = await getDb().plans.get(id)
       const sqlitePlan = await readPlanFromSqliteRaw(id)
+      // fresh 空库两边都没有 plan 是合法状态，不能降级 readonly
+      if (!idbPlan && !sqlitePlan) {
+        diag.plan = { ok: true }
+        return
+      }
       diag.plan = { ok: Boolean(sqlitePlan && idbPlan && sqlitePlan.wordIds.length === idbPlan.wordIds.length), idbLength: idbPlan?.wordIds.length, sqliteLength: sqlitePlan?.wordIds.length }
       if (!diag.plan.ok) throw new Error('IDB/SQLite plan 长度不一致')
     }
@@ -141,10 +175,10 @@ export async function restoreLearningWriteSource(): Promise<LearningWriteSource>
       await checkCache()
       await checkPlan()
     }
-    learningWriteSource = 'sqlite'
+    await persistLearningWriteSource('sqlite')
     delete diag.error
   } catch (error) {
-    learningWriteSource = 'readonly'
+    await persistLearningWriteSource('readonly').catch(() => undefined)
     diag.error = error instanceof Error ? error.message : String(error)
   }
   await getDb().meta.put({ key: 'learningWrite.diag', value: diag, updatedAt: Date.now() }).catch(() => undefined)
@@ -247,4 +281,89 @@ export function assertIdbMutationAllowed(operation: string): void {
   const source = getLearningWriteSource()
   if (source === 'readonly') throw new LearningWriteReadonlyError(`学习数据库只读，禁止 ${operation}`)
   if (source === 'sqlite') throw new LearningWriteReadonlyError(`${operation} 尚未实现 SQLite 事务，已拒绝以避免 IDB/SQLite 双源`)
+}
+
+/** 0.16：显式启动对账——SQLite facts 非空但 IDB cache 空/写源 readonly 时强制重建并恢复 sqlite。 */
+export async function recoverReadonlySourceFromSqlite(): Promise<boolean> {
+  const result = await diagnoseAndRecoverSqliteSource()
+  return result.recovered
+}
+
+export interface SqliteSourceRecoveryDiag {
+  recovered: boolean
+  reason: string
+  sqliteStates?: number
+  idbStates?: number
+  rebuilt?: boolean
+  rebuiltError?: string
+  writeSource?: string
+}
+
+/** R2：reload 仅当进入快照→现在写源变化、且终态不是 readonly、且本会话未刷过 */
+export function shouldReloadForSourceRecovery(before: LearningWriteSource, after: LearningWriteSource, alreadyReloaded: boolean): boolean {
+  return !alreadyReloaded && before !== after && after !== 'readonly'
+}
+
+let sourceRecoveryInFlight: Promise<LearningWriteSource> | null = null
+
+/** R1：唯一恢复入口；并发调用合流，diagnose 与 restore 收敛到同一终态 */
+export function requestSourceRecovery(_reason: string): Promise<LearningWriteSource> {
+  if (sourceRecoveryInFlight) return sourceRecoveryInFlight
+  sourceRecoveryInFlight = (async () => {
+    try { await diagnoseAndRecoverSqliteSource() } catch { /* restore 兜底 */ }
+    return restoreLearningWriteSource()
+  })().finally(() => { sourceRecoveryInFlight = null })
+  return sourceRecoveryInFlight
+}
+
+export async function diagnoseAndRecoverSqliteSource(): Promise<SqliteSourceRecoveryDiag> {
+  if (!isSqliteAvailable()) return { recovered: false, reason: 'sqlite-unavailable', writeSource: learningWriteSource }
+  try {
+    const health = await sqliteHealth(5_000)
+    const counts = extractSqliteCountsFromHealth(health)
+    const sqliteStates = Number(counts?.states ?? 0)
+    const idbStates = await getDb().states.count()
+    if (sqliteStates <= 0) return { recovered: false, reason: 'sqlite-empty', sqliteStates, idbStates, writeSource: learningWriteSource }
+    if (idbStates > 0) {
+      // 升级后常见：SQLite/IDB 数据都在且一致，只是写源 meta 丢了/回落 idb。
+      // 此时不应重建（会覆盖），只需校验 counts 一致后恢复 sqlite 写源。
+      const db = getDb()
+      const [idbPlans, idbLogs, idbSettings] = await Promise.all([db.plans.count(), db.reviewLogs.count(), db.settings.count()])
+      const sqlitePlans = Number(counts?.plans ?? -1)
+      const sqliteLogs = Number(counts?.reviewLogs ?? -1)
+      const sqliteSettings = Number(counts?.settings ?? -1)
+      if (idbPlans === sqlitePlans && idbLogs === sqliteLogs && idbSettings === sqliteSettings) {
+        // 以持久化 meta 判断是否已是 sqlite；启动早期内存变量可能仍是 idb，
+        // 不能因此反复 reload（会无限闪动）。
+        let persistedSource: string | undefined
+        try {
+          const row = await getDb().meta.get(LEARNING_WRITE_SOURCE_KEY)
+          const value = row?.value as { source?: string } | string | undefined
+          persistedSource = typeof value === 'string' ? value : value?.source
+        } catch { /* ignore */ }
+        if (persistedSource === 'sqlite' || learningWriteSource === 'sqlite') {
+          learningWriteSource = 'sqlite'
+          return { recovered: false, reason: 'already-sqlite', sqliteStates, idbStates, rebuilt: false, writeSource: learningWriteSource }
+        }
+        await persistLearningWriteSource('sqlite').catch(() => undefined)
+        const { persistSettingsWriteMode } = await import('./settings.repo')
+        await persistSettingsWriteMode('sqlite').catch(() => undefined)
+        learningWriteSource = 'sqlite'
+        return { recovered: true, reason: 'source-restored-counts-match', sqliteStates, idbStates, rebuilt: false, writeSource: learningWriteSource }
+      }
+      return { recovered: false, reason: 'idb-not-empty-counts-differ', sqliteStates, idbStates, writeSource: learningWriteSource }
+    }
+    const { rebuildIdbCacheFromSqlite } = await import('./cache-rebuild')
+    const rebuilt = await rebuildIdbCacheFromSqlite({ unsafe: true, force: true, preBackup: async () => ({ ok: true }) })
+    if (!rebuilt.ok) {
+      return { recovered: false, reason: 'rebuild-failed', sqliteStates, idbStates, rebuilt: false, rebuiltError: rebuilt.error ?? rebuilt.conflict ?? 'unknown', writeSource: learningWriteSource }
+    }
+    await persistLearningWriteSource('sqlite').catch(() => undefined)
+    const { persistSettingsWriteMode } = await import('./settings.repo')
+    await persistSettingsWriteMode('sqlite').catch(() => undefined)
+    learningWriteSource = 'sqlite'
+    return { recovered: true, reason: 'recovered', sqliteStates, idbStates, rebuilt: true, writeSource: learningWriteSource }
+  } catch (error) {
+    return { recovered: false, reason: `exception:${error instanceof Error ? error.message : String(error)}`, writeSource: learningWriteSource }
+  }
 }
