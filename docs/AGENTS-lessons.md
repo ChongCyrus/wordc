@@ -113,6 +113,25 @@
   - 可回退路径
 - 对外只说已验证事实；不得宣称“绝对不丢数据”。
 
+## 7.1 GitHub 网络与发布（手机环境）
+
+- github.com 的 443/TLS 会间歇/整体被阻断；`github-fix.sh` 的 hosts 方案只对“DNS 给错 IP”有效，SNI 被阻断时无效。
+- **api.github.com 也可能被解析到阻断 IP**（如 `20.205.243.168`），表现为 API 推送传到一半 `SocketError/other side closed`。
+- 可用 IP 不是固定的：先用 GitHub meta（`https://api.github.com/meta`）拿网段，再逐个探测；本次可用的是 `140.82.112.5/6`、`140.82.113.5/6`、`140.82.114.5/6`、`140.82.116.5/6`。
+- 探测方法：
+  - `curl --resolve api.github.com:443:<ip> https://api.github.com/rate_limit`
+  - 200 且能稳定传输才可用；301/000 不要用。
+- 写入 hosts（hosts 可能被 App/网络重置，发布前先验证）：
+  - `140.82.112.5 api.github.com`
+- 推送通道优先级：
+  1. 正常 `git push`（github.com 通时）
+  2. API 增量推送：`tools/github/push-incremental.mjs --repo owner/name --since <tag> --branch main`
+  3. API 全量：`tools/github/push-via-api.mjs`（仅小树/必要时）
+  4. 大文件/Release 资产走 `api.github.com` 上传
+- 发布前必须验证：`getent hosts api.github.com` + `curl api.github.com/rate_limit` 200，再启动长任务。
+- 长 API 推送失败不要整段重来：先查远端 ref 是否已更新；push-incremental 可重入。
+- 不要在公开仓库/代理处泄露 token；token 只从 `.secrets/github-token` 读入环境变量。
+
 ## 8. 常用路径
 
 - 0.16 worktree：`.agents/worktrees/next-0.16`

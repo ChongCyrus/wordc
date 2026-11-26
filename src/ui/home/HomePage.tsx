@@ -132,8 +132,6 @@ export default function HomePage() {
       | null
   )?.breakdown?.new?.remaining
   const manualMode = settings?.['study.newWordSource'] !== 'auto'
-  const showHomeAddCardPrimary =
-    manualMode && (homeData?.plan?.wordIds.length ?? 0) === 0 && hasDecks && deckHasWords
   const homePlanTotal = homeHasPlan
     ? (homeData?.plan?.wordIds.length ?? 0)
     : manualMode
@@ -163,6 +161,11 @@ export default function HomePage() {
     fallbackNewCount: study.newCount,
     manual: settings?.['study.newWordSource'] !== 'auto',
   })
+
+  // manual 模式只在“没有计划且没有到期复习”时把“添加今日新单词”作为主按钮；
+  // 有到期复习时必须显示“开始学习”，否则用户无法开始复习（0.16 回归）。
+  const showHomeAddCardPrimary =
+    manualMode && (homeData?.plan?.wordIds.length ?? 0) === 0 && (homePendingReview ?? 0) === 0 && hasDecks && deckHasWords
 
   const learningEfficiency = useLearningEfficiency({
     learnedWords: homeTodayReviewed,
