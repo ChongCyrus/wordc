@@ -2431,3 +2431,7 @@ button.root-etymology-part {
 .root-affix-stage.is-standard { padding: 10px 16px; gap: 10px; }
 .root-affix-stage.is-standard .wc-card { min-height: min(52vh, 420px); padding: 22px; gap: 10px; }
 .root-affix-stage.is-standard .wc-info { display: flex; flex-direction: column; gap: 6px; }
+
+/* task-330：本义/含义分区带与既有块间距衔接（band 已有 margin-top:14px） */
+.section-band + .core-senses { margin-top: 0; }
+.section-band + .meanings { margin-top: 0; }

@@ -274,7 +274,9 @@ export function AnnotationStage({
         </div>
       ) : null}
       {visibleCoreSenses.length > 0 ? (
-        <div className="core-senses">
+        <>
+          <div className="section-band">本义</div>
+          <div className="core-senses">
           {coreSenseOverview?.trim() ? (
             <div
               className={`core-sense-overview${onEditCoreSenseOverview ? ' is-editable' : ''}`}
@@ -422,9 +424,11 @@ export function AnnotationStage({
               </section>
             )
           })}
-        </div>
+          </div>
+        </>
       ) : null}
 
+      {visibleMeanings.length > 0 ? <div className="section-band">含义</div> : null}
       <div className="meanings">
         {visibleMeanings.length > 0 ? (
           visibleMeanings.map((meaning) => (

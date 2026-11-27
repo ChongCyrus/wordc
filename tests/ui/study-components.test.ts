@@ -146,6 +146,42 @@ describe('学习页 · 注释面', () => {
     expect(html).toContain('width:60%')
   })
 
+  it('本义/含义区块前有灰色分区标题栏；无内容不渲染', () => {
+    const withBands = render(
+      createElement(AnnotationStage, {
+        headword: 'spider',
+        showPhonetic: false,
+        coreSenses: [{ label: '蜘蛛' }],
+        meanings: [meaning({ meaningId: 'w#M1', cn: '蜘蛛' })],
+        examples: [],
+        mnemonics: [],
+        phrases: [],
+        showPhrases: false,
+        onSpeak: () => undefined,
+        onMarkMeaning: () => undefined,
+      }),
+    )
+    expect(withBands).toContain('<div class="section-band">本义</div>')
+    expect(withBands).toContain('<div class="section-band">含义</div>')
+
+    const empty = render(
+      createElement(AnnotationStage, {
+        headword: 'spider',
+        showPhonetic: false,
+        coreSenses: [],
+        meanings: [],
+        examples: [],
+        mnemonics: [],
+        phrases: [],
+        showPhrases: false,
+        onSpeak: () => undefined,
+        onMarkMeaning: () => undefined,
+      }),
+    )
+    expect(empty).not.toContain('<div class="section-band">本义</div>')
+    expect(empty).not.toContain('<div class="section-band">含义</div>')
+  })
+
   it('词性标签墨墨化：[名]/[动]/[形]，未知保留原样', () => {
     const html = render(
       createElement(AnnotationStage, {
