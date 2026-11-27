@@ -124,7 +124,7 @@
 - **回退与改判**：回退到上一词、重新选择评分（保留审计记录）；
 - **任意学习量**：每日学习量 1–9999；
 - **导入导出**：迁移包（含记忆状态与不熟悉度），可用于备份/换机；
-- **PWA + 离线**：可安装、断网可用；可选自行构建 Android WebView 壳（APK）。
+- **PWA + 离线**：可安装、断网可用；需要 App 形态可自建 Android WebView 壳（[wordc-android-shell](https://github.com/ChongCyrus/wordc-android-shell)）。
 
 ## 我们的创新点（写实、可验证）
 
@@ -211,9 +211,19 @@ pnpm preview    # 预览构建产物（127.0.0.1:4173）
 
 ## 本地构建 APK（可选，不发布）
 
-公开仓**不发布 APK**，但包含 WebView 壳源码（`tools/apk/`：Java 壳、资源、`build-apk.sh` 与说明）。
-如你需要 APK：按 [tools/apk/README.md](tools/apk/README.md) 自备 JDK/Android 工具链并**自行生成 keystore** 打包；
-包名使用 `com.wordc.app`，并自行承担分发与合规责任。仓库不包含任何签名密钥、`toolchain/` 或构建产物。
+公开仓**不发布 APK**，也不包含 APK 壳源码；壳已独立到单独仓库：
+**[wordc-android-shell](https://github.com/ChongCyrus/wordc-android-shell)**（WebView 容器、原生 SQLite 桥、`build-apk.sh`）。
+
+如你需要 APK：
+
+```bash
+git clone https://github.com/ChongCyrus/wordc && cd wordc && pnpm install && pnpm build
+git clone https://github.com/ChongCyrus/wordc-android-shell && cd wordc-android-shell
+PWA_DIST_BASE=/path/to/wordc bash build-apk.sh
+```
+
+按该仓库 README 自备 JDK / Android 工具链并**自行生成 keystore**；包名建议改为自己的（不要用作者的包名），
+并自行承担分发与合规责任。两个仓库都不包含任何签名密钥、`toolchain/` 或构建产物。
 
 ## 数据与许可
 
