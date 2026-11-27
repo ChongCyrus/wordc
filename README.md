@@ -2,11 +2,15 @@
 
 [![CI](https://github.com/ChongCyrus/wordc/actions/workflows/ci.yml/badge.svg)](https://github.com/ChongCyrus/wordc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![PWA](https://img.shields.io/badge/PWA-offline%20ready-36B59D)](https://web.dev/progressive-web-apps/)
+[![Platform](https://img.shields.io/badge/Android-APK%20(SQLite)-36B59D)](#安装android-apk推荐)
+[![PWA](https://img.shields.io/badge/PWA-受限降级形态-lightgrey)](#浏览器pwa-的降级形态)
 
 > 许可概览：**代码 MIT** · **数据 CC BY-NC / CC BY-NC-SA（仅非商业）** — 详见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
 
-**英文单词 → 中文含义**的本地优先背单词 PWA：数据保存在本机 IndexedDB、离线可用、可安装到桌面。
+**英文单词 → 中文含义**的本地优先背单词工具。**主推形态是 Android APK**：内容与学习数据都存在本机 SQLite（单一事实源），离线可用、无需登录、无需联网。
+
+同一套代码也能跑在浏览器里（PWA），但那是**功能受限的降级形态**（见 [浏览器/PWA 的限制](#浏览器pwa-的降级形态)），日常使用请用 APK。
+
 界面与学习流程参考「墨墨背单词」**公开可观察的交互行为**设计，数值调度基于公开论文与公开数据近似实现。
 
 > ## ⚠️ 合规与免责声明（请先读）
@@ -20,7 +24,8 @@
 >   （大纲词表 CC BY-NC-SA 4.0、官方难度数据 CC BY-NC 4.0、词组 BSD-3-Clause、ECDICT MIT，均需署名且**非商业**）；
 > - 默认**不随仓库分发**受版权保护的商业词表（如红宝书）；需要的用户可自行导入自己的词库；
 > - 「从墨墨导入」使用墨墨**官方开放 API** 与**你自己的 Token**（仅保存在本机），本项目不收集任何数据、不提供托管代理；
-> - 本项目**不发布、不分发 APK**；如自行构建请使用自己的签名密钥。
+> - 公开版**提供 APK 下载**，仅含**大纲词库**等公开非商业数据；**不含**受版权保护的商业词表（如红宝书）。APK 免费、非商业分发，请勿用于商业用途；
+> - 从源码自行构建时，请使用**你自己的签名密钥**。
 
 ## 用法与原理
 
@@ -124,7 +129,7 @@
 - **回退与改判**：回退到上一词、重新选择评分（保留审计记录）；
 - **任意学习量**：每日学习量 1–9999；
 - **导入导出**：迁移包（含记忆状态与不熟悉度），可用于备份/换机；
-- **PWA + 离线**：可安装、断网可用；需要 App 形态可用仓内 `tools/apk/` 自建 Android WebView 壳。
+- **APK 主推 + PWA 降级**：APK 用本机 SQLite 单源，首启内置内容库；浏览器形态可离线使用但功能受限；壳源码在 `tools/apk/`，可自行构建。
 
 ## 我们的创新点（写实、可验证）
 
@@ -141,7 +146,7 @@
 5. **续学/回退/改判/任意学习量/词组按含义过滤**：当天计划持久化（退出重进同一队列）；
    回退后可改判（保留审计）；学习量 1–9999；w-c 页只显示**当前含义**有归属的词组（无归属的不硬猜，直接隐藏）。
 6. **可迁移的完整学习状态**：导出迁移包包含记忆状态、不熟悉度、计划数据；换机/备份可完整恢复。
-7. **本地优先 + PWA/APK 双形态**：学习数据只在本地；PWA 可离线安装；可选自建 Android WebView 壳。
+7. **本地优先 + SQLite 单源**：APK 形态下内容与学习数据统一存本机 SQLite，离线可用；PWA 为受限降级形态；壳源码在仓内可自建。
 8. **生成式记忆 + 生成元引申图**：把「记忆单词」转为「记忆单词→生成元映射」+「理解生成元如何按对象/场景/词性/抽象层级引申」+「生成元→各含义关系网络」三阶段；右页 AI 文字支持 `lines` 把每条 `- ` 行映射到含义，w-c 直接显示当前含义对应行。
 9. **整屏 1:1 手势 + 灵敏度**：任意位置左滑 1:1 跟手开合/调宽（短滑保持、松手 <30 关闭），设置可调灵敏度；批量生成引申图支持选词/并发/停止/失败自动重试。
 
@@ -161,7 +166,17 @@
 
 **我们没有做**：复制官方代码/素材、使用官方图标、内置商业词表、提供托管代理、收集用户 Token 或学习数据。
 
-## 快速开始
+## 安装（Android APK，推荐）
+
+从 [Releases](https://github.com/ChongCyrus/wordc/releases/latest) 下载 `WordC-<版本>.apk`，允许「安装未知来源应用」后安装即可。
+
+- 包名 `com.wordc.app`，与任何第三方 App 无冲突；
+- 首次启动会先灌入内置内容库（约 7 秒），随后界面即可正常使用，内容在后台补齐；
+- 数据全部保存在本机 SQLite，卸载前请先导出备份（我的 → 导入与导出）。
+
+> 为什么主推 APK：0.15 起本项目的内容与学习事实源统一到 **SQLite 单源**。APK 才能启用内置内容库、词根缀源预装、预生成本义/引申图与稳定的单源数据；浏览器形态不具备这些能力。
+
+## 浏览器 / PWA 的降级形态
 
 ```bash
 pnpm install
@@ -171,7 +186,19 @@ pnpm test       # 单元测试（离线，fake-indexeddb）
 pnpm preview    # 预览构建产物（127.0.0.1:4173）
 ```
 
-安装为 PWA：用 Chrome 打开 `pnpm preview` 的地址 → 菜单「安装应用 / 添加到主屏幕」。
+浏览器里能用基本学习流程，但以下能力**不可用或不稳定**：
+
+| 能力 | APK | 浏览器 / PWA |
+|---|---|---|
+| 内容事实源 | SQLite `content_kv` 单源 | IndexedDB（`contentWriteSource = idb`） |
+| 内置 seed 内容库 | ✅ 首启自动灌入 | ❌ 不启用 |
+| 词根缀源预装 | ✅ 自动 | ❌ 跳过（`nativeOnly`） |
+| 预生成内容（本义助记 / 引申图） | ✅ 自动 | ❌ 跳过（仅 APK 运行） |
+| v15 内容迁移 | ✅ | ❌ 不适用 |
+| 数据持久性 | 本机 SQLite | 浏览器可能因清理站点数据而丢失 |
+| 大内容库稳定性 | 单源事务 | 上万行内容全压 IndexedDB，易触发配额限制 |
+
+所以浏览器形态适合**试用与开发调试**，不建议作为日常背单词的正式载体。
 
 ## 从墨墨导入学习进度（可选）
 
@@ -209,11 +236,11 @@ pnpm preview    # 预览构建产物（127.0.0.1:4173）
   `build`（产物 `pwa-dist`）、`e2e`（Playwright Chromium + 本地静态服务器跑 S1–S17 场景）；
 - **CI 不构建/签名 APK**，不含任何签名密钥或 secrets；全部 job 只读运行。
 
-## 本地构建 APK（可选，不发布）
+## 从源码构建 APK（可选）
 
-公开仓**不发布 APK**，但包含 WebView 壳源码（`tools/apk/`：Java 壳、原生 SQLite 桥、资源、`build-apk.sh` 与说明）。
-如你需要 APK：按 [tools/apk/README.md](tools/apk/README.md) 自备 JDK / Android 工具链并**自行生成 keystore** 打包；
-公开版包名默认 `com.wordc.app`（建议改成你自己的），并自行承担分发与合规责任。
+公开版已在 [Releases](https://github.com/ChongCyrus/wordc/releases) 提供 APK；如需自建（改包名、改图标、加自己的词库），仓库内含 WebView 壳源码（`tools/apk/`：Java 壳、原生 SQLite 桥、资源、`build-apk.sh` 与说明）。
+按 [tools/apk/README.md](tools/apk/README.md) 自备 JDK / Android 工具链并**自行生成 keystore** 打包；
+包名默认 `com.wordc.app`（建议改成你自己的），并自行承担分发与合规责任。
 仓库不包含任何签名密钥、`toolchain/` 或构建产物。
 
 ```bash
