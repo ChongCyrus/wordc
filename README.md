@@ -18,7 +18,7 @@
 > - **不使用**官方商标、图标、官方 App 截图或官方前端代码片段；仓库内含的素材均为本项目自制；
 > - 内置词库与数据来自公开来源，许可见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
 >   （大纲词表 CC BY-NC-SA 4.0、官方难度数据 CC BY-NC 4.0、词组 BSD-3-Clause、ECDICT MIT，均需署名且**非商业**）；
-> - 默认**不随仓库分发**受版权保护的商业词表（如商业词表）；需要的用户可自行导入自己的词库；
+> - 默认**不随仓库分发**受版权保护的商业词表（如红宝书）；需要的用户可自行导入自己的词库；
 > - 「从墨墨导入」使用墨墨**官方开放 API** 与**你自己的 Token**（仅保存在本机），本项目不收集任何数据、不提供托管代理；
 > - 本项目**不发布、不分发 APK**；如自行构建请使用自己的签名密钥。
 
@@ -124,7 +124,7 @@
 - **回退与改判**：回退到上一词、重新选择评分（保留审计记录）；
 - **任意学习量**：每日学习量 1–9999；
 - **导入导出**：迁移包（含记忆状态与不熟悉度），可用于备份/换机；
-- **PWA + 离线**：可安装、断网可用；需要 App 形态可自建 Android WebView 壳（[wordc-android-shell](https://github.com/ChongCyrus/wordc-android-shell)）。
+- **PWA + 离线**：可安装、断网可用；需要 App 形态可用仓内 `tools/apk/` 自建 Android WebView 壳。
 
 ## 我们的创新点（写实、可验证）
 
@@ -183,7 +183,7 @@ pnpm preview    # 预览构建产物（127.0.0.1:4173）
 ## 内置词库与自定义词库
 
 - 默认内置 **2027 考研英语大纲词库**（约 5528 词，含公开难度数据与开源词组数据）；
-- 商业词表等商业词表**不随仓库分发**；请通过「导入词库」使用你自己的词表文件；
+- 红宝书等商业词表**不随仓库分发**；请通过「导入词库」使用你自己的词表文件；
 - **数据格式规范**：词库 `momo-deck` v1 / 迁移包 `momo-migration` v1（字段表、进度字段、checksum、版本兼容、隐私）见 [docs/DATA-FORMAT.md](docs/DATA-FORMAT.md)；
   算法/交互规格见 `docs/SPEC.md` / `docs/SPEC-v2.md`。
 
@@ -211,19 +211,15 @@ pnpm preview    # 预览构建产物（127.0.0.1:4173）
 
 ## 本地构建 APK（可选，不发布）
 
-公开仓**不发布 APK**，也不包含 APK 壳源码；壳已独立到单独仓库：
-**[wordc-android-shell](https://github.com/ChongCyrus/wordc-android-shell)**（WebView 容器、原生 SQLite 桥、`build-apk.sh`）。
-
-如你需要 APK：
+公开仓**不发布 APK**，但包含 WebView 壳源码（`tools/apk/`：Java 壳、原生 SQLite 桥、资源、`build-apk.sh` 与说明）。
+如你需要 APK：按 [tools/apk/README.md](tools/apk/README.md) 自备 JDK / Android 工具链并**自行生成 keystore** 打包；
+公开版包名默认 `com.wordc.app`（建议改成你自己的），并自行承担分发与合规责任。
+仓库不包含任何签名密钥、`toolchain/` 或构建产物。
 
 ```bash
-git clone https://github.com/ChongCyrus/wordc && cd wordc && pnpm install && pnpm build
-git clone https://github.com/ChongCyrus/wordc-android-shell && cd wordc-android-shell
-PWA_DIST_BASE=/path/to/wordc bash build-apk.sh
+pnpm install && pnpm build
+BUILD_PWA=0 bash tools/apk/build-apk.sh
 ```
-
-按该仓库 README 自备 JDK / Android 工具链并**自行生成 keystore**；包名建议改为自己的（不要用作者的包名），
-并自行承担分发与合规责任。两个仓库都不包含任何签名密钥、`toolchain/` 或构建产物。
 
 ## 数据与许可
 
@@ -241,8 +237,8 @@ A：官方调度在服务端且未公开内部参数（记忆等级、per-word �
 **Q：会拿走我的墨墨 Token 吗？**
 A：不会。Token 仅存在你本机；导入请求由你的浏览器（经本地代理）或自建 APK 直连，项目不收集数据。
 
-**Q：为什么默认词库没有商业词表？**
-A：商业词表词表受版权保护，不随仓库分发；请导入你自己的词表。
+**Q：为什么默认词库没有红宝书？**
+A：红宝书词表受版权保护，不随仓库分发；请导入你自己的词表。
 
 **Q：可以商用/二次分发吗？**
 A：代码 MIT 允许复用，但**数据多为非商业许可**（CC BY-NC 系列），整体仅限个人学习非商业使用。
